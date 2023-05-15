@@ -58,6 +58,9 @@ class LightningData(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(self.data_test, batch_size=self._batch_size)
 
+    def predict_dataloader(self):
+        return DataLoader(self.dataset, batch_size=1)
+
     def teardown(self, stage: str):
         # Used to clean-up when the run is finished
         pass
@@ -298,30 +301,35 @@ class ClusterLightningModel(LightningModule):
         network: nn.Module,
         loss_func: nn.Module,
         cluster_loss_func: nn.Module,
+        target_distribution: torch.Tensor,
         optim_func: optim,
         scheduler: schedulers = None,
         gamma: int = 1,
+        update_interval: int = 1,
+        divergence_tolerance: float = 1e-2,
     ):
         super().__init__()
         self.save_hyperparameters(
             logger=False,
-            ignore=["network", "loss_func", "optim_func", "scheduler"],
+            ignore=[
+                "network",
+                "loss_func",
+                "cluster_loss_func",
+                "optim_func",
+                "scheduler",
+                "target_distribution",
+            ],
         )
 
         self.network = network
         self.loss_func = loss_func
         self.cluster_loss_func = cluster_loss_func
+        self.target_distribution = target_distribution
         self.optim_func = optim_func
         self.scheduler = scheduler
         self.gamma = gamma
-
-    def encode(self, x):
-        z = self.network.encoder(x)
-        return z
-
-    def decode(self, z):
-        out = self.network.decoder(z)
-        return out
+        self.update_interval = update_interval
+        self.divergence_tolerance = divergence_tolerance
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
@@ -359,14 +367,34 @@ class ClusterLightningModel(LightningModule):
     def forward(self, z):
         return self.network(z)
 
-    def loss(self, y_hat, y):
+    def encoder_loss(self, y_hat, y):
         return self.loss_func(y_hat, y)
 
-    def training_step(self, batch, batch_idx):
-        inputs = batch[0]
-        outputs, features = self.network(inputs)
+    def cluster_loss(self, clusters, tar_dist):
+        return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
-        loss = self.loss_func(inputs, outputs)
+    def training_step(self, batch, batch_idx):
+        batch_size = batch[0].shape[0]
+        tar_dist = self.target_distribution[
+            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
+            :,
+        ]
+
+        inputs = batch[0]
+        outputs, features, clusters = self.network(inputs)
+
+        reconstruction_loss = self.loss_func(inputs, outputs)
+        cluster_loss = self.cluster_loss(clusters, tar_dist)
+        loss = reconstruction_loss + self.gamma * cluster_loss
+
+        tqdm_dict = {
+            "reconstruction_loss": reconstruction_loss,
+            "cluster_loss": cluster_loss,
+            "epoch": self.current_epoch,
+        }
+        output = OrderedDict(
+            {"loss": loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+        )
 
         self.log(
             "train_loss",
@@ -377,7 +405,7 @@ class ClusterLightningModel(LightningModule):
             logger=True,
         )
 
-        return loss
+        return output
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -396,6 +424,9 @@ class ClusterLightningModel(LightningModule):
             )
             return optimizer_scheduler
         return {"optimizer": optimizer}
+
+    def on_train_epoch_end(self) -> None:
+        return super().on_train_epoch_end()
 
 
 class LightningSpecialTrain:
