@@ -463,7 +463,7 @@ class LightningSpecialTrain:
                 Path(self.ckpt_path).absolute().parent.as_posix()
             )
         else:
-            self.default_root_dir = os.cwd()
+            self.default_root_dir = os.getcwd()
 
         self.trainer = Trainer(
             accelerator=self.accelerator,
@@ -574,7 +574,7 @@ class LightningTrain:
             Path(self.model_save_file).absolute().parent.as_posix()
         )
         self.default_root_dir = os.path.join(
-            self.default_root_dir, self.model_save_file
+            self.default_root_dir, Path(self.model_save_file).stem
         )
         Path(self.default_root_dir).mkdir(exist_ok=True)
 
@@ -704,7 +704,7 @@ class AutoLightningTrain:
             Path(self.model_save_file).absolute().parent.as_posix()
         )
         self.default_root_dir = os.path.join(
-            self.default_root_dir, self.model_save_file
+            self.default_root_dir, Path(self.model_save_file).stem
         )
         Path(self.default_root_dir).mkdir(exist_ok=True)
 
@@ -858,7 +858,7 @@ class ClusterLightningTrain:
             Path(self.model_save_file).absolute().parent.as_posix()
         )
         self.default_root_dir = os.path.join(
-            self.default_root_dir, self.model_save_file
+            self.default_root_dir, Path(self.model_save_file).stem
         )
         Path(self.default_root_dir).mkdir(exist_ok=True)
 
