@@ -1,3 +1,4 @@
+import os
 from collections import OrderedDict
 from pathlib import Path
 from typing import List
@@ -457,12 +458,13 @@ class LightningSpecialTrain:
         self.enable_checkpointing = enable_checkpointing
 
     def _train_model(self):
-        if self.ckpt_path is not None:
+        if self.ckpt_path is None:
             self.default_root_dir = (
                 Path(self.ckpt_path).absolute().parent.as_posix()
             )
         else:
-            self.default_root_dir = ""
+            self.default_root_dir = os.cwd()
+
         self.trainer = Trainer(
             accelerator=self.accelerator,
             devices=self.devices,
@@ -571,6 +573,10 @@ class LightningTrain:
         self.default_root_dir = (
             Path(self.model_save_file).absolute().parent.as_posix()
         )
+        self.default_root_dir = os.path.join(
+            self.default_root_dir, self.model_save_file
+        )
+        Path(self.default_root_dir).mkdir(exist_ok=True)
 
         self.trainer = Trainer(
             accelerator=self.accelerator,
@@ -697,6 +703,10 @@ class AutoLightningTrain:
         self.default_root_dir = (
             Path(self.model_save_file).absolute().parent.as_posix()
         )
+        self.default_root_dir = os.path.join(
+            self.default_root_dir, self.model_save_file
+        )
+        Path(self.default_root_dir).mkdir(exist_ok=True)
 
         self.trainer = Trainer(
             accelerator=self.accelerator,
@@ -847,6 +857,10 @@ class ClusterLightningTrain:
         self.default_root_dir = (
             Path(self.model_save_file).absolute().parent.as_posix()
         )
+        self.default_root_dir = os.path.join(
+            self.default_root_dir, self.model_save_file
+        )
+        Path(self.default_root_dir).mkdir(exist_ok=True)
 
         self.trainer = Trainer(
             accelerator=self.accelerator,
