@@ -5,7 +5,6 @@ from typing import List
 
 import numpy as np
 import torch
-import torch.nn as nn
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
 from sklearn.cluster import KMeans
@@ -84,8 +83,8 @@ class LightningData(LightningDataModule):
 class LightningModel(LightningModule):
     def __init__(
         self,
-        network: nn.Module,
-        loss_func: nn.Module,
+        network: torch.nn.Module,
+        loss_func: torch.nn.Module,
         optim_func: optim,
         scheduler: schedulers = None,
         automatic_optimization: bool = True,
@@ -226,8 +225,8 @@ class LightningModel(LightningModule):
 class AutoLightningModel(LightningModule):
     def __init__(
         self,
-        network: nn.Module,
-        loss_func: nn.Module,
+        network: torch.nn.Module,
+        loss_func: torch.nn.Module,
         optim_func: optim,
         scheduler: schedulers = None,
     ):
@@ -336,9 +335,9 @@ class AutoLightningModel(LightningModule):
 class ClusterLightningModel(LightningModule):
     def __init__(
         self,
-        network: nn.Module,
-        loss_func: nn.Module,
-        cluster_loss_func: nn.Module,
+        network: torch.nn.Module,
+        loss_func: torch.nn.Module,
+        cluster_loss_func: torch.nn.Module,
         dataloader_inf: DataLoader,
         optim_func: optim,
         scheduler: schedulers = None,
@@ -572,8 +571,8 @@ class LightningTrain:
     def __init__(
         self,
         dataset: Dataset,
-        loss_func: nn.Module,
-        model_func: nn.Module,
+        loss_func: torch.nn.Module,
+        model_func: torch.nn.Module,
         optim_func: optimizers._Optimizer,
         model_save_file: str,
         ckpt_file: str = None,
@@ -699,8 +698,8 @@ class AutoLightningTrain:
     def __init__(
         self,
         dataset: Dataset,
-        loss_func: nn.Module,
-        model_func: nn.Module,
+        loss_func: torch.nn.Module,
+        model_func: torch.nn.Module,
         optim_func: optimizers._Optimizer,
         model_save_file: str,
         ckpt_file: str = None,
@@ -830,9 +829,9 @@ class ClusterLightningTrain:
     def __init__(
         self,
         dataset: Dataset,
-        loss_func: nn.Module,
-        cluster_loss_func: nn.Module,
-        model_func: nn.Module,
+        loss_func: torch.nn.Module,
+        cluster_loss_func: torch.nn.Module,
+        model_func: torch.nn.Module,
         optim_func: optimizers._Optimizer,
         model_save_file: str,
         ckpt_file: str = None,
