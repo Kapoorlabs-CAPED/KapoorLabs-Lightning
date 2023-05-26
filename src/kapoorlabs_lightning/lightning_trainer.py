@@ -295,6 +295,25 @@ class AutoLightningModel(LightningModule):
 
         return loss
 
+    def test_step(self, batch, batch_idx):
+        self._shared_eval(batch, batch_idx, "test")
+
+    def _shared_eval(self, batch, batch_idx, prefix):
+        inputs = batch[0]
+        y_hat = self(inputs)
+        loss = self.loss(y_hat, inputs)
+        self.log(
+            f"{prefix}_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            sync_dist=True,
+            rank_zero_only=True,
+        )
+
+    def validation_step(self, batch, batch_idx):
+        self._shared_eval(batch, batch_idx, "validation")
+
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
 
@@ -435,6 +454,25 @@ class ClusterLightningModel(LightningModule):
         )
 
         return output
+
+    def test_step(self, batch, batch_idx):
+        self._shared_eval(batch, batch_idx, "test")
+
+    def _shared_eval(self, batch, batch_idx, prefix):
+        inputs = batch[0]
+        y_hat = self(inputs)
+        loss = self.cluster_loss(y_hat, inputs)
+        self.log(
+            f"{prefix}_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            sync_dist=True,
+            rank_zero_only=True,
+        )
+
+    def validation_step(self, batch, batch_idx):
+        self._shared_eval(batch, batch_idx, "validation")
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
