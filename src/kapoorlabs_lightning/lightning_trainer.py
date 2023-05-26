@@ -3,6 +3,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import List
 
+import numpy as np
 import torch
 import torch.nn as nn
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
@@ -165,6 +166,8 @@ class LightningModel(LightningModule):
             on_epoch=True,
             prog_bar=True,
             logger=True,
+            sync_dist=True,
+            rank_zero_only=True,
         )
 
         return loss
@@ -177,7 +180,12 @@ class LightningModel(LightningModule):
         y_hat = self(x)
         loss = self.loss(y_hat, y)
         self.log(
-            f"{prefix}_loss", loss, on_step=True, on_epoch=True, sync_dist=True
+            f"{prefix}_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            sync_dist=True,
+            rank_zero_only=True,
         )
 
     def validation_step(self, batch, batch_idx):
@@ -302,7 +310,7 @@ class ClusterLightningModel(LightningModule):
         network: nn.Module,
         loss_func: nn.Module,
         cluster_loss_func: nn.Module,
-        target_distribution: torch.Tensor,
+        dataloader_inf: DataLoader,
         optim_func: optim,
         scheduler: schedulers = None,
         gamma: int = 1,
@@ -318,14 +326,14 @@ class ClusterLightningModel(LightningModule):
                 "cluster_loss_func",
                 "optim_func",
                 "scheduler",
-                "target_distribution",
+                "dataloaders_inf",
             ],
         )
 
         self.network = network
         self.loss_func = loss_func
         self.cluster_loss_func = cluster_loss_func
-        self.target_distribution = target_distribution
+        self.dataloader_inf = dataloader_inf
         self.optim_func = optim_func
         self.scheduler = scheduler
         self.gamma = gamma
@@ -404,6 +412,8 @@ class ClusterLightningModel(LightningModule):
             on_epoch=True,
             prog_bar=True,
             logger=True,
+            sync_dist=True,
+            rank_zero_only=True,
         )
 
         return output
@@ -428,6 +438,15 @@ class ClusterLightningModel(LightningModule):
 
     def on_train_epoch_end(self) -> None:
         return super().on_train_epoch_end()
+
+    def on_train_epoch_start(self) -> None:
+        (
+            self.cluster_distribution,
+            self.cluster_predictions,
+        ) = get_distributions(self.network, self.dataloader_inf)
+        self.target_distribution = get_target_distribution(
+            self.cluster_distribution
+        )
 
 
 class LightningSpecialTrain:
@@ -838,17 +857,13 @@ class ClusterLightningTrain:
 
         self.datas.batch_size = 1
         # train_dataloaders_inf = self.datas.train_dataloader()
-        # val_dataloaders_inf = self.datas.val_dataloader()
-
-        # cluster_distribution, previous_cluster_predictions = get_distributions(
-        #    model, dataloader_inf
-        # )
-        # target_distribution = get_target_distribution(cluster_distribution)
+        val_dataloaders_inf = self.datas.val_dataloader()
 
         self.model = ClusterLightningModel(
             self.model_func,
             self.loss_func,
             self.cluster_loss_func,
+            val_dataloaders_inf,
             self.optim_func,
             self.scheduler,
             gamma=self.gamma,
@@ -904,3 +919,28 @@ class ClusterLightningTrain:
 
     def callback_metrics(self):
         return self.trainer.callback_metrics
+
+
+def get_target_distribution(out_distr):
+    tar_dist = out_distr**2 / np.sum(out_distr, axis=0)
+    tar_dist = np.transpose(np.transpose(tar_dist) / np.sum(tar_dist, axis=1))
+    return tar_dist
+
+
+def get_distributions(model, dataloader):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    cluster_distribution = None
+    model.eval()
+    for data in dataloader:
+        inputs = data[0]
+        inputs = inputs.to(device)
+        outputs, features, clusters = model(inputs)
+        if cluster_distribution is not None:
+            cluster_distribution = np.concatenate(
+                (cluster_distribution, clusters.cpu().detach().numpy()), 0
+            )
+        else:
+            cluster_distribution = clusters.cpu().detach().numpy()
+
+    predictions = np.argmax(cluster_distribution.data, axis=1)
+    return cluster_distribution, predictions
