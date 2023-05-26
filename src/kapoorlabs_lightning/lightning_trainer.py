@@ -384,6 +384,14 @@ class ClusterLightningModel(LightningModule):
 
     def training_step(self, batch, batch_idx):
         batch_size = batch[0].shape[0]
+        (
+            self.cluster_distribution,
+            self.cluster_predictions,
+        ) = get_distributions(self.network, self.dataloader_inf)
+        self.target_distribution = get_target_distribution(
+            self.cluster_distribution
+        )
+
         tar_dist = self.target_distribution[
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
@@ -435,18 +443,6 @@ class ClusterLightningModel(LightningModule):
             )
             return optimizer_scheduler
         return {"optimizer": optimizer}
-
-    def on_train_epoch_end(self) -> None:
-        return super().on_train_epoch_end()
-
-    def on_train_epoch_start(self) -> None:
-        (
-            self.cluster_distribution,
-            self.cluster_predictions,
-        ) = get_distributions(self.network, self.dataloader_inf)
-        self.target_distribution = get_target_distribution(
-            self.cluster_distribution
-        )
 
 
 class LightningSpecialTrain:
