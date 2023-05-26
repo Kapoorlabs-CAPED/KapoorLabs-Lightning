@@ -112,14 +112,12 @@ class LightningModel(LightningModule):
 
         layers = []
         for layer in param_dict:
-            if strict and not "network." + layer in state_dict:
+            if strict and layer not in state_dict:
                 if verbose:
                     print(f'Could not find weights for layer "{layer}"')
                 continue
             try:
-                param_dict[layer].data.copy_(
-                    state_dict["network." + layer].data
-                )
+                param_dict[layer].data.copy_(state_dict[layer].data)
                 layers.append(layer)
             except (RuntimeError, KeyError) as e:
                 print(f"Error at layer {layer}:\n{e}")
@@ -239,24 +237,19 @@ class AutoLightningModel(LightningModule):
 
         # Load the state dict
         state_dict = torch.load(pretrained_file)["state_dict"]
-        print(pretrained_file)
         # Make sure to have a weight dict
         if not isinstance(state_dict, dict):
             state_dict = dict(state_dict)
-        print(state_dict)
         # Get parameter dict of current model
         param_dict = dict(self.network.named_parameters())
-        print(param_dict)
         layers = []
         for layer in param_dict:
-            if strict and not "network." + layer in state_dict:
+            if strict and layer not in state_dict:
                 if verbose:
                     print(f'Could not find weights for layer "{layer}"')
                 continue
             try:
-                param_dict[layer].data.copy_(
-                    state_dict["network." + layer].data
-                )
+                param_dict[layer].data.copy_(state_dict[layer].data)
                 layers.append(layer)
             except (RuntimeError, KeyError) as e:
                 print(f"Error at layer {layer}:\n{e}")
