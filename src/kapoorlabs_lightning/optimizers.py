@@ -1,12 +1,11 @@
 from typing import Optional
 
 import torch
-from torch.nn.modules.module import Module
 
 __all__ = ["Adam", "SGD", "Rprop"]
 
 
-class _Optimizer(Module):
+class _Optimizer(torch.nn.modules.module.Module):
     def __init__(
         self,
         lr=1e-3,
