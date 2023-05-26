@@ -10,30 +10,28 @@ from torch.nn import Module
 
 
 class CustomNPZLogger(Logger):
-    def __init__(
-        self,
-        save_dir: str,
-        experiment_name: str = "BLT",
-        name: str = "BLT_net",
-        version: str = "1",
-    ):
-        super().__init__()
-        self._experiment = None
-        self._save_dir: Optional[str]
-        self.rest_api_key: Optional[str]
-        self.train_loss_field = None
-        self.train_accuracy_field = None
-        self.val_loss_field = None
-        self.val_accuracy_field = None
 
-        self._experiment_name: Optional[str] = experiment_name
-        self._save_dir = save_dir
-        self._name = name
-        self._version = version
-        self.hparams_logged = None
-        self.metrics_logged = {}
-        self.finalized = False
-        self.after_save_checkpoint_called = False
+    def __init__(self, save_dir:str, experiment_name: str = 'Autoencoder', name: str = 'Autoencoder_net', version: str = "1"):
+
+         super().__init__() 
+         self._experiment = None
+         self._save_dir: Optional[str]
+         self.rest_api_key: Optional[str]
+         self.train_loss_epoch = []
+         self.val_loss_epoch = []
+         self.train_loss_step = []
+         self.val_loss_step = [] 
+         self.val_accuracy_field = []
+         
+         self._experiment_name: Optional[str] = experiment_name 
+         self._save_dir = save_dir
+         self._name = name 
+         self._version = version
+         self.hparams_logged = None
+         self.metrics_logged = {}
+         self.finalized = False
+         self.after_save_checkpoint_called = False 
+
 
     @property
     @rank_zero_experiment
@@ -51,14 +49,18 @@ class CustomNPZLogger(Logger):
     @rank_zero_only
     def log_metrics(self, metrics, step):
         self.metrics_logged = metrics
-        if "train_loss" in self.metrics_logged:
-            self.train_loss_field = [step, metrics["train_loss"]]
-        if "val_loss" in self.metrics_logged:
-            self.val_loss_field = [step, metrics["val_loss"]]
-        if "train_accuracy" in self.metrics_logged:
-            self.train_accuracy_field = [step, metrics["train_accuracy"]]
-        if "val_accuracy" in self.metrics_logged:
-            self.val_accuracy_field = [step, metrics["val_accuracy"]]
+
+        if 'train_loss_step' in self.metrics_logged:
+          self.train_loss_step.append([step, metrics['train_loss_step']])
+        if 'train_loss_epoch' in self.metrics_logged:
+          self.train_loss_epoch.append([step, metrics['train_loss_epoch']])
+        if 'val_loss_step' in self.metrics_logged:
+          self.val_loss_step.append([step, metrics['val_loss_step']])
+        if 'val_loss_epoch' in self.metrics_logged:
+          self.val_loss_epoch.append([step, metrics['val_loss_epoch']])
+        if 'val_accuracy' in self.metrics_logged:  
+             self.val_accuracy_field.append([step, metrics['val_accuracy']])
+
 
     @rank_zero_only
     def finalize(self, status):
@@ -68,13 +70,7 @@ class CustomNPZLogger(Logger):
     def save(self):
         save_experiment = os.path.join(self._save_dir, self._experiment_name)
         Path(os.path.join(save_experiment))
-        np.savez(
-            save_experiment + self._name + ".npz",
-            train_loss=self.train_loss_field,
-            val_loss=self.val_loss_field,
-            train_accuracies=self.train_accuracy_field,
-            val_accuracies=self.val_accuracy_field,
-        )
+        np.savez(save_experiment+self._name+'.npz', train_loss_step=self.train_loss_step , train_loss_epoch=self.train_loss_epoch, val_loss_step=self.val_loss_step,  val_loss_epoch = self.val_loss_epoch )
 
     @property
     def save_dir(self) -> Optional[str]:
@@ -82,6 +78,8 @@ class CustomNPZLogger(Logger):
         locally."""
         return self._save_dir
 
+  
+    
     @property
     def name(self):
         return self._name
@@ -96,9 +94,7 @@ class CustomNPZLogger(Logger):
         # Save the experiment id in case an experiment object already exists,
         # this way we could create an ExistingExperiment pointing to the same
         # experiment
-        state["_experiment_key"] = (
-            self._experiment.id if self._experiment is not None else None
-        )
+        state["_experiment_key"] = self._experiment.id if self._experiment is not None else None
 
         # Remove the experiment object as it contains hard to pickle objects
         # (like network connections), the experiment object will be recreated if
@@ -106,8 +102,6 @@ class CustomNPZLogger(Logger):
         state["_experiment"] = None
         return state
 
-    def log_graph(
-        self, model: Module, input_array: Optional[Tensor] = None
-    ) -> None:
+    def log_graph(self, model: Module, input_array: Optional[Tensor] = None) -> None:
         if self._experiment is not None:
             self._experiment.set_model_graph(model)
