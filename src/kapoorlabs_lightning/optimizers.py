@@ -1,6 +1,6 @@
 from typing import Optional
 
-from torch import optim
+import torch
 from torch.nn.modules.module import Module
 
 __all__ = ["Adam", "SGD", "Rprop"]
@@ -74,7 +74,7 @@ class Adam(_Optimizer):
         )
 
     def forward(self, params):
-        return optim.Adam(
+        return torch.optim.Adam(
             params,
             lr=self.lr,
             betas=self.betas,
@@ -109,7 +109,7 @@ class SGD(_Optimizer):
         )
 
     def forward(self, params):
-        return optim.SGD(
+        return torch.optim.SGD(
             params,
             lr=self.lr,
             momentum=self.momentum,
@@ -138,6 +138,6 @@ class Rprop(_Optimizer):
         self.differentiable = differentiable
 
     def forward(self, params):
-        return optim.Rprop(
+        return torch.optim.Rprop(
             params, lr=self.lr, etas=self.etas, step_sizes=self.step_sizes
         )
