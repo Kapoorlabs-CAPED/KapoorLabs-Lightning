@@ -112,12 +112,14 @@ class LightningModel(LightningModule):
 
         layers = []
         for layer in param_dict:
-            if strict and layer not in state_dict:
+            if strict and not "network." + layer in state_dict:
                 if verbose:
                     print(f'Could not find weights for layer "{layer}"')
                 continue
             try:
-                param_dict[layer].data.copy_(state_dict[layer].data)
+                param_dict[layer].data.copy_(
+                    state_dict["network." + layer].data
+                )
                 layers.append(layer)
             except (RuntimeError, KeyError) as e:
                 print(f"Error at layer {layer}:\n{e}")
@@ -244,12 +246,14 @@ class AutoLightningModel(LightningModule):
         param_dict = dict(self.network.named_parameters())
         layers = []
         for layer in param_dict:
-            if strict and layer not in state_dict:
+            if strict and not "network." + layer in state_dict:
                 if verbose:
                     print(f'Could not find weights for layer "{layer}"')
                 continue
             try:
-                param_dict[layer].data.copy_(state_dict[layer].data)
+                param_dict[layer].data.copy_(
+                    state_dict["network." + layer].data
+                )
                 layers.append(layer)
             except (RuntimeError, KeyError) as e:
                 print(f"Error at layer {layer}:\n{e}")
