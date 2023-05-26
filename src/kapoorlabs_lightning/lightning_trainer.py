@@ -300,7 +300,7 @@ class AutoLightningModel(LightningModule):
 
     def _shared_eval(self, batch, batch_idx, prefix):
         inputs = batch[0]
-        y_hat = self(inputs)
+        y_hat, features = self(inputs)
         loss = self.loss(y_hat, inputs)
         self.log(
             f"{prefix}_loss",
@@ -460,7 +460,7 @@ class ClusterLightningModel(LightningModule):
 
     def _shared_eval(self, batch, batch_idx, prefix):
         inputs = batch[0]
-        y_hat = self(inputs)
+        y_hat, features = self(inputs)
         loss = self.cluster_loss(y_hat, inputs)
         self.log(
             f"{prefix}_loss",
