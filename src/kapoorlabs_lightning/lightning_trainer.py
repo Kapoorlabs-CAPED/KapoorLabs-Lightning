@@ -344,10 +344,10 @@ class ClusterLightningModel(LightningModule):
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
             pretrained_file = pretrained_file[0]
-
+        print(pretrained_file)
         # Load the state dict
         state_dict = torch.load(pretrained_file)["state_dict"]
-
+        print(state_dict)
         # Make sure to have a weight dict
         if not isinstance(state_dict, dict):
             state_dict = dict(state_dict)
