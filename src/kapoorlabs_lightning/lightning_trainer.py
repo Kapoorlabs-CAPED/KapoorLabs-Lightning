@@ -239,11 +239,11 @@ class AutoLightningModel(LightningModule):
 
         # Load the state dict
         state_dict = torch.load(pretrained_file)["state_dict"]
-
+        print(pretrained_file)
         # Make sure to have a weight dict
         if not isinstance(state_dict, dict):
             state_dict = dict(state_dict)
-
+        print(state_dict)
         # Get parameter dict of current model
         param_dict = dict(self.network.named_parameters())
 
