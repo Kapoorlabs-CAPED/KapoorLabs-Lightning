@@ -53,13 +53,25 @@ class LightningData(LightningDataModule):
         )
 
     def train_dataloader(self):
-        return DataLoader(self.data_train, batch_size=self._batch_size)
+        return DataLoader(
+            self.data_train,
+            batch_size=self._batch_size,
+            num_workers=os.cpu_count(),
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.data_val, batch_size=self._batch_size)
+        return DataLoader(
+            self.data_val,
+            batch_size=self._batch_size,
+            num_workers=os.cpu_count(),
+        )
 
     def test_dataloader(self):
-        return DataLoader(self.data_test, batch_size=self._batch_size)
+        return DataLoader(
+            self.data_test,
+            batch_size=self._batch_size,
+            num_workers=os.cpu_count(),
+        )
 
     def predict_dataloader(self):
         return DataLoader(self.dataset, batch_size=1)
