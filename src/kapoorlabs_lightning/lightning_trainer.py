@@ -458,9 +458,22 @@ class ClusterLightningModel(LightningModule):
         self._shared_eval(batch, batch_idx, "test")
 
     def _shared_eval(self, batch, batch_idx, prefix):
+        batch_size = batch[0].shape[0]
+        (
+            self.cluster_distribution,
+            self.cluster_predictions,
+        ) = get_distributions(self.network, self.dataloader_inf)
+        self.target_distribution = get_target_distribution(
+            self.cluster_distribution
+        )
+
+        tar_dist = self.target_distribution[
+            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
+            :,
+        ]
         inputs = batch[0]
         y_hat, features, clusters = self(inputs)
-        loss = self.cluster_loss(y_hat, inputs)
+        loss = self.cluster_loss(y_hat, tar_dist)
         self.log(
             f"{prefix}_loss",
             loss,
