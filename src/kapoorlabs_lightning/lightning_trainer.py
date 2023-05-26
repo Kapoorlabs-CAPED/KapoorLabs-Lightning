@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
+from sklearn.cluster import KMeans
 from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
 
@@ -443,6 +444,17 @@ class ClusterLightningModel(LightningModule):
             )
             return optimizer_scheduler
         return {"optimizer": optimizer}
+
+    def on_train_epoch_start(self) -> None:
+        print("Starting KMeans")
+        kmeans(self.network, self.dataloader_inf)
+        (
+            self.cluster_distribution,
+            self.cluster_predictions,
+        ) = get_distributions(self.network, self.dataloader_inf)
+        self.target_distribution = get_target_distribution(
+            self.cluster_distribution
+        )
 
 
 class LightningSpecialTrain:
@@ -940,3 +952,24 @@ def get_distributions(model, dataloader):
 
     predictions = np.argmax(cluster_distribution.data, axis=1)
     return cluster_distribution, predictions
+
+
+def kmeans(model, dataloader):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    km = KMeans(n_clusters=model.num_clusters, n_init=20)
+    feature_array = None
+    model.eval()
+    for data in dataloader:
+        inputs = data[0]
+        inputs = inputs.to(device)
+        output, features, clusters = model(inputs)
+        if feature_array is not None:
+            feature_array = np.concatenate(
+                (feature_array, features.cpu().detach().numpy()), 0
+            )
+        else:
+            feature_array = features.cpu().detach().numpy()
+
+    km.fit_predict(feature_array)
+    weights = torch.from_numpy(km.cluster_centers_)
+    model.clustering_layer.set_weight(weights.to(device))
