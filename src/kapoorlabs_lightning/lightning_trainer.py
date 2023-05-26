@@ -246,7 +246,7 @@ class AutoLightningModel(LightningModule):
         print(state_dict)
         # Get parameter dict of current model
         param_dict = dict(self.network.named_parameters())
-
+        print(param_dict)
         layers = []
         for layer in param_dict:
             if strict and not "network." + layer in state_dict:
