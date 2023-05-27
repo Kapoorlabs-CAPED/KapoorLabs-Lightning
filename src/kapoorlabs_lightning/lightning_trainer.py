@@ -278,7 +278,7 @@ class AutoLightningModel(LightningModule):
 
     def training_step(self, batch, batch_idx):
         inputs = batch[0]
-        outputs, features = self.network(inputs)
+        outputs, features = self(inputs)
 
         loss = self.loss_func(inputs, outputs)
 
@@ -410,7 +410,7 @@ class ClusterLightningModel(LightningModule):
     def training_step(self, batch, batch_idx):
         batch_size = batch[0].shape[0]
 
-        distribution = Distributions(self.network, self.dataloader_inf)
+        distribution = Distributions(self, self.dataloader_inf)
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
 
@@ -420,7 +420,7 @@ class ClusterLightningModel(LightningModule):
         ]
 
         inputs = batch[0]
-        outputs, features, clusters = self.network(inputs)
+        outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
         cluster_loss = self.cluster_loss(clusters, tar_dist)
@@ -453,7 +453,7 @@ class ClusterLightningModel(LightningModule):
 
     def _shared_eval(self, batch, batch_idx, prefix):
         batch_size = batch[0].shape[0]
-        distribution = Distributions(self.network, self.dataloader_inf)
+        distribution = Distributions(self, self.dataloader_inf)
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
 
