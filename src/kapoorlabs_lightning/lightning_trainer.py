@@ -335,8 +335,7 @@ class AutoLightningModel(LightningModule):
 class ClusterLightningModel(LightningModule):
     def __init__(
         self,
-        autoencoder: AutoLightningModel,
-        num_clusters: int,
+        network: DeepEmbeddedClustering,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
         dataloader_inf: DataLoader,
@@ -360,11 +359,7 @@ class ClusterLightningModel(LightningModule):
             ]
         )
 
-        self.encoder = autoencoder.network.encoder
-        self.decoder = autoencoder.network.decoder
-        self.network = DeepEmbeddedClustering(
-            self.encoder, self.decoder, num_clusters
-        )
+        self.network = network
         self.loss_func = loss_func
         self.cluster_loss_func = cluster_loss_func
         self.dataloader_inf = dataloader_inf
@@ -864,8 +859,7 @@ class ClusterLightningTrain:
         dataset: Dataset,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
-        autoencoder: torch.nn.Module,
-        num_clusters: int,
+        network: torch.nn.Module,
         optim_func: optimizers._Optimizer,
         model_save_file: str,
         ckpt_file: str = None,
@@ -892,9 +886,7 @@ class ClusterLightningTrain:
 
         self.gamma = gamma
 
-        self.autoencoder = autoencoder
-
-        self.num_clusters = num_clusters
+        self.network = network
 
         self.optim_func = optim_func
 
@@ -928,8 +920,7 @@ class ClusterLightningTrain:
 
         self.hparams = {
             "loss_func": self.loss_func,
-            "autoencoder": self.autoencoder,
-            "num_clusters": self.num_clusters,
+            "network": self.network,
             "min_epochs": self.min_epochs,
             "epochs": self.epochs,
             "optim_func": self.optim_func,
@@ -951,8 +942,7 @@ class ClusterLightningTrain:
         val_dataloaders_inf = self.datas.val_dataloader()
 
         self.model = ClusterLightningModel(
-            self.autoencoder,
-            self.num_clusters,
+            self.network,
             self.loss_func,
             self.cluster_loss_func,
             val_dataloaders_inf,
