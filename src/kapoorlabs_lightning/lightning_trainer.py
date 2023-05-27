@@ -231,10 +231,7 @@ class AutoLightningModel(LightningModule):
         scheduler: schedulers = None,
     ):
         super().__init__()
-        self.save_hyperparameters(
-            logger=False,
-            ignore=["network", "loss_func", "optim_func", "scheduler"],
-        )
+        self.save_hyperparameters()
 
         self.network = network
         self.loss_func = loss_func
@@ -335,6 +332,8 @@ class AutoLightningModel(LightningModule):
 class ClusterLightningModel(LightningModule):
     def __init__(
         self,
+        autoencoder: torch.nn.Module,
+        num_clusters: int,
         network: DeepEmbeddedClustering,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
@@ -348,21 +347,11 @@ class ClusterLightningModel(LightningModule):
         divergence_tolerance: float = 1e-2,
     ):
         super().__init__()
-        self.save_hyperparameters(
-            logger=False,
-            ignore=[
-                "network",
-                "loss_func",
-                "cluster_loss_func",
-                "optim_func",
-                "devices",
-                "accelerator",
-                "scheduler",
-                "dataloaders_inf",
-            ],
-        )
+        self.save_hyperparameters()
 
-        self.network = network
+        self.network = DeepEmbeddedClustering(
+            autoencoder.network, num_clusters
+        )
         self.loss_func = loss_func
         self.cluster_loss_func = cluster_loss_func
         self.dataloader_inf = dataloader_inf
