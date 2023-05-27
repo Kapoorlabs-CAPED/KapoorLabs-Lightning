@@ -532,4 +532,6 @@ __all__ = [
     "Flatten",
     "FoldingModule",
     "DGCNN",
+    "DeepEmbeddedClustering",
+    "ClusteringLayer",
 ]
