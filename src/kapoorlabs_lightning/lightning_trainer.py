@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List
 
 import torch
-from cellshape_cluster import DeepEmbeddedClustering
+from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
 from sklearn.cluster import KMeans
@@ -12,6 +12,7 @@ from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
 
 from . import optimizers, schedulers
+from .pytorch_models import DeepEmbeddedClustering
 
 
 class LightningData(LightningDataModule):
@@ -225,7 +226,7 @@ class LightningModel(LightningModule):
 class AutoLightningModel(LightningModule):
     def __init__(
         self,
-        network: torch.nn.Module,
+        network: CloudAutoEncoder,
         loss_func: torch.nn.Module,
         optim_func: optim,
         scheduler: schedulers = None,
@@ -334,7 +335,7 @@ class AutoLightningModel(LightningModule):
 class ClusterLightningModel(LightningModule):
     def __init__(
         self,
-        autoencoder: torch.nn.Module,
+        autoencoder: AutoLightningModel,
         num_clusters: int,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
@@ -359,8 +360,10 @@ class ClusterLightningModel(LightningModule):
             ]
         )
 
+        self.encoder = autoencoder.network.encoder
+        self.decoder = autoencoder.network.decoder
         self.network = DeepEmbeddedClustering(
-            autoencoder.network, num_clusters
+            self.encoder, self.decoder, num_clusters
         )
         self.loss_func = loss_func
         self.cluster_loss_func = cluster_loss_func
