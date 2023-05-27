@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List
 
 import torch
+from cellshape_cluster import DeepEmbeddedClustering
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
 from sklearn.cluster import KMeans
@@ -334,7 +335,7 @@ class AutoLightningModel(LightningModule):
 class ClusterLightningModel(LightningModule):
     def __init__(
         self,
-        network: torch.nn.Module,
+        network: DeepEmbeddedClustering,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
         dataloader_inf: DataLoader,
@@ -410,7 +411,9 @@ class ClusterLightningModel(LightningModule):
     def training_step(self, batch, batch_idx):
         batch_size = batch[0].shape[0]
 
-        distribution = Distributions(self, self.dataloader_inf)
+        distribution = Distributions(
+            self, self.dataloader_inf, self.network.num_clusters
+        )
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
 
@@ -453,7 +456,9 @@ class ClusterLightningModel(LightningModule):
 
     def _shared_eval(self, batch, batch_idx, prefix):
         batch_size = batch[0].shape[0]
-        distribution = Distributions(self, self.dataloader_inf)
+        distribution = Distributions(
+            self, self.dataloader_inf, self.network.num_clusters
+        )
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
 
@@ -498,7 +503,10 @@ class ClusterLightningModel(LightningModule):
         print("Starting KMeans")
 
         distribution = Distributions(
-            self.network, self.dataloader_inf, get_kmeans=True
+            self.network,
+            self.dataloader_inf,
+            self.network.num_clusters,
+            get_kmeans=True,
         )
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
@@ -550,6 +558,7 @@ class LightningSpecialTrain:
             max_epochs=self.epochs,
             default_root_dir=self.default_root_dir,
             enable_checkpointing=self.enable_checkpointing,
+            precision=16,
         )
 
         self.trainer.fit(
@@ -582,6 +591,7 @@ class LightningTrain:
         batch_size: int = 64,
         min_epochs: int = 1,
         epochs: int = 10,
+        precision: int = 16,
         accelerator: str = "gpu",
         devices: int = -1,
         strategy: str = "auto",
@@ -625,6 +635,8 @@ class LightningTrain:
 
         self.min_epochs = min_epochs
 
+        self.precision = precision
+
         self.hparams = {
             "loss_func": self.loss_func,
             "model_func": self.model_func,
@@ -663,6 +675,7 @@ class LightningTrain:
             max_epochs=self.epochs,
             default_root_dir=self.default_root_dir,
             enable_checkpointing=self.enable_checkpointing,
+            precision=self.precision,
         )
 
         if self.ckpt_file is not None:
@@ -979,13 +992,18 @@ class ClusterLightningTrain:
 
 class Distributions(LightningModule):
     def __init__(
-        self, network: torch.nn.Module, dataloader, get_kmeans=False, n_init=20
+        self,
+        network: torch.nn.Module,
+        dataloader,
+        num_clusters,
+        get_kmeans=False,
+        n_init=20,
     ):
         super().__init__()
         self.network = network
         self.dataloader = dataloader
         self.get_kmeans = get_kmeans
-        self.n_clusters = network.num_clusters
+        self.n_clusters = num_clusters
         self.n_init = n_init
 
     def forward(self, inputs):
