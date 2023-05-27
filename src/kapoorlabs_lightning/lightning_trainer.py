@@ -411,6 +411,7 @@ class ClusterLightningModel(LightningModule):
         batch_size = batch[0].shape[0]
 
         distribution = Distributions(self.network, self.dataloader_inf)
+        distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
 
         tar_dist = self.target_distribution[
@@ -453,6 +454,7 @@ class ClusterLightningModel(LightningModule):
     def _shared_eval(self, batch, batch_idx, prefix):
         batch_size = batch[0].shape[0]
         distribution = Distributions(self.network, self.dataloader_inf)
+        distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
 
         tar_dist = self.target_distribution[
@@ -498,6 +500,7 @@ class ClusterLightningModel(LightningModule):
         distribution = Distributions(
             self.network, self.dataloader_inf, get_kmeans=True
         )
+        distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
         self.network = distribution.network
 
