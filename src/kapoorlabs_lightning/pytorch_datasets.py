@@ -64,7 +64,7 @@ class PointCloudNpzDataset(Dataset):
         scale = torch.tensor([[self.scale, self.scale, self.scale]])
         point_cloud = (point_cloud - mean) / scale
 
-        return point_cloud, 0, 0, 0
+        return point_cloud
 
 
 class SingleCellDataset(Dataset):
@@ -198,7 +198,7 @@ class GefGapDataset(Dataset):
 
         serial_number = self.new_df.loc[idx, "serialNumber"]
 
-        return image, treatment, 0, serial_number
+        return image, treatment, serial_number
 
 
 class ModelNet40(Dataset):

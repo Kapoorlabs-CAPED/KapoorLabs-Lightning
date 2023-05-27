@@ -298,7 +298,7 @@ class AutoLightningModel(LightningModule):
         self._shared_eval(batch, batch_idx, "test")
 
     def _shared_eval(self, batch, batch_idx, prefix):
-        inputs = batch[0]
+        inputs = batch
         y_hat, features = self(inputs)
         loss = self.loss(y_hat, inputs)
         self.log(
@@ -455,7 +455,7 @@ class ClusterLightningModel(LightningModule):
         self._shared_eval(batch, batch_idx, "test")
 
     def _shared_eval(self, batch, batch_idx, prefix):
-        batch_size = batch[0].shape[0]
+        batch_size = batch.shape[0]
         distribution = Distributions(
             self, self.dataloader_inf, self.network.num_clusters
         )
@@ -466,7 +466,7 @@ class ClusterLightningModel(LightningModule):
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
         ]
-        inputs = batch[0]
+        inputs = batch
         y_hat, features, clusters = self(inputs)
         loss = self.cluster_loss(y_hat, tar_dist)
         self.log(
