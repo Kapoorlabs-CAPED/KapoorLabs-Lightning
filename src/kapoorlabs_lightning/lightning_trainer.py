@@ -278,7 +278,7 @@ class AutoLightningModel(LightningModule):
         return self.loss_func(y_hat, y)
 
     def training_step(self, batch, batch_idx):
-        inputs = batch[0]
+        inputs = batch
         outputs, features = self(inputs)
 
         loss = self.loss_func(inputs, outputs)
@@ -409,7 +409,7 @@ class ClusterLightningModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
-        batch_size = batch[0].shape[0]
+        batch_size = batch.shape[0]
 
         distribution = Distributions(
             self, self.dataloader_inf, self.network.num_clusters
@@ -422,7 +422,7 @@ class ClusterLightningModel(LightningModule):
             :,
         ]
 
-        inputs = batch[0]
+        inputs = batch
         outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)

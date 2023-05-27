@@ -36,7 +36,7 @@ class PointCloudDataset(Dataset):
         scale = torch.tensor([[self.scale, self.scale, self.scale]])
         point_cloud = (point_cloud - mean) / scale
 
-        return point_cloud, 0, 0, 0
+        return point_cloud
 
 
 class PointCloudNpzDataset(Dataset):
