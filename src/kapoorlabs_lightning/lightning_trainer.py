@@ -430,6 +430,8 @@ class ClusterLightningModel(LightningModule):
         ]
 
         inputs = batch
+        device = inputs.get_device()
+        self.to(device)
         outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
@@ -478,6 +480,8 @@ class ClusterLightningModel(LightningModule):
             :,
         ]
         inputs = batch
+        device = inputs.get_device()
+        self.to(device)
         outputs, features, clusters = self(inputs)
         loss = self.cluster_loss(clusters, tar_dist)
         self.log(
