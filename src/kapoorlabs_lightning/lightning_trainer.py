@@ -467,8 +467,8 @@ class ClusterLightningModel(LightningModule):
             :,
         ]
         inputs = batch
-        y_hat, features, clusters = self(inputs)
-        loss = self.cluster_loss(y_hat, tar_dist)
+        outputs, features, clusters = self(inputs)
+        loss = self.cluster_loss(clusters, tar_dist)
         self.log(
             f"{prefix}_loss",
             loss,
@@ -1018,6 +1018,7 @@ class Distributions(LightningModule):
 
         self.trainer = Trainer()
         results = self.trainer.predict(self.network, self.dataloader)
+
         outputs, features, clusters = zip(*results)
 
         cluster_distribution = torch.cat(clusters, dim=0)
@@ -1035,5 +1036,5 @@ class Distributions(LightningModule):
             self.cluster_distribution, axis=0
         )
         self.target_distribution = torch.transpose(
-            torch.transpose(tar_dist) / torch.sum(tar_dist, axis=1)
+            torch.transpose(tar_dist, 0, 1) / torch.sum(tar_dist, axis=1), 0, 1
         )
