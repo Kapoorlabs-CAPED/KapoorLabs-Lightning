@@ -3,7 +3,6 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import List
 
-import numpy as np
 import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
@@ -989,46 +988,44 @@ class ClusterLightningTrain:
 
 
 def get_target_distribution(out_distr):
-    tar_dist = out_distr**2 / np.sum(out_distr, axis=0)
-    tar_dist = np.transpose(np.transpose(tar_dist) / np.sum(tar_dist, axis=1))
+    tar_dist = out_distr**2 / torch.sum(out_distr, axis=0)
+    tar_dist = torch.transpose(
+        torch.transpose(tar_dist) / torch.sum(tar_dist, axis=1)
+    )
     return tar_dist
 
 
 def get_distributions(model, dataloader):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     cluster_distribution = None
     model.eval()
     for data in dataloader:
         inputs = data[0]
-        inputs = inputs.to(device)
+        inputs = inputs
         outputs, features, clusters = model(inputs)
         if cluster_distribution is not None:
-            cluster_distribution = np.concatenate(
-                (cluster_distribution, clusters.cpu().detach().numpy()), 0
+            cluster_distribution = torch.cat(
+                (cluster_distribution, clusters), 0
             )
         else:
-            cluster_distribution = clusters.cpu().detach().numpy()
+            cluster_distribution = clusters
 
-    predictions = np.argmax(cluster_distribution.data, axis=1)
+    predictions = torch.argmax(cluster_distribution.data, axis=1)
     return cluster_distribution, predictions
 
 
 def kmeans(model, dataloader):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     km = KMeans(n_clusters=model.num_clusters, n_init=20)
     feature_array = None
     model.eval()
     for data in dataloader:
         inputs = data[0]
-        inputs = inputs.to(device)
+        inputs = inputs
         output, features, clusters = model(inputs)
         if feature_array is not None:
-            feature_array = np.concatenate(
-                (feature_array, features.cpu().detach().numpy()), 0
-            )
+            feature_array = torch.cat((feature_array, features), 0)
         else:
-            feature_array = features.cpu().detach().numpy()
+            feature_array = features
 
     km.fit_predict(feature_array)
     weights = torch.from_numpy(km.cluster_centers_)
-    model.clustering_layer.set_weight(weights.to(device))
+    model.clustering_layer.set_weight(weights)
