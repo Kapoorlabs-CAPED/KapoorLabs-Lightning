@@ -435,7 +435,7 @@ class ClusterLightningModel(LightningModule):
         outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
-        cluster_loss = self.cluster_loss(clusters, tar_dist)
+        cluster_loss = self.cluster_loss(clusters, tar_dist.to(device))
         loss = reconstruction_loss + self.gamma * cluster_loss
 
         tqdm_dict = {
@@ -483,7 +483,7 @@ class ClusterLightningModel(LightningModule):
         device = inputs.get_device()
         self.to(device)
         outputs, features, clusters = self(inputs)
-        loss = self.cluster_loss(clusters, tar_dist)
+        loss = self.cluster_loss(clusters, tar_dist.to(device))
         self.log(
             f"{prefix}_loss",
             loss,
