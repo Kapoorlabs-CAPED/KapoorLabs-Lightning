@@ -334,7 +334,6 @@ class ClusterLightningModel(LightningModule):
         self,
         autoencoder: torch.nn.Module,
         num_clusters: int,
-        network: DeepEmbeddedClustering,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
         dataloader_inf: DataLoader,
@@ -851,7 +850,8 @@ class ClusterLightningTrain:
         dataset: Dataset,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
-        model_func: torch.nn.Module,
+        autoencoder: torch.nn.Module,
+        num_clusters: int,
         optim_func: optimizers._Optimizer,
         model_save_file: str,
         ckpt_file: str = None,
@@ -878,7 +878,9 @@ class ClusterLightningTrain:
 
         self.gamma = gamma
 
-        self.model_func = model_func
+        self.autoencoder = autoencoder
+
+        self.num_clusters = num_clusters
 
         self.optim_func = optim_func
 
@@ -912,7 +914,8 @@ class ClusterLightningTrain:
 
         self.hparams = {
             "loss_func": self.loss_func,
-            "model_func": self.model_func,
+            "autoencoder": self.autoencoder,
+            "num_clusters": self.num_clusters,
             "min_epochs": self.min_epochs,
             "epochs": self.epochs,
             "optim_func": self.optim_func,
@@ -934,7 +937,8 @@ class ClusterLightningTrain:
         val_dataloaders_inf = self.datas.val_dataloader()
 
         self.model = ClusterLightningModel(
-            self.model_func,
+            self.autoencoder,
+            self.num_clusters,
             self.loss_func,
             self.cluster_loss_func,
             val_dataloaders_inf,
