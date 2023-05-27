@@ -340,6 +340,8 @@ class ClusterLightningModel(LightningModule):
         cluster_loss_func: torch.nn.Module,
         dataloader_inf: DataLoader,
         optim_func: optim,
+        devices,
+        accelerator,
         scheduler: schedulers = None,
         gamma: int = 1,
         update_interval: int = 1,
@@ -353,6 +355,8 @@ class ClusterLightningModel(LightningModule):
                 "loss_func",
                 "cluster_loss_func",
                 "optim_func",
+                "devices",
+                "accelerator",
                 "scheduler",
                 "dataloaders_inf",
             ],
@@ -367,6 +371,8 @@ class ClusterLightningModel(LightningModule):
         self.gamma = gamma
         self.update_interval = update_interval
         self.divergence_tolerance = divergence_tolerance
+        self.devices = devices
+        self.accelerator = accelerator
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
@@ -412,7 +418,11 @@ class ClusterLightningModel(LightningModule):
         batch_size = batch.shape[0]
 
         distribution = Distributions(
-            self, self.dataloader_inf, self.network.num_clusters
+            self,
+            self.dataloader_inf,
+            self.network.num_clusters,
+            devices=self.devices,
+            accelerator=self.accelerator,
         )
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
@@ -457,7 +467,11 @@ class ClusterLightningModel(LightningModule):
     def _shared_eval(self, batch, batch_idx, prefix):
         batch_size = batch.shape[0]
         distribution = Distributions(
-            self, self.dataloader_inf, self.network.num_clusters
+            self,
+            self.dataloader_inf,
+            self.network.num_clusters,
+            devices=self.devices,
+            accelerator=self.accelerator,
         )
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
@@ -506,6 +520,8 @@ class ClusterLightningModel(LightningModule):
             self.network,
             self.dataloader_inf,
             self.network.num_clusters,
+            devices=self.devices,
+            accelerator=self.accelerator,
             get_kmeans=True,
         )
         distribution.get_distributions_kmeans()
@@ -934,6 +950,8 @@ class ClusterLightningTrain:
             self.cluster_loss_func,
             val_dataloaders_inf,
             self.optim_func,
+            self.devices,
+            self.accelerator,
             self.scheduler,
             gamma=self.gamma,
         )
@@ -996,6 +1014,8 @@ class Distributions(LightningModule):
         network: torch.nn.Module,
         dataloader,
         num_clusters,
+        devices,
+        accelerator,
         get_kmeans=False,
         n_init=20,
     ):
@@ -1005,6 +1025,8 @@ class Distributions(LightningModule):
         self.get_kmeans = get_kmeans
         self.n_clusters = num_clusters
         self.n_init = n_init
+        self.devices = devices
+        self.accelerator = accelerator
 
     def forward(self, inputs):
         return self.network(inputs)
@@ -1016,7 +1038,9 @@ class Distributions(LightningModule):
         if self.get_kmeans:
             km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
 
-        self.trainer = Trainer()
+        self.trainer = Trainer(
+            accelerator=self.accelerator, devices=self.devices
+        )
         results = self.trainer.predict(self.network, self.dataloader)
 
         outputs, features, clusters = zip(*results)
