@@ -370,10 +370,8 @@ class ClusterLightningModel(LightningModule):
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
             pretrained_file = pretrained_file[0]
-        print(pretrained_file)
         # Load the state dict
         state_dict = torch.load(pretrained_file)["state_dict"]
-        print(state_dict)
         # Make sure to have a weight dict
         if not isinstance(state_dict, dict):
             state_dict = dict(state_dict)
@@ -411,13 +409,9 @@ class ClusterLightningModel(LightningModule):
 
     def training_step(self, batch, batch_idx):
         batch_size = batch[0].shape[0]
-        (
-            self.cluster_distribution,
-            self.cluster_predictions,
-        ) = get_distributions(self.network, self.dataloader_inf)
-        self.target_distribution = get_target_distribution(
-            self.cluster_distribution
-        )
+
+        distribution = Distributions(self.network, self.dataloader_inf)
+        self.target_distribution = distribution.target_distribution
 
         tar_dist = self.target_distribution[
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
@@ -458,13 +452,8 @@ class ClusterLightningModel(LightningModule):
 
     def _shared_eval(self, batch, batch_idx, prefix):
         batch_size = batch[0].shape[0]
-        (
-            self.cluster_distribution,
-            self.cluster_predictions,
-        ) = get_distributions(self.network, self.dataloader_inf)
-        self.target_distribution = get_target_distribution(
-            self.cluster_distribution
-        )
+        distribution = Distributions(self.network, self.dataloader_inf)
+        self.target_distribution = distribution.target_distribution
 
         tar_dist = self.target_distribution[
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
@@ -505,14 +494,12 @@ class ClusterLightningModel(LightningModule):
 
     def on_train_epoch_start(self) -> None:
         print("Starting KMeans")
-        kmeans(self.network, self.dataloader_inf)
-        (
-            self.cluster_distribution,
-            self.cluster_predictions,
-        ) = get_distributions(self.network, self.dataloader_inf)
-        self.target_distribution = get_target_distribution(
-            self.cluster_distribution
+
+        distribution = Distributions(
+            self.network, self.dataloader_inf, get_kmeans=True
         )
+        self.target_distribution = distribution.target_distribution
+        self.network = distribution.network
 
 
 class LightningSpecialTrain:
@@ -987,21 +974,31 @@ class ClusterLightningTrain:
         return self.trainer.callback_metrics
 
 
-def get_target_distribution(out_distr):
-    tar_dist = out_distr**2 / torch.sum(out_distr, axis=0)
-    tar_dist = torch.transpose(
-        torch.transpose(tar_dist) / torch.sum(tar_dist, axis=1)
-    )
-    return tar_dist
+class Distributions(LightningModule):
+    def __init__(
+        self, network: torch.nn.Module, dataloader, get_kmeans=False, n_init=20
+    ):
+        super().__init__()
+        self.network = network
+        self.dataloader = dataloader
+        self.get_kmeans = get_kmeans
+        self.n_clusters = network.num_clusters
+        self.n_init = n_init
 
+    def forward(self, inputs):
+        return self.network(inputs)
 
-def get_distributions(model, dataloader):
-    cluster_distribution = None
-    model.eval()
-    for data in dataloader:
-        inputs = data[0]
-        inputs = inputs
-        outputs, features, clusters = model(inputs)
+    def get_distributions_kmeans(self):
+        cluster_distribution = None
+        feature_array = None
+        self.network.eval()
+        if self.get_kmeans:
+            km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
+
+        self.trainer = Trainer()
+        outputs, features, clusters = self.trainer.predict(
+            self.network, self.dataloader
+        )
         if cluster_distribution is not None:
             cluster_distribution = torch.cat(
                 (cluster_distribution, clusters), 0
@@ -1009,23 +1006,21 @@ def get_distributions(model, dataloader):
         else:
             cluster_distribution = clusters
 
-    predictions = torch.argmax(cluster_distribution.data, axis=1)
-    return cluster_distribution, predictions
-
-
-def kmeans(model, dataloader):
-    km = KMeans(n_clusters=model.num_clusters, n_init=20)
-    feature_array = None
-    model.eval()
-    for data in dataloader:
-        inputs = data[0]
-        inputs = inputs
-        output, features, clusters = model(inputs)
         if feature_array is not None:
             feature_array = torch.cat((feature_array, features), 0)
         else:
             feature_array = features
+        if self.get_kmeans:
+            km.fit_predict(feature_array)
+            weights = torch.from_numpy(km.cluster_centers_)
+            self.network.clustering_layer.set_weight(weights)
 
-    km.fit_predict(feature_array)
-    weights = torch.from_numpy(km.cluster_centers_)
-    model.clustering_layer.set_weight(weights)
+        self.predictions = torch.argmax(cluster_distribution.data, axis=1)
+        self.cluster_distribution = cluster_distribution
+
+        tar_dist = self.cluster_distribution**2 / torch.sum(
+            self.cluster_distribution, axis=0
+        )
+        self.target_distribution = torch.transpose(
+            torch.transpose(tar_dist) / torch.sum(tar_dist, axis=1)
+        )
