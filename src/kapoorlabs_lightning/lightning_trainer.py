@@ -421,7 +421,6 @@ class ClusterLightningModel(LightningModule):
             )
             distribution.get_distributions_kmeans()
             self.target_distribution = distribution.target_distribution
-        print("target distribution shape", self.target_distribution.shape)
         tar_dist = self.target_distribution[
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
