@@ -426,8 +426,6 @@ class ClusterLightningModel(LightningModule):
         ]
 
         inputs = batch
-        inputs = inputs.to(self.compute_device)
-
         outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
@@ -476,6 +474,80 @@ class ClusterLightningModel(LightningModule):
         self.target_distribution = distribution.target_distribution
         self.network = distribution.network
         self.to(self.compute_device)
+
+    def configure_optimizers(self):
+        optimizer = self.optim_func(self.parameters())
+
+        if self.scheduler is not None:
+            scheduler = self.scheduler(optimizer=optimizer)
+            optimizer_scheduler = OrderedDict(
+                {
+                    "optimizer": optimizer,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "monitor": "validation_loss",
+                        "frequency": 1,
+                    },
+                }
+            )
+            return optimizer_scheduler
+        return {"optimizer": optimizer}
+
+
+class ClusterLightningDistModel(LightningModule):
+    def __init__(
+        self,
+        network: DeepEmbeddedClustering,
+        loss_func: torch.nn.Module,
+        cluster_loss_func: torch.nn.Module,
+        optim_func: optim,
+        devices,
+        accelerator,
+        scheduler: schedulers = None,
+        gamma: int = 1,
+        update_interval: int = 4,
+        divergence_tolerance: float = 1e-2,
+        mem_percent: int = 40,
+    ):
+        super().__init__()
+        self.save_hyperparameters(
+            ignore=[
+                "autoencoder",
+                "loss_func",
+                "cluster_loss_func",
+                "optim_func",
+                "scheduler",
+            ]
+        )
+
+        self.network = network
+        self.loss_func = loss_func
+        self.cluster_loss_func = cluster_loss_func
+        self.optim_func = optim_func
+        self.scheduler = scheduler
+        self.gamma = gamma
+        self.update_interval = update_interval
+        self.divergence_tolerance = divergence_tolerance
+        self.devices = devices
+        self.accelerator = accelerator
+        self.mem_percent = mem_percent
+
+    def forward(self, z):
+        return self.network(z)
+
+    def encoder_loss(self, y_hat, y):
+        return self.loss_func(y_hat, y)
+
+    def cluster_loss(self, clusters, tar_dist):
+        return self.cluster_loss_func(torch.log(clusters), tar_dist)
+
+    def test_step(self, batch, batch_idx):
+        inputs = batch
+        inputs = inputs
+
+        outputs, features, clusters = self(inputs)
+
+        return outputs, features, clusters
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -983,10 +1055,15 @@ class Distributions(LightningModule):
     def __init__(
         self,
         network: DeepEmbeddedClustering,
-        dataloader,
-        num_clusters,
+        loss_func,
+        cluster_loss_func,
+        optim_func,
         devices,
         accelerator,
+        scheduler,
+        gamma,
+        dataloader,
+        num_clusters,
         get_kmeans=False,
         n_init=20,
         mem_percent=20,
@@ -1000,6 +1077,13 @@ class Distributions(LightningModule):
         self.devices = devices
         self.accelerator = accelerator
         self.mem_percent = mem_percent
+        self.loss_func = loss_func
+        self.cluster_loss_func = cluster_loss_func
+        self.optim_func = optim_func
+        self.devices = devices
+        self.accelerator = accelerator
+        self.scheduler = scheduler
+        self.gamma = gamma
 
     def get_distributions_kmeans(self):
         torch.cuda.empty_cache()
@@ -1012,7 +1096,18 @@ class Distributions(LightningModule):
         local_trainer = Trainer(
             devices=self.devices, accelerator=self.accelerator
         )
-        results = local_trainer.test(self.network, self.dataloader)
+        lightning_model = ClusterLightningDistModel(
+            self.network,
+            self.loss_func,
+            self.cluster_loss_func,
+            self.optim_func,
+            self.devices,
+            self.accelerator,
+            self.scheduler,
+            gamma=self.gamma,
+            mem_percent=self.mem_percent,
+        )
+        results = local_trainer.test(lightning_model, self.dataloader)
         outputs, features, clusters = zip(*results)
 
         if cluster_distribution is not None:
