@@ -8,6 +8,7 @@ import torch
 from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
+from pytorch_lightning.utilities.rank_zero import rank_zero_only
 from sklearn.cluster import KMeans
 from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -405,26 +406,6 @@ class ClusterLightningModel(LightningModule):
     def training_step(self, batch, batch_idx):
         batch_size = batch.shape[0]
 
-        if (
-            self.current_epoch > 0
-            and self.current_epoch % self.update_interval == 0
-        ):
-            print("updating target distribution")
-            distribution = Distributions(
-                self.network,
-                self.loss_func,
-                self.cluster_loss_func,
-                self.optim_func,
-                self.devices,
-                self.accelerator,
-                self.scheduler,
-                self.gamma,
-                self.dataloader_inf,
-                self.network.num_clusters,
-                mem_percent=self.mem_percent,
-            )
-            distribution.get_distributions_kmeans()
-            self.target_distribution = distribution.target_distribution
         tar_dist = self.target_distribution[
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
@@ -461,6 +442,29 @@ class ClusterLightningModel(LightningModule):
         )
 
         return output
+
+    @rank_zero_only
+    def on_train_epoch_end(self) -> None:
+        if (
+            self.current_epoch > 0
+            and self.current_epoch % self.update_interval == 0
+        ):
+            print("updating target distribution")
+            distribution = Distributions(
+                self.network,
+                self.loss_func,
+                self.cluster_loss_func,
+                self.optim_func,
+                self.devices,
+                self.accelerator,
+                self.scheduler,
+                self.gamma,
+                self.dataloader_inf,
+                self.network.num_clusters,
+                mem_percent=self.mem_percent,
+            )
+            distribution.get_distributions_kmeans()
+            self.target_distribution = distribution.target_distribution
 
     def on_fit_start(self) -> None:
         device = self.network.clustering_layer.weight.device
