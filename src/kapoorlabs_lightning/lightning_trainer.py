@@ -1112,8 +1112,9 @@ class Distributions(LightningModule):
             gamma=self.gamma,
             mem_percent=self.mem_percent,
         )
-        results = local_trainer.predict(lightning_model, self.dataloader)
-        outputs, features, clusters = zip(*results)
+        outputs, features, clusters = local_trainer.predict(
+            lightning_model, self.dataloader
+        )
 
         if cluster_distribution is not None:
             cluster_distribution = torch.cat(
