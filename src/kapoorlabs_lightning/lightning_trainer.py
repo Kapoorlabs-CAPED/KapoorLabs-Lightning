@@ -1024,8 +1024,16 @@ class Distributions(LightningModule):
             device = "cpu"
             self.network.to(device)
             outputs, features, clusters = self.network(inputs)
-            cluster_distribution = torch.cat(clusters, dim=0)
-            feature_array = torch.cat(features, dim=0)
+            if cluster_distribution is not None:
+                cluster_distribution = torch.cat(
+                    (cluster_distribution, clusters), 0
+                )
+            else:
+                cluster_distribution = clusters
+            if feature_array is not None:
+                feature_array = torch.cat((feature_array, features), 0)
+            else:
+                feature_array = features
 
             if self.get_kmeans:
                 km.fit_predict(feature_array)
