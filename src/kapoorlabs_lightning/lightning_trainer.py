@@ -331,7 +331,7 @@ class ClusterLightningModel(LightningModule):
         accelerator,
         scheduler: schedulers = None,
         gamma: int = 1,
-        update_interval: int = 1,
+        update_interval: int = 5,
         divergence_tolerance: float = 1e-2,
     ):
         super().__init__()
@@ -401,15 +401,19 @@ class ClusterLightningModel(LightningModule):
     def training_step(self, batch, batch_idx):
         batch_size = batch.shape[0]
 
-        distribution = Distributions(
-            self,
-            self.dataloader_inf,
-            self.network.num_clusters,
-            devices=self.devices,
-            accelerator=self.accelerator,
-        )
-        distribution.get_distributions_kmeans()
-        self.target_distribution = distribution.target_distribution
+        if (
+            self.current_epoch > 0
+            and self.current_epoch == self.update_interval
+        ):
+            distribution = Distributions(
+                self,
+                self.dataloader_inf,
+                self.network.num_clusters,
+                devices=self.devices,
+                accelerator=self.accelerator,
+            )
+            distribution.get_distributions_kmeans()
+            self.target_distribution = distribution.target_distribution
 
         tar_dist = self.target_distribution[
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
@@ -932,7 +936,7 @@ class ClusterLightningTrain:
             get_kmeans=True,
         )
         distribution.get_distributions_kmeans()
-        self.target_distribution = distribution.target_distribution
+        self.model.target_distribution = distribution.target_distribution
         self.model = distribution.network
 
         self.default_root_dir = (
@@ -1012,6 +1016,7 @@ class Distributions(LightningModule):
         cluster_distribution = None
         feature_array = None
         if self.get_kmeans:
+            print("Getting KMeans")
             km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
 
         self.trainer = Trainer(
