@@ -418,7 +418,7 @@ class ClusterLightningModel(LightningModule):
             )
             distribution.get_distributions_kmeans()
             self.target_distribution = distribution.target_distribution
-
+        print("target distribution shape", self.target_distribution.shape)
         tar_dist = self.target_distribution[
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
@@ -483,6 +483,9 @@ class ClusterLightningModel(LightningModule):
         loss = self.cluster_loss(clusters, tar_dist.to(device))
         print(prefix)
         print(f"{prefix}_loss: {loss}")
+
+    def validation_step(self, batch, batch_idx):
+        self._shared_eval(batch, batch_idx, "validation")
 
     def on_fit_start(self) -> None:
         print("initializing target distribution")
