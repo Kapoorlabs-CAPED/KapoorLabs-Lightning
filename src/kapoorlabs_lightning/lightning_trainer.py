@@ -7,6 +7,7 @@ import torch
 from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
+from lightning.pytorch.trainer.states import TrainerFn
 from sklearn.cluster import KMeans
 from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -954,6 +955,7 @@ class ClusterLightningTrain:
             enable_checkpointing=self.enable_checkpointing,
             num_nodes=self.num_nodes,
         )
+        self.trainer.state.fn = TrainerFn.FITTING
 
         if self.ckpt_file is not None:
             self.trainer.fit(
