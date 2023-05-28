@@ -1035,7 +1035,8 @@ class Distributions(LightningModule):
                 feature_array = torch.cat((feature_array, features), 0)
             else:
                 feature_array = features
-            if psutil.virtual_memory().percent > 90:
+            print(psutil.virtual_memory().percent)
+            if psutil.virtual_memory().percent > 70:
                 print("Memory usage is high. Breaking loop")
                 break
 
