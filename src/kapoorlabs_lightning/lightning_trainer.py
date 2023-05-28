@@ -427,12 +427,12 @@ class ClusterLightningModel(LightningModule):
         ]
 
         inputs = batch
-        device = inputs.device
-        self.to(device)
+        inputs = inputs.to(self.device)
+        self.to(self.device)
         outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
-        cluster_loss = self.cluster_loss(clusters, tar_dist.to(device))
+        cluster_loss = self.cluster_loss(clusters, tar_dist.to(self.device))
         loss = reconstruction_loss + self.gamma * cluster_loss
 
         tqdm_dict = {
@@ -469,6 +469,7 @@ class ClusterLightningModel(LightningModule):
             mem_percent=self.mem_percent,
         )
         device = self.network.clustering_layer.weight.device
+        self.device = device
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
         self.network = distribution.network
@@ -1036,4 +1037,3 @@ class Distributions(LightningModule):
         self.target_distribution = torch.transpose(
             torch.transpose(tar_dist, 0, 1) / torch.sum(tar_dist, axis=1), 0, 1
         )
-        self.network.to("cuda")
