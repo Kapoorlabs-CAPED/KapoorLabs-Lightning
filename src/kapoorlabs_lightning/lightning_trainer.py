@@ -1019,20 +1019,19 @@ class Distributions(LightningModule):
             print("Getting KMeans")
             km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
 
-        self.trainer = Trainer(
-            accelerator=self.accelerator, devices=self.devices
-        )
-        results = self.trainer.predict(self.network, self.dataloader)
+        device = input.get_device()
+        self.network.to(device)
+        for data in self.dataloader:
+            inputs = data
+            inputs = inputs
+            outputs, features, clusters = self.network(inputs)
+            cluster_distribution = torch.cat(clusters, dim=0)
+            feature_array = torch.cat(features, dim=0)
 
-        outputs, features, clusters = zip(*results)
-
-        cluster_distribution = torch.cat(clusters, dim=0)
-        feature_array = torch.cat(features, dim=0)
-
-        if self.get_kmeans:
-            km.fit_predict(feature_array)
-            weights = torch.from_numpy(km.cluster_centers_)
-            self.network.network.clustering_layer.set_weight(weights)
+            if self.get_kmeans:
+                km.fit_predict(feature_array)
+                weights = torch.from_numpy(km.cluster_centers_)
+                self.network.network.clustering_layer.set_weight(weights)
 
         self.predictions = torch.argmax(cluster_distribution.data, axis=1)
         self.cluster_distribution = cluster_distribution
