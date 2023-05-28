@@ -1035,11 +1035,11 @@ class Distributions(LightningModule):
         if self.get_kmeans:
             print("Getting KMeans")
             km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
-        device = "cpu"
-        self.network.to(device)
+        device = self.network.clustering_layer.weight.device
+        print(device)
         for data in self.dataloader:
             inputs = data
-
+            inputs = inputs.to(device)
             outputs, features, clusters = self.network(inputs)
             if cluster_distribution is not None:
                 cluster_distribution = torch.cat(
