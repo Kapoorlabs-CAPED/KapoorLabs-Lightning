@@ -428,7 +428,7 @@ class ClusterLightningModel(LightningModule):
 
         inputs = batch
         inputs = inputs.to(self.compute_device)
-        self.to(self.compute_device)
+        print(self.compute_device)
         outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
