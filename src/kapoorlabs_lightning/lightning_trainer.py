@@ -910,18 +910,6 @@ class ClusterLightningTrain:
         # train_dataloaders_inf = self.datas.train_dataloader()
         val_dataloaders_inf = self.datas.val_dataloader()
 
-        distribution = Distributions(
-            self.network,
-            val_dataloaders_inf,
-            self.network.num_clusters,
-            devices=self.devices,
-            accelerator=self.accelerator,
-            get_kmeans=True,
-        )
-        distribution.get_distributions_kmeans()
-        self.target_distribution = distribution.target_distribution
-        self.network = distribution.network
-
         self.model = ClusterLightningModel(
             self.network,
             self.loss_func,
@@ -933,6 +921,18 @@ class ClusterLightningTrain:
             self.scheduler,
             gamma=self.gamma,
         )
+
+        distribution = Distributions(
+            self.model,
+            val_dataloaders_inf,
+            self.network.num_clusters,
+            devices=self.devices,
+            accelerator=self.accelerator,
+            get_kmeans=True,
+        )
+        distribution.get_distributions_kmeans()
+        self.target_distribution = distribution.target_distribution
+        self.model = distribution.network
 
         self.default_root_dir = (
             Path(self.model_save_file).absolute().parent.as_posix()
@@ -989,7 +989,7 @@ class ClusterLightningTrain:
 class Distributions(LightningModule):
     def __init__(
         self,
-        network: torch.nn.Module,
+        network: ClusterLightningModel,
         dataloader,
         num_clusters,
         devices,
@@ -1005,9 +1005,6 @@ class Distributions(LightningModule):
         self.n_init = n_init
         self.devices = devices
         self.accelerator = accelerator
-
-    def forward(self, inputs):
-        return self.network(inputs)
 
     def get_distributions_kmeans(self):
         cluster_distribution = None
