@@ -541,6 +541,8 @@ class ClusterLightningDistModel(LightningModule):
         self.devices = devices
         self.accelerator = accelerator
         self.mem_percent = mem_percent
+        self.feature_array = None
+        self.cluster_distribution = None
 
     def forward(self, z):
         return self.network(z)
@@ -552,7 +554,21 @@ class ClusterLightningDistModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def predict_step(self, batch, batch_idx):
-        return self(batch)
+        output, features, clusters = self(batch)
+
+        if self.feature_array is not None:
+            self.feature_array = torch.cat((self.feature_array, features), 0)
+        else:
+            self.feature_array = features
+
+        if self.cluster_distribution is not None:
+            self.cluster_distribution = torch.cat(
+                (self.cluster_distribution, clusters), 0
+            )
+        else:
+            self.cluster_distribution = clusters
+
+        return self.feature_array, self.cluster_distribution
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -1113,19 +1129,8 @@ class Distributions(LightningModule):
             mem_percent=self.mem_percent,
         )
         results = local_trainer.predict(lightning_model, self.dataloader)
-        outputs, feature_array, cluster_distribution = zip(*results)
-        cat_feature_array = feature_array[0]
-        cat_feature_array = torch.cat(
-            ((cat_feature_array, feature) for feature in feature_array), 0
-        )
-        cat_cluster_distribution = cluster_distribution[0]
-        cat_cluster_distribution = torch.cat(
-            (
-                (cat_cluster_distribution, cluster)
-                for cluster in cluster_distribution
-            ),
-            0,
-        )
+        feature_array, cluster_distribution = zip(*results)
+
         if self.get_kmeans:
             km.fit_predict(feature_array.detach().numpy())
             weights = torch.from_numpy(km.cluster_centers_)
