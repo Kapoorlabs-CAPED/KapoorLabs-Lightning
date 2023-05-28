@@ -541,8 +541,6 @@ class ClusterLightningDistModel(LightningModule):
         self.devices = devices
         self.accelerator = accelerator
         self.mem_percent = mem_percent
-        self.feature_array = None
-        self.cluster_distribution = None
 
     def forward(self, z):
         return self.network(z)
@@ -556,19 +554,7 @@ class ClusterLightningDistModel(LightningModule):
     def predict_step(self, batch, batch_idx):
         output, features, clusters = self(batch)
 
-        if self.feature_array is not None:
-            self.feature_array = torch.cat((self.feature_array, features), 0)
-        else:
-            self.feature_array = features
-
-        if self.cluster_distribution is not None:
-            self.cluster_distribution = torch.cat(
-                (self.cluster_distribution, clusters), 0
-            )
-        else:
-            self.cluster_distribution = clusters
-
-        return self.feature_array, self.cluster_distribution
+        return features, clusters
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
