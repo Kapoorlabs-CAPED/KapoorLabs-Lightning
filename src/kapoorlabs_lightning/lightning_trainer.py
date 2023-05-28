@@ -1,4 +1,5 @@
 import os
+import sys
 from collections import OrderedDict
 from pathlib import Path
 from typing import List
@@ -14,6 +15,8 @@ from torch.utils.data import DataLoader, Dataset, random_split
 
 from . import optimizers, schedulers
 from .pytorch_models import DeepEmbeddedClustering
+
+sys.setrecursionlimit(100000)
 
 
 class LightningData(LightningDataModule):
