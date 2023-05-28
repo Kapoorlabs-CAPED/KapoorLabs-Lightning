@@ -407,6 +407,7 @@ class ClusterLightningModel(LightningModule):
             self.current_epoch > 0
             and self.current_epoch % self.update_interval == 0
         ):
+            print("updating target distribution")
             distribution = Distributions(
                 self,
                 self.dataloader_inf,
@@ -459,6 +460,7 @@ class ClusterLightningModel(LightningModule):
 
     def _shared_eval(self, batch, batch_idx, prefix):
         batch_size = batch.shape[0]
+        print("validating")
         distribution = Distributions(
             self,
             self.dataloader_inf,
@@ -486,6 +488,7 @@ class ClusterLightningModel(LightningModule):
         self._shared_eval(batch, batch_idx, "validation")
 
     def on_fit_start(self) -> None:
+        print("initializing target distribution")
         distribution = Distributions(
             self,
             self.dataloader_inf,
