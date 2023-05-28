@@ -502,7 +502,7 @@ class ClusterLightningModel(LightningModule):
             mem_percent=self.mem_percent,
         )
         distribution.get_distributions_kmeans()
-        self.network.target_distribution = distribution.target_distribution
+        self.target_distribution = distribution.target_distribution
         self.network = distribution.network
 
     def configure_optimizers(self):
@@ -1055,11 +1055,9 @@ class Distributions(LightningModule):
                 break
 
         if self.get_kmeans:
-            print("Fitting KMeans")
             km.fit_predict(feature_array.detach().numpy())
             weights = torch.from_numpy(km.cluster_centers_)
             self.network.clustering_layer.set_weight(weights)
-        print("Kmeans done")
         self.predictions = torch.argmax(cluster_distribution.data, axis=1)
         self.cluster_distribution = cluster_distribution
 
@@ -1069,4 +1067,4 @@ class Distributions(LightningModule):
         self.target_distribution = torch.transpose(
             torch.transpose(tar_dist, 0, 1) / torch.sum(tar_dist, axis=1), 0, 1
         )
-        print("exiting get_distributions_kmeans")
+        self.network.to("cuda")
