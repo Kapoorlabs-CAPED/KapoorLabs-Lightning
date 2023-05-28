@@ -494,21 +494,6 @@ class ClusterLightningModel(LightningModule):
             return optimizer_scheduler
         return {"optimizer": optimizer}
 
-    def on_train_epoch_start(self) -> None:
-        print("Starting KMeans")
-
-        distribution = Distributions(
-            self.network,
-            self.dataloader_inf,
-            self.network.num_clusters,
-            devices=self.devices,
-            accelerator=self.accelerator,
-            get_kmeans=True,
-        )
-        distribution.get_distributions_kmeans()
-        self.target_distribution = distribution.target_distribution
-        self.network = distribution.network
-
 
 class LightningSpecialTrain:
     def __init__(
@@ -843,7 +828,7 @@ class ClusterLightningTrain:
         dataset: Dataset,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
-        network: torch.nn.Module,
+        network: DeepEmbeddedClustering,
         optim_func: optimizers._Optimizer,
         model_save_file: str,
         ckpt_file: str = None,
@@ -924,6 +909,18 @@ class ClusterLightningTrain:
         self.datas.batch_size = 1
         # train_dataloaders_inf = self.datas.train_dataloader()
         val_dataloaders_inf = self.datas.val_dataloader()
+
+        distribution = Distributions(
+            self.network,
+            val_dataloaders_inf,
+            self.network.num_clusters,
+            devices=self.devices,
+            accelerator=self.accelerator,
+            get_kmeans=True,
+        )
+        distribution.get_distributions_kmeans()
+        self.target_distribution = distribution.target_distribution
+        self.network = distribution.network
 
         self.model = ClusterLightningModel(
             self.network,
