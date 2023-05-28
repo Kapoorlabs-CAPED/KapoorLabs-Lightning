@@ -421,8 +421,6 @@ class ClusterLightningModel(LightningModule):
                 self.gamma,
                 self.dataloader_inf,
                 self.network.num_clusters,
-                devices=self.devices,
-                accelerator=self.accelerator,
                 mem_percent=self.mem_percent,
             )
             distribution.get_distributions_kmeans()
@@ -478,9 +476,7 @@ class ClusterLightningModel(LightningModule):
             self.gamma,
             self.dataloader_inf,
             self.network.num_clusters,
-            devices=self.devices,
             get_kmeans=True,
-            accelerator=self.accelerator,
             mem_percent=self.mem_percent,
         )
 
