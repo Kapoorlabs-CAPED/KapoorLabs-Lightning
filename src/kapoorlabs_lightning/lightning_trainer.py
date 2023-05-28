@@ -991,7 +991,7 @@ class ClusterLightningTrain:
 
         self.datas.batch_size = 1
         # train_dataloaders_inf = self.datas.train_dataloader()
-        val_dataloaders_inf = self.datas.val_dataloader()
+        val_dataloaders_inf = self.datas.train_dataloader()
 
         self.model = ClusterLightningModel(
             self.network,
