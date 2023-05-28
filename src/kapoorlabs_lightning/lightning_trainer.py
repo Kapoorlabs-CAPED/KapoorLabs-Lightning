@@ -484,9 +484,6 @@ class ClusterLightningModel(LightningModule):
         print(prefix)
         print(f"{prefix}_loss: {loss}")
 
-    def validation_step(self, batch, batch_idx):
-        self._shared_eval(batch, batch_idx, "validation")
-
     def on_fit_start(self) -> None:
         print("initializing target distribution")
         distribution = Distributions(
