@@ -192,17 +192,7 @@ class LightningModel(LightningModule):
         x, y = batch
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        if prefix == "test":
-            print(f"{prefix}_loss: {loss}")
-        else:
-            self.log(
-                f"{prefix}_loss",
-                loss,
-                on_step=True,
-                on_epoch=True,
-                sync_dist=True,
-                rank_zero_only=True,
-            )
+        print(f"{prefix}_loss: {loss}")
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
@@ -304,17 +294,7 @@ class AutoLightningModel(LightningModule):
         inputs = batch
         y_hat, features = self(inputs)
         loss = self.loss(y_hat, inputs)
-        if prefix == "test":
-            print(f"{prefix}_loss: {loss}")
-        else:
-            self.log(
-                f"{prefix}_loss",
-                loss,
-                on_step=True,
-                on_epoch=True,
-                sync_dist=True,
-                rank_zero_only=True,
-            )
+        print(f"{prefix}_loss: {loss}")
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
@@ -491,17 +471,7 @@ class ClusterLightningModel(LightningModule):
         outputs, features, clusters = self(inputs)
         loss = self.cluster_loss(clusters, tar_dist.to(device))
         print(prefix)
-        if prefix == "test":
-            print(f"{prefix}_loss: {loss}")
-        else:
-            self.log(
-                f"{prefix}_loss",
-                loss,
-                on_step=True,
-                on_epoch=True,
-                sync_dist=True,
-                rank_zero_only=True,
-            )
+        print(f"{prefix}_loss: {loss}")
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
