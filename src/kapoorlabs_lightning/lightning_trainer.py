@@ -3,6 +3,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import List
 
+import psutil
 import torch
 from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
@@ -1034,6 +1035,9 @@ class Distributions(LightningModule):
                 feature_array = torch.cat((feature_array, features), 0)
             else:
                 feature_array = features
+            if psutil.virtual_memory().percent > 90:
+                print("Memory usage is high. Breaking loop")
+                break
 
         if self.get_kmeans:
             km.fit_predict(feature_array.detach().numpy())
