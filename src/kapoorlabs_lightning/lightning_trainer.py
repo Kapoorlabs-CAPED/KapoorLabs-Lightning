@@ -334,7 +334,7 @@ class ClusterLightningModel(LightningModule):
         accelerator,
         scheduler: schedulers = None,
         gamma: int = 1,
-        update_interval: int = 50,
+        update_interval: int = 4,
         divergence_tolerance: float = 1e-2,
         mem_percent: int = 40,
     ):
