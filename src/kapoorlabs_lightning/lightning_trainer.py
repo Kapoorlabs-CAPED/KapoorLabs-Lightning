@@ -454,6 +454,37 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
+    def test_step(self, batch, batch_idx):
+        self._shared_eval(batch, batch_idx, "test")
+
+    def _shared_eval(self, batch, batch_idx, prefix):
+        batch_size = batch.shape[0]
+        distribution = Distributions(
+            self,
+            self.dataloader_inf,
+            self.network.num_clusters,
+            devices=self.devices,
+            accelerator=self.accelerator,
+            mem_percent=self.mem_percent,
+        )
+        distribution.get_distributions_kmeans()
+        self.target_distribution = distribution.target_distribution
+
+        tar_dist = self.target_distribution[
+            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
+            :,
+        ]
+        inputs = batch
+        device = inputs.get_device()
+        self.to(device)
+        outputs, features, clusters = self(inputs)
+        loss = self.cluster_loss(clusters, tar_dist.to(device))
+        print(prefix)
+        print(f"{prefix}_loss: {loss}")
+
+    def validation_step(self, batch, batch_idx):
+        self._shared_eval(batch, batch_idx, "validation")
+
     def on_fit_start(self) -> None:
         distribution = Distributions(
             self,
@@ -998,11 +1029,11 @@ class Distributions(LightningModule):
         if self.get_kmeans:
             print("Getting KMeans")
             km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
-
+        device = "cpu"
+        self.network.to(device)
         for data in self.dataloader:
             inputs = data
-            device = "cpu"
-            self.network.to(device)
+
             outputs, features, clusters = self.network(inputs)
             if cluster_distribution is not None:
                 cluster_distribution = torch.cat(
