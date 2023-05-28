@@ -8,7 +8,6 @@ import torch
 from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
-from lightning.pytorch.trainer.states import TrainerFn
 from sklearn.cluster import KMeans
 from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -334,6 +333,7 @@ class ClusterLightningModel(LightningModule):
         gamma: int = 1,
         update_interval: int = 5,
         divergence_tolerance: float = 1e-2,
+        mem_percent: int = 40,
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -358,6 +358,7 @@ class ClusterLightningModel(LightningModule):
         self.divergence_tolerance = divergence_tolerance
         self.devices = devices
         self.accelerator = accelerator
+        self.mem_percent = mem_percent
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
@@ -412,6 +413,7 @@ class ClusterLightningModel(LightningModule):
                 self.network.num_clusters,
                 devices=self.devices,
                 accelerator=self.accelerator,
+                mem_percent=self.mem_percent,
             )
             distribution.get_distributions_kmeans()
             self.target_distribution = distribution.target_distribution
@@ -463,6 +465,7 @@ class ClusterLightningModel(LightningModule):
             self.network.num_clusters,
             devices=self.devices,
             accelerator=self.accelerator,
+            mem_percent=self.mem_percent,
         )
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
@@ -851,6 +854,7 @@ class ClusterLightningTrain:
         callbacks: List[Callback] = None,
         scheduler: schedulers = None,
         logger: Logger = None,
+        mem_percent: int = 20,
         **kwargs,
     ):
         self.dataset = dataset
@@ -893,6 +897,8 @@ class ClusterLightningTrain:
 
         self.num_nodes = num_nodes
 
+        self.mem_percent = mem_percent
+
         self.hparams = {
             "loss_func": self.loss_func,
             "network": self.network,
@@ -926,6 +932,7 @@ class ClusterLightningTrain:
             self.accelerator,
             self.scheduler,
             gamma=self.gamma,
+            mem_percent=self.mem_percent,
         )
 
         distribution = Distributions(
@@ -935,6 +942,7 @@ class ClusterLightningTrain:
             devices=self.devices,
             accelerator=self.accelerator,
             get_kmeans=True,
+            mem_percent=self.mem_percent,
         )
         distribution.get_distributions_kmeans()
         self.model.target_distribution = distribution.target_distribution
@@ -960,7 +968,6 @@ class ClusterLightningTrain:
             enable_checkpointing=self.enable_checkpointing,
             num_nodes=self.num_nodes,
         )
-        self.trainer.state.fn = TrainerFn.FITTING
 
         if self.ckpt_file is not None:
             self.trainer.fit(
@@ -1003,6 +1010,7 @@ class Distributions(LightningModule):
         accelerator,
         get_kmeans=False,
         n_init=20,
+        mem_percent=20,
     ):
         super().__init__()
         self.network = network
@@ -1012,6 +1020,7 @@ class Distributions(LightningModule):
         self.n_init = n_init
         self.devices = devices
         self.accelerator = accelerator
+        self.mem_percent = mem_percent
 
     def get_distributions_kmeans(self):
         cluster_distribution = None
@@ -1035,8 +1044,7 @@ class Distributions(LightningModule):
                 feature_array = torch.cat((feature_array, features), 0)
             else:
                 feature_array = features
-            print(psutil.virtual_memory().percent)
-            if psutil.virtual_memory().percent > 70:
+            if psutil.virtual_memory().percent > self.mem_percent:
                 print("Memory usage is high. Breaking loop")
                 break
 
