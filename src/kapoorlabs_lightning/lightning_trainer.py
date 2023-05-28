@@ -460,6 +460,8 @@ class ClusterLightningModel(LightningModule):
         return output
 
     def on_fit_start(self) -> None:
+        device = self.network.clustering_layer.weight.device
+        self.compute_device = device
         print("initializing target distribution")
         distribution = Distributions(
             self.network,
@@ -470,8 +472,7 @@ class ClusterLightningModel(LightningModule):
             get_kmeans=True,
             mem_percent=self.mem_percent,
         )
-        device = self.network.clustering_layer.weight.device
-        self.compute_device = device
+
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
         self.network = distribution.network
