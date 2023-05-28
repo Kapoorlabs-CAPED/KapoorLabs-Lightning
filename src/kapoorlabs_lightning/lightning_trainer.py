@@ -333,7 +333,7 @@ class ClusterLightningModel(LightningModule):
         accelerator,
         scheduler: schedulers = None,
         gamma: int = 1,
-        update_interval: int = 1,
+        update_interval: int = 5,
         divergence_tolerance: float = 1e-2,
         mem_percent: int = 40,
     ):
@@ -405,7 +405,10 @@ class ClusterLightningModel(LightningModule):
     def training_step(self, batch, batch_idx):
         batch_size = batch.shape[0]
 
-        if self.current_epoch % self.update_interval == 0:
+        if (
+            self.current_epoch > 0
+            and self.current_epoch % self.update_interval == 0
+        ):
             print("updating target distribution")
             distribution = Distributions(
                 self.network,
