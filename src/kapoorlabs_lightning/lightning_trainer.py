@@ -412,7 +412,7 @@ class ClusterLightningModel(LightningModule):
         ):
             print("updating target distribution")
             distribution = Distributions(
-                self,
+                self.network,
                 self.dataloader_inf,
                 self.network.num_clusters,
                 devices=self.devices,
@@ -465,7 +465,7 @@ class ClusterLightningModel(LightningModule):
         batch_size = batch.shape[0]
         print("validating")
         distribution = Distributions(
-            self,
+            self.network,
             self.dataloader_inf,
             self.network.num_clusters,
             devices=self.devices,
@@ -493,7 +493,7 @@ class ClusterLightningModel(LightningModule):
     def on_fit_start(self) -> None:
         print("initializing target distribution")
         distribution = Distributions(
-            self,
+            self.network,
             self.dataloader_inf,
             self.network.num_clusters,
             devices=self.devices,
@@ -1010,7 +1010,7 @@ class ClusterLightningTrain:
 class Distributions(LightningModule):
     def __init__(
         self,
-        network: ClusterLightningModel,
+        network: DeepEmbeddedClustering,
         dataloader,
         num_clusters,
         devices,
