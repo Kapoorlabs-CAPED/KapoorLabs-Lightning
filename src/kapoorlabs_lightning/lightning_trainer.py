@@ -412,6 +412,13 @@ class ClusterLightningModel(LightningModule):
             print("updating target distribution")
             distribution = Distributions(
                 self.network,
+                self.loss_func,
+                self.cluster_loss_func,
+                self.optim_func,
+                self.devices,
+                self.accelerator,
+                self.scheduler,
+                self.gamma,
                 self.dataloader_inf,
                 self.network.num_clusters,
                 devices=self.devices,
@@ -462,11 +469,18 @@ class ClusterLightningModel(LightningModule):
         print("initializing target distribution")
         distribution = Distributions(
             self.network,
+            self.loss_func,
+            self.cluster_loss_func,
+            self.optim_func,
+            self.devices,
+            self.accelerator,
+            self.scheduler,
+            self.gamma,
             self.dataloader_inf,
             self.network.num_clusters,
             devices=self.devices,
-            accelerator=self.accelerator,
             get_kmeans=True,
+            accelerator=self.accelerator,
             mem_percent=self.mem_percent,
         )
 
