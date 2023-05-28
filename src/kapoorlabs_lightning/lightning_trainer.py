@@ -1114,8 +1114,18 @@ class Distributions(LightningModule):
         )
         results = local_trainer.predict(lightning_model, self.dataloader)
         outputs, feature_array, cluster_distribution = zip(*results)
-        feature_array = torch.stack(feature_array)
-        cluster_distribution = torch.stack(cluster_distribution)
+        cat_feature_array = feature_array[0]
+        cat_feature_array = torch.cat(
+            ((cat_feature_array, feature) for feature in feature_array), 0
+        )
+        cat_cluster_distribution = cluster_distribution[0]
+        cat_cluster_distribution = torch.cat(
+            (
+                (cat_cluster_distribution, cluster)
+                for cluster in cluster_distribution
+            ),
+            0,
+        )
         if self.get_kmeans:
             km.fit_predict(feature_array.detach().numpy())
             weights = torch.from_numpy(km.cluster_centers_)
