@@ -1036,7 +1036,7 @@ class Distributions(LightningModule):
                 feature_array = features
 
             if self.get_kmeans:
-                km.fit_predict(feature_array)
+                km.fit_predict(feature_array.detach().numpy())
                 weights = torch.from_numpy(km.cluster_centers_)
                 self.network.network.clustering_layer.set_weight(weights)
 
