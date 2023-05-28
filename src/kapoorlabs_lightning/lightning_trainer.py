@@ -541,13 +541,8 @@ class ClusterLightningDistModel(LightningModule):
     def cluster_loss(self, clusters, tar_dist):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
-    def test_step(self, batch, batch_idx):
-        inputs = batch
-        inputs = inputs
-
-        outputs, features, clusters = self(inputs)
-
-        return outputs, features, clusters
+    def predict_step(self, batch, batch_idx):
+        return self(batch)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -1107,7 +1102,7 @@ class Distributions(LightningModule):
             gamma=self.gamma,
             mem_percent=self.mem_percent,
         )
-        results = local_trainer.test(lightning_model, self.dataloader)
+        results = local_trainer.predict(lightning_model, self.dataloader)
         outputs, features, clusters = zip(*results)
 
         if cluster_distribution is not None:
