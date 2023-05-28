@@ -4,7 +4,6 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import List
 
-import psutil
 import torch
 from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
@@ -428,7 +427,7 @@ class ClusterLightningModel(LightningModule):
 
         inputs = batch
         inputs = inputs.to(self.compute_device)
-        print(self.compute_device)
+
         outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
@@ -993,7 +992,7 @@ class Distributions(LightningModule):
         mem_percent=20,
     ):
         super().__init__()
-        self.network = network.to("cpu")
+        self.network = network
         self.dataloader = dataloader
         self.get_kmeans = get_kmeans
         self.n_clusters = num_clusters
@@ -1009,26 +1008,23 @@ class Distributions(LightningModule):
         if self.get_kmeans:
             print("Getting KMeans")
             km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
-        for data in self.dataloader:
-            inputs = data
-            inputs = inputs
-            outputs, features, clusters = self.network(inputs)
-            if cluster_distribution is not None:
-                cluster_distribution = torch.cat(
-                    (cluster_distribution, clusters), 0
-                )
-            else:
-                cluster_distribution = clusters
-            if feature_array is not None:
-                feature_array = torch.cat((feature_array, features), 0)
-            else:
-                feature_array = features
-            if (
-                psutil.virtual_memory().percent > self.mem_percent
-                and len(feature_array) > self.n_clusters
-            ):
-                print("Memory usage is high. Breaking loop")
-                break
+
+        local_trainer = Trainer(
+            devices=self.devices, accelerator=self.accelerator
+        )
+        results = local_trainer.test(self.network, self.dataloader)
+        outputs, features, clusters = zip(*results)
+
+        if cluster_distribution is not None:
+            cluster_distribution = torch.cat(
+                (cluster_distribution, clusters), 0
+            )
+        else:
+            cluster_distribution = clusters
+        if feature_array is not None:
+            feature_array = torch.cat((feature_array, features), 0)
+        else:
+            feature_array = features
 
         if self.get_kmeans:
             km.fit_predict(feature_array.detach().numpy())
