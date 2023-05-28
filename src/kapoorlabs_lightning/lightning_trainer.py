@@ -468,9 +468,11 @@ class ClusterLightningModel(LightningModule):
             get_kmeans=True,
             mem_percent=self.mem_percent,
         )
+        device = self.network.get_device()
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
         self.network = distribution.network
+        self.to(device)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
