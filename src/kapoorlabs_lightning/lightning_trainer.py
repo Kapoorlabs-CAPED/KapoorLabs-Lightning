@@ -427,12 +427,14 @@ class ClusterLightningModel(LightningModule):
         ]
 
         inputs = batch
-        inputs = inputs.to(self.device)
-        self.to(self.device)
+        inputs = inputs.to(self.compute_device)
+        self.to(self.compute_device)
         outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
-        cluster_loss = self.cluster_loss(clusters, tar_dist.to(self.device))
+        cluster_loss = self.cluster_loss(
+            clusters, tar_dist.to(self.compute_device)
+        )
         loss = reconstruction_loss + self.gamma * cluster_loss
 
         tqdm_dict = {
@@ -469,11 +471,11 @@ class ClusterLightningModel(LightningModule):
             mem_percent=self.mem_percent,
         )
         device = self.network.clustering_layer.weight.device
-        self.device = device
+        self.compute_device = device
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
         self.network = distribution.network
-        self.to(device)
+        self.to(self.compute_device)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
