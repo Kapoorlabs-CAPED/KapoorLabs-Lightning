@@ -485,6 +485,20 @@ class ClusterLightningModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
 
+    def on_fit_start(self) -> None:
+        distribution = Distributions(
+            self,
+            self.dataloader_inf,
+            self.network.num_clusters,
+            devices=self.devices,
+            accelerator=self.accelerator,
+            get_kmeans=True,
+            mem_percent=self.mem_percent,
+        )
+        distribution.get_distributions_kmeans()
+        self.network.target_distribution = distribution.target_distribution
+        self.network = distribution.network
+
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
 
@@ -935,19 +949,6 @@ class ClusterLightningTrain:
             mem_percent=self.mem_percent,
         )
 
-        distribution = Distributions(
-            self.model,
-            val_dataloaders_inf,
-            self.network.num_clusters,
-            devices=self.devices,
-            accelerator=self.accelerator,
-            get_kmeans=True,
-            mem_percent=self.mem_percent,
-        )
-        distribution.get_distributions_kmeans()
-        self.model.target_distribution = distribution.target_distribution
-        self.model = distribution.network
-
         self.default_root_dir = (
             Path(self.model_save_file).absolute().parent.as_posix()
         )
@@ -1040,10 +1041,11 @@ class Distributions(LightningModule):
                 )
             else:
                 cluster_distribution = clusters
-            if feature_array is not None:
-                feature_array = torch.cat((feature_array, features), 0)
-            else:
-                feature_array = features
+            if self.get_kmeans:
+                if feature_array is not None:
+                    feature_array = torch.cat((feature_array, features), 0)
+                else:
+                    feature_array = features
             if psutil.virtual_memory().percent > self.mem_percent:
                 print("Memory usage is high. Breaking loop")
                 break
