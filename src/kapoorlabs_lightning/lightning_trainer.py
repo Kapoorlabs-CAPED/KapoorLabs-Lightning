@@ -1019,7 +1019,7 @@ class Distributions(LightningModule):
             print("Getting KMeans")
             km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
 
-        device = self.network.get_device()
+        device = self.network.network.get_device()
         for data in self.dataloader:
             inputs = data
             inputs.to(device)
