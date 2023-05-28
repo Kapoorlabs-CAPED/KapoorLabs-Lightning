@@ -1015,7 +1015,6 @@ class Distributions(LightningModule):
     def get_distributions_kmeans(self):
         cluster_distribution = None
         feature_array = None
-        self.network.eval()
         if self.get_kmeans:
             km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
 
