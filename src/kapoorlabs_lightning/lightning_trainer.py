@@ -490,6 +490,7 @@ class ClusterLightningModel(LightningModule):
         self.to(device)
         outputs, features, clusters = self(inputs)
         loss = self.cluster_loss(clusters, tar_dist.to(device))
+        print(prefix)
         if prefix == "test":
             print(f"{prefix}_loss: {loss}")
         else:
