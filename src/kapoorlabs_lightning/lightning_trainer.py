@@ -1021,7 +1021,7 @@ class Distributions(LightningModule):
 
         for data in self.dataloader:
             inputs = data
-            device = inputs.get_device()
+            device = "cpu"
             self.network.to(device)
             outputs, features, clusters = self.network(inputs)
             cluster_distribution = torch.cat(clusters, dim=0)
