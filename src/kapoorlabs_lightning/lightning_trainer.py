@@ -1019,11 +1019,11 @@ class Distributions(LightningModule):
             print("Getting KMeans")
             km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
 
-        device = input.get_device()
-        self.network.to(device)
+        device = self.network.get_device()
         for data in self.dataloader:
             inputs = data
-            inputs = inputs
+            inputs.to(device)
+
             outputs, features, clusters = self.network(inputs)
             cluster_distribution = torch.cat(clusters, dim=0)
             feature_array = torch.cat(features, dim=0)
