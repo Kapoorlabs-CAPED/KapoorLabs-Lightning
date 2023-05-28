@@ -427,7 +427,7 @@ class ClusterLightningModel(LightningModule):
         ]
 
         inputs = batch
-        device = inputs.get_device()
+        device = inputs.device
         self.to(device)
         outputs, features, clusters = self(inputs)
 
@@ -468,7 +468,7 @@ class ClusterLightningModel(LightningModule):
             get_kmeans=True,
             mem_percent=self.mem_percent,
         )
-        device = self.network.clustering_layer.weight.get_device()
+        device = self.network.clustering_layer.weight.device
         distribution.get_distributions_kmeans()
         self.target_distribution = distribution.target_distribution
         self.network = distribution.network
