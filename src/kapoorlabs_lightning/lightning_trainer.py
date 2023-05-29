@@ -399,14 +399,17 @@ class ClusterLightningModel(LightningModule):
             print(f"Loaded weights for the following layers:\n{layers}")
 
     def _initialise_centroid(self):
-        print(" \t Initialising cluster centroids...")
+        device = self.network.clustering_layer.weight.device
+        self.compute_device = device
+        print(
+            f" \t Initialising cluster centroids... on device {self.compute_device}"
+        )
         km = KMeans(n_clusters=self.network.num_clusters, n_init=self.n_init)
         self._extract_features_distributions()
         km.fit_predict(self.feature_array)
         weights = torch.from_numpy(km.cluster_centers_)
         self.network.clustering_layer.set_weight(weights.to(self.device))
-        device = self.network.clustering_layer.weight.device
-        self.compute_device = device
+
         print("Cluster centres initialised")
 
     def _get_target_distribution(self, out_distribution):
@@ -466,7 +469,8 @@ class ClusterLightningModel(LightningModule):
         opt = self.optimizers()
         opt.zero_grad()
         self.batch_num = batch_idx + 1
-
+        self.to(self.compute_device)
+        batch = batch.to(self.compute_device)
         if (
             (self.count == 0)
             or (self.current_epoch % self.update_interval == 0)
@@ -484,7 +488,6 @@ class ClusterLightningModel(LightningModule):
             :,
         ]
 
-        self.to(self.compute_device)
         inputs = batch
         features = self.network.encoder(inputs)
         clusters = self.network.clustering_layer(features)
