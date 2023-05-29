@@ -1,7 +1,7 @@
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 import torch
 from cellshape_cloud import CloudAutoEncoder
@@ -450,6 +450,15 @@ class ClusterLightningModel(LightningModule):
             torch.nn.functional.log_softmax(clusters),
             torch.nn.functional.softmax(tar_dist),
         )
+
+    def predict_step(
+        self, batch: Any, batch_idx: int, dataloader_idx: int = 0
+    ) -> Any:
+        output, features, clusters = self(batch)
+
+        return features, clusters
+
+        return super().predict_step(batch, batch_idx, dataloader_idx)
 
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()
