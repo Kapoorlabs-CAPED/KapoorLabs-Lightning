@@ -341,7 +341,7 @@ class ClusterLightningModel(LightningModule):
         super().__init__()
         self.save_hyperparameters(
             ignore=[
-                "autoencoder",
+                "network",
                 "loss_func",
                 "cluster_loss_func",
                 "dataloader_inf",
@@ -443,7 +443,7 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
-    def validation_step(self) -> STEP_OUTPUT | None:
+    def validation_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
         if (
             self.current_epoch > 0
             and self.current_epoch % self.update_interval == 0
