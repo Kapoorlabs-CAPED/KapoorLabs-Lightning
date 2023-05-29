@@ -402,6 +402,29 @@ class ClusterLightningModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
+        if self.current_epoch == 0:
+            print("initializing target distribution")
+            device = self.network.clustering_layer.weight.device
+            self.compute_device = device
+            distribution = Distributions(
+                self.network,
+                self.loss_func,
+                self.cluster_loss_func,
+                self.optim_func,
+                self.devices,
+                self.accelerator,
+                self.scheduler,
+                self.gamma,
+                self.dataloader_inf,
+                self.network.num_clusters,
+                get_kmeans=self.get_kmeans,
+                mem_percent=self.mem_percent,
+            )
+
+            distribution.get_distributions_kmeans()
+            self.target_distribution = distribution.target_distribution
+            self.network = distribution.network
+            self.to(self.compute_device)
         batch_size = batch.shape[0]
 
         tar_dist = self.target_distribution[
@@ -463,31 +486,7 @@ class ClusterLightningModel(LightningModule):
             )
             distribution.get_distributions_kmeans()
             self.target_distribution = distribution.target_distribution
-
-    def on_fit_start(self) -> None:
-        device = self.network.clustering_layer.weight.device
-        self.compute_device = device
-        print("initializing target distribution")
-
-        distribution = Distributions(
-            self.network,
-            self.loss_func,
-            self.cluster_loss_func,
-            self.optim_func,
-            self.devices,
-            self.accelerator,
-            self.scheduler,
-            self.gamma,
-            self.dataloader_inf,
-            self.network.num_clusters,
-            get_kmeans=self.get_kmeans,
-            mem_percent=self.mem_percent,
-        )
-
-        distribution.get_distributions_kmeans()
-        self.target_distribution = distribution.target_distribution
-        self.network = distribution.network
-        self.to(self.compute_device)
+            self.network = distribution.network
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
