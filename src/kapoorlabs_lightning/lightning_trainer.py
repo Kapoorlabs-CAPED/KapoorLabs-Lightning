@@ -8,7 +8,6 @@ import torch
 from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
-from lightning.pytorch.utilities.types import STEP_OUTPUT
 from sklearn.cluster import KMeans
 from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -443,11 +442,12 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
-    def validation_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
+    def on_epoch_end(self) -> None:
         if (
             self.current_epoch > 0
             and self.current_epoch % self.update_interval == 0
         ):
+            self.teardown()
             print("updating target distribution")
             distribution = Distributions(
                 self.network,
