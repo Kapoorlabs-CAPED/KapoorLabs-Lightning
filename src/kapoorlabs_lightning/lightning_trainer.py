@@ -1,5 +1,4 @@
 import os
-import sys
 from collections import OrderedDict
 from pathlib import Path
 from typing import List
@@ -14,8 +13,6 @@ from torch.utils.data import DataLoader, Dataset, random_split
 
 from . import optimizers, schedulers
 from .pytorch_models import DeepEmbeddedClustering
-
-sys.setrecursionlimit(100000)
 
 
 class LightningData(LightningDataModule):
@@ -336,6 +333,7 @@ class ClusterLightningModel(LightningModule):
         update_interval: int = 5,
         divergence_tolerance: float = 1e-2,
         mem_percent: int = 40,
+        get_kmeans: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -361,6 +359,7 @@ class ClusterLightningModel(LightningModule):
         self.devices = devices
         self.accelerator = accelerator
         self.mem_percent = mem_percent
+        self.get_kmeans = get_kmeans
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
@@ -469,6 +468,7 @@ class ClusterLightningModel(LightningModule):
         device = self.network.clustering_layer.weight.device
         self.compute_device = device
         print("initializing target distribution")
+
         distribution = Distributions(
             self.network,
             self.loss_func,
@@ -480,7 +480,7 @@ class ClusterLightningModel(LightningModule):
             self.gamma,
             self.dataloader_inf,
             self.network.num_clusters,
-            get_kmeans=True,
+            get_kmeans=self.get_kmeans,
             mem_percent=self.mem_percent,
         )
 
@@ -996,7 +996,10 @@ class ClusterLightningTrain:
         self.datas.batch_size = 1
         # train_dataloaders_inf = self.datas.train_dataloader()
         val_dataloaders_inf = self.datas.train_dataloader()
-
+        if self.ckpt_file is not None:
+            self.get_kmeans = False
+        else:
+            self.get_kmeans = True
         self.model = ClusterLightningModel(
             self.network,
             self.loss_func,
@@ -1008,6 +1011,7 @@ class ClusterLightningTrain:
             self.scheduler,
             gamma=self.gamma,
             mem_percent=self.mem_percent,
+            get_kmeans=self.get_kmeans,
         )
 
         self.default_root_dir = (
