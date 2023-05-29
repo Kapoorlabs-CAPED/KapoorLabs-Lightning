@@ -8,7 +8,7 @@ import torch
 from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
-from pytorch_lightning.utilities.rank_zero import rank_zero_only
+from lightning.pytorch.utilities.types import STEP_OUTPUT
 from sklearn.cluster import KMeans
 from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -443,8 +443,7 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
-    @rank_zero_only
-    def on_train_epoch_end(self) -> None:
+    def validation_step(self) -> STEP_OUTPUT | None:
         if (
             self.current_epoch > 0
             and self.current_epoch % self.update_interval == 0
