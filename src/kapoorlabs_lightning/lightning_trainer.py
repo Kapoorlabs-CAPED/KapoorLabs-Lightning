@@ -406,7 +406,7 @@ class ClusterLightningModel(LightningModule):
         )
         km = KMeans(n_clusters=self.network.num_clusters, n_init=self.n_init)
         self._extract_features_distributions()
-        km.fit_predict(self.feature_array)
+        km.fit_predict(self.feature_array.detach().cpu().numpy())
         weights = torch.from_numpy(km.cluster_centers_)
         self.network.clustering_layer.set_weight(weights.to(self.device))
 
@@ -417,6 +417,7 @@ class ClusterLightningModel(LightningModule):
             out_distribution, axis=0
         )
         p = (numerator.t() / torch.sum(numerator, axis=1)).t()
+        p = torch.tensor(p).to(self.compute_device)
         return p
 
     def _extract_features_distributions(self):
