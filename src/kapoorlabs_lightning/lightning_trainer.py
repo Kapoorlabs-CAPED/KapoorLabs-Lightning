@@ -439,6 +439,9 @@ class ClusterLightningModel(LightningModule):
         self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
         self.predictions = self.predictions.to(self.compute_device)
 
+    def forward(self, z):
+        return self.network(z)
+
     def encode(self, x):
         z = self.network.encoder(x)
         return z
@@ -535,7 +538,6 @@ class ClusterLightningModel(LightningModule):
     def on_train_start(self) -> None:
         self._initialise_centroid()
         self.to(self.compute_device)
-        print(self.device)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
