@@ -440,7 +440,10 @@ class ClusterLightningModel(LightningModule):
         self.predictions = self.predictions.to(self.compute_device)
 
     def forward(self, z):
-        return self.network(z)
+        features = self.encode(z)
+        clusters = self.cluster(features)
+        output = self.decode(features)
+        return output, features, clusters
 
     def encode(self, x):
         z = self.network.encoder(x)
