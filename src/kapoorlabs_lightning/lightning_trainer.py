@@ -334,6 +334,8 @@ class ClusterLightningModel(LightningModule):
         divergence_tolerance: float = 1e-2,
         mem_percent: int = 40,
         get_kmeans: bool = False,
+        q_power: int = 2,
+        n_init: int = 20,
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -361,6 +363,9 @@ class ClusterLightningModel(LightningModule):
         self.mem_percent = mem_percent
         self.get_kmeans = get_kmeans
         self.count = 0
+        self.automatic_optimization = False
+        self.q_power = q_power
+        self.n_init = n_init
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
@@ -393,39 +398,73 @@ class ClusterLightningModel(LightningModule):
         if verbose:
             print(f"Loaded weights for the following layers:\n{layers}")
 
+    def _initialise_centroid(self):
+        print(" \t Initialising cluster centroids...")
+        km = KMeans(n_clusters=self.network.num_clusters, n_init=self.n_init)
+        self._extract_features_distributions()
+        km.fit_predict(self.feature_array)
+        weights = torch.from_numpy(km.cluster_centers_)
+        self.network.clustering_layer.set_weight(weights.to(self.device))
+        print("Cluster centres initialised")
+
+    def _get_target_distribution(self, out_distribution):
+        numerator = (out_distribution**self.q_power) / torch.sum(
+            out_distribution, axis=0
+        )
+        p = (numerator.t() / torch.sum(numerator, axis=1)).t()
+        return p
+
+    def _extract_features_distributions(self):
+        cluster_distribution = None
+        feature_array = None
+
+        local_trainer = Trainer(
+            devices=self.devices, accelerator=self.accelerator
+        )
+
+        results = local_trainer.predict(self, self.dataloader_inf)
+        feature_array, cluster_distribution = zip(*results)
+        self.feature_array = torch.stack(feature_array)[:, 0, :]
+        self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
+
     def forward(self, z):
         return self.network(z)
+
+    def encode(self, x):
+        z = self.network.encoder(x)
+        return z
+
+    def cluster(self, z):
+        q = self.network.clustering_layer(z)
+        return q
+
+    def decode(self, z):
+        out = self.network.decoder(z)
+        return out
 
     def encoder_loss(self, y_hat, y):
         return self.loss_func(y_hat, y)
 
     def cluster_loss(self, clusters, tar_dist):
-        return self.cluster_loss_func(torch.log(clusters), tar_dist)
+        return self.cluster_loss_func(
+            torch.nn.functional.log_softmax(clusters),
+            torch.nn.functional.softmax(tar_dist),
+        )
 
     def training_step(self, batch, batch_idx):
-        if self.count == 0:
-            print("initializing target distribution")
-            device = self.network.clustering_layer.weight.device
-            self.compute_device = device
-            distribution = Distributions(
-                self.network,
-                self.loss_func,
-                self.cluster_loss_func,
-                self.optim_func,
-                self.devices,
-                self.accelerator,
-                self.scheduler,
-                self.gamma,
-                self.dataloader_inf,
-                self.network.num_clusters,
-                get_kmeans=self.get_kmeans,
-                mem_percent=self.mem_percent,
+        opt = self.optimizers()
+        opt.zero_grad()
+        self.batch_num = batch_idx + 1
+
+        if (
+            (self.count == 0)
+            or (self.current_epoch % self.update_interval == 0)
+        ) and (self.batch_num == 1):
+            self._get_target_distribution(self.train_dataloader())
+            self.target_distribution = self._get_target_distribution(
+                self.cluster_distribution
             )
 
-            distribution.get_distributions_kmeans()
-            self.target_distribution = distribution.target_distribution
-            self.network = distribution.network
-            self.to(self.compute_device)
         batch_size = batch.shape[0]
 
         tar_dist = self.target_distribution[
@@ -433,9 +472,11 @@ class ClusterLightningModel(LightningModule):
             :,
         ]
 
-        inputs = batch
         self.to(self.compute_device)
-        outputs, features, clusters = self(inputs)
+        inputs = batch
+        features = self.network.encoder(inputs)
+        clusters = self.network.clustering_layer(features)
+        outputs = self.network.decoder(features)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
         cluster_loss = self.cluster_loss(
@@ -443,13 +484,21 @@ class ClusterLightningModel(LightningModule):
         )
         loss = reconstruction_loss + self.gamma * cluster_loss
 
+        self.manual_backward(loss, retain_graph=True)
+        opt.step()
         tqdm_dict = {
             "reconstruction_loss": reconstruction_loss,
             "cluster_loss": cluster_loss,
             "epoch": self.current_epoch,
         }
         output = OrderedDict(
-            {"loss": loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+            {
+                "loss": loss,
+                "recon_loss": reconstruction_loss,
+                "cluster_loss": cluster_loss,
+                "progress_bar": tqdm_dict,
+                "log": tqdm_dict,
+            }
         )
 
         self.log(
@@ -467,100 +516,8 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
-    def on_epoch_end(self) -> None:
-        if (
-            self.current_epoch > 0
-            and self.current_epoch % self.update_interval == 0
-        ):
-            self.teardown()
-            print("updating target distribution")
-            distribution = Distributions(
-                self.network,
-                self.loss_func,
-                self.cluster_loss_func,
-                self.optim_func,
-                self.devices,
-                self.accelerator,
-                self.scheduler,
-                self.gamma,
-                self.dataloader_inf,
-                self.network.num_clusters,
-                mem_percent=self.mem_percent,
-            )
-            distribution.get_distributions_kmeans()
-            self.target_distribution = distribution.target_distribution
-            self.network = distribution.network
-
-    def configure_optimizers(self):
-        optimizer = self.optim_func(self.parameters())
-
-        if self.scheduler is not None:
-            scheduler = self.scheduler(optimizer=optimizer)
-            optimizer_scheduler = OrderedDict(
-                {
-                    "optimizer": optimizer,
-                    "lr_scheduler": {
-                        "scheduler": scheduler,
-                        "monitor": "validation_loss",
-                        "frequency": 1,
-                    },
-                }
-            )
-            return optimizer_scheduler
-        return {"optimizer": optimizer}
-
-
-class ClusterLightningDistModel(LightningModule):
-    def __init__(
-        self,
-        network: DeepEmbeddedClustering,
-        loss_func: torch.nn.Module,
-        cluster_loss_func: torch.nn.Module,
-        optim_func: optim,
-        devices,
-        accelerator,
-        scheduler: schedulers = None,
-        gamma: int = 1,
-        update_interval: int = 4,
-        divergence_tolerance: float = 1e-2,
-        mem_percent: int = 40,
-    ):
-        super().__init__()
-        self.save_hyperparameters(
-            ignore=[
-                "autoencoder",
-                "loss_func",
-                "cluster_loss_func",
-                "optim_func",
-                "scheduler",
-            ]
-        )
-
-        self.network = network
-        self.loss_func = loss_func
-        self.cluster_loss_func = cluster_loss_func
-        self.optim_func = optim_func
-        self.scheduler = scheduler
-        self.gamma = gamma
-        self.update_interval = update_interval
-        self.divergence_tolerance = divergence_tolerance
-        self.devices = devices
-        self.accelerator = accelerator
-        self.mem_percent = mem_percent
-
-    def forward(self, z):
-        return self.network(z)
-
-    def encoder_loss(self, y_hat, y):
-        return self.loss_func(y_hat, y)
-
-    def cluster_loss(self, clusters, tar_dist):
-        return self.cluster_loss_func(torch.log(clusters), tar_dist)
-
-    def predict_step(self, batch, batch_idx):
-        output, features, clusters = self(batch)
-
-        return features, clusters
+    def on_train_start(self) -> None:
+        self._initialise_centroid()
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -1066,78 +1023,3 @@ class ClusterLightningTrain:
 
     def callback_metrics(self):
         return self.trainer.callback_metrics
-
-
-class Distributions(LightningModule):
-    def __init__(
-        self,
-        network: DeepEmbeddedClustering,
-        loss_func,
-        cluster_loss_func,
-        optim_func,
-        devices,
-        accelerator,
-        scheduler,
-        gamma,
-        dataloader,
-        num_clusters,
-        get_kmeans=False,
-        n_init=20,
-        mem_percent=20,
-    ):
-        super().__init__()
-        self.network = network
-        self.dataloader = dataloader
-        self.get_kmeans = get_kmeans
-        self.n_clusters = num_clusters
-        self.n_init = n_init
-        self.devices = devices
-        self.accelerator = accelerator
-        self.mem_percent = mem_percent
-        self.loss_func = loss_func
-        self.cluster_loss_func = cluster_loss_func
-        self.optim_func = optim_func
-        self.devices = devices
-        self.accelerator = accelerator
-        self.scheduler = scheduler
-        self.gamma = gamma
-
-    def get_distributions_kmeans(self):
-        torch.cuda.empty_cache()
-        cluster_distribution = None
-        feature_array = None
-        if self.get_kmeans:
-            print("Getting KMeans")
-            km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
-
-        local_trainer = Trainer(
-            devices=self.devices, accelerator=self.accelerator
-        )
-        lightning_model = ClusterLightningDistModel(
-            self.network,
-            self.loss_func,
-            self.cluster_loss_func,
-            self.optim_func,
-            self.devices,
-            self.accelerator,
-            self.scheduler,
-            gamma=self.gamma,
-            mem_percent=self.mem_percent,
-        )
-        results = local_trainer.predict(lightning_model, self.dataloader)
-        feature_array, cluster_distribution = zip(*results)
-        feature_array = torch.stack(feature_array)[:, 0, :]
-        cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
-        if self.get_kmeans:
-            km.fit_predict(feature_array.detach().numpy())
-            weights = torch.from_numpy(km.cluster_centers_)
-            self.network.clustering_layer.set_weight(weights)
-        self.predictions = torch.argmax(cluster_distribution.data, axis=1)
-        self.cluster_distribution = cluster_distribution
-
-        tar_dist = self.cluster_distribution**2 / torch.sum(
-            self.cluster_distribution, axis=0
-        )
-        self.target_distribution = torch.transpose(
-            torch.transpose(tar_dist, 0, 1) / torch.sum(tar_dist, axis=1), 0, 1
-        )
