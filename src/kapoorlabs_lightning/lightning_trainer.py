@@ -360,6 +360,7 @@ class ClusterLightningModel(LightningModule):
         self.accelerator = accelerator
         self.mem_percent = mem_percent
         self.get_kmeans = get_kmeans
+        self.count = 0
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
@@ -402,7 +403,7 @@ class ClusterLightningModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
-        if self.current_epoch == 0:
+        if self.count == 0:
             print("initializing target distribution")
             device = self.network.clustering_layer.weight.device
             self.compute_device = device
@@ -461,6 +462,8 @@ class ClusterLightningModel(LightningModule):
             sync_dist=True,
             rank_zero_only=True,
         )
+
+        self.count += 1
 
         return output
 
