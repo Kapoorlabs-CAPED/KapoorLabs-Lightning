@@ -405,6 +405,8 @@ class ClusterLightningModel(LightningModule):
         km.fit_predict(self.feature_array)
         weights = torch.from_numpy(km.cluster_centers_)
         self.network.clustering_layer.set_weight(weights.to(self.device))
+        device = self.network.clustering_layer.weight.device
+        self.compute_device = device
         print("Cluster centres initialised")
 
     def _get_target_distribution(self, out_distribution):
@@ -426,6 +428,8 @@ class ClusterLightningModel(LightningModule):
         feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
+
+        self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
 
     def forward(self, z):
         return self.network(z)
@@ -458,8 +462,6 @@ class ClusterLightningModel(LightningModule):
 
         return features, clusters
 
-        return super().predict_step(batch, batch_idx, dataloader_idx)
-
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()
         opt.zero_grad()
@@ -469,7 +471,8 @@ class ClusterLightningModel(LightningModule):
             (self.count == 0)
             or (self.current_epoch % self.update_interval == 0)
         ) and (self.batch_num == 1):
-            self._get_target_distribution(self.train_dataloader())
+            if self.count > 0:
+                self._extract_features_distributions()
             self.target_distribution = self._get_target_distribution(
                 self.cluster_distribution
             )
