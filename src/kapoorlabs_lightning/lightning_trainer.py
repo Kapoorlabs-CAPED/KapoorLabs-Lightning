@@ -431,8 +431,12 @@ class ClusterLightningModel(LightningModule):
         feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
-
+        self.feature_array = self.feature_array.to(self.compute_device)
+        self.cluster_distribution = self.cluster_distribution.to(
+            self.compute_device
+        )
         self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
+        self.predictions = self.predictions.to(self.compute_device)
 
     def forward(self, z):
         return self.network(z)
@@ -469,8 +473,7 @@ class ClusterLightningModel(LightningModule):
         opt = self.optimizers()
         opt.zero_grad()
         self.batch_num = batch_idx + 1
-        self.to(self.compute_device)
-        batch = batch.to(self.compute_device)
+
         if (
             (self.count == 0)
             or (self.current_epoch % self.update_interval == 0)
