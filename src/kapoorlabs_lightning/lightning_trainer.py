@@ -489,7 +489,7 @@ class ClusterLightningModel(LightningModule):
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
         ]
-
+        print(batch.shape)
         inputs = batch
         features = self.network.encoder(inputs)
         clusters = self.network.clustering_layer(features)
