@@ -417,6 +417,9 @@ class ClusterLightningModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
+        self.target_distribution = self._get_target_distribution(
+            self.cluster_distribution
+        )
         batch_size = batch.shape[0]
 
         tar_dist = self.target_distribution[
@@ -452,7 +455,7 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
-    def on_train_end(self) -> None:
+    def on_train_epoch_end(self) -> None:
         if self.current_epoch % self.update_interval == 0:
             self.premodel = initialize_repeat_function(
                 self.network,
@@ -466,11 +469,6 @@ class ClusterLightningModel(LightningModule):
                 False,
             )
             self.cluster_distribution = self.premodel.cluster_distribution
-
-    def on_train_start(self) -> None:
-        self.target_distribution = self._get_target_distribution(
-            self.cluster_distribution
-        )
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -1013,6 +1011,20 @@ class ClusterLightningTrain:
         self.hparams.update(kwargs=kwargs)
 
     def _train_model(self):
+        print("Starting training...")
+        self.trainer = Trainer(
+            accelerator=self.accelerator,
+            devices=self.devices,
+            strategy=self.strategy,
+            logger=self.logger,
+            callbacks=self.callbacks,
+            min_epochs=self.min_epochs,
+            max_epochs=self.epochs,
+            default_root_dir=self.default_root_dir,
+            enable_checkpointing=self.enable_checkpointing,
+            num_nodes=self.num_nodes,
+        )
+
         self.datas = LightningData(hparams=self.hparams)
         self.datas.setup("fit")
         train_dataloaders = self.datas.train_dataloader()
@@ -1057,19 +1069,6 @@ class ClusterLightningTrain:
             self.default_root_dir, Path(self.model_save_file).stem
         )
         Path(self.default_root_dir).mkdir(exist_ok=True)
-        print("Starting training...")
-        self.trainer = Trainer(
-            accelerator=self.accelerator,
-            devices=self.devices,
-            strategy=self.strategy,
-            logger=self.logger,
-            callbacks=self.callbacks,
-            min_epochs=self.min_epochs,
-            max_epochs=self.epochs,
-            default_root_dir=self.default_root_dir,
-            enable_checkpointing=self.enable_checkpointing,
-            num_nodes=self.num_nodes,
-        )
 
         if self.ckpt_file is not None:
             self.trainer.fit(
