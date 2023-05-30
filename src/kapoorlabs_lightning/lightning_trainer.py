@@ -477,9 +477,11 @@ class ClusterLightningModel(LightningModule):
         ) and (self.batch_num == 1):
             if self.count > 0:
                 self._extract_features_distributions()
+
             self.target_distribution = self._get_target_distribution(
                 self.cluster_distribution
             )
+            print(self.target_distribution)
 
         batch_size = batch.shape[0]
 
@@ -487,13 +489,9 @@ class ClusterLightningModel(LightningModule):
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
         ]
+        output, features, clusters = self(batch)
 
-        inputs = batch
-        features = self.network.encoder(inputs)
-        clusters = self.network.clustering_layer(features)
-        outputs = self.network.decoder(features)
-
-        reconstruction_loss = self.loss_func(inputs, outputs)
+        reconstruction_loss = self.loss_func(batch, output)
         cluster_loss = self.cluster_loss(
             clusters, tar_dist.to(self.compute_device)
         )
