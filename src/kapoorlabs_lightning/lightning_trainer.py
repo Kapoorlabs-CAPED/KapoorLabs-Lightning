@@ -429,7 +429,7 @@ class ClusterLightningModel(LightningModule):
         )
 
         results = local_trainer.predict(self, self.dataloader_inf)
-        feature_array, cluster_distribution = zip(*results)
+        outputs, feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
         print(self.feature_array.shape)
