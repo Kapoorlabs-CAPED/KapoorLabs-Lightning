@@ -432,6 +432,8 @@ class ClusterLightningModel(LightningModule):
         feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
+        print(self.feature_array.shape)
+        print(self.cluster_distribution.shape)
         self.feature_array = self.feature_array.to(self.compute_device)
         self.cluster_distribution = self.cluster_distribution.to(
             self.compute_device
@@ -475,8 +477,8 @@ class ClusterLightningModel(LightningModule):
             (self.count == 0)
             or (self.current_epoch % self.update_interval == 0)
         ) and (self.batch_num == 1):
-            # if self.count > 0:
-            # self._extract_features_distributions()
+            if self.count > 0:
+                self._extract_features_distributions()
             self.target_distribution = self._get_target_distribution(
                 self.cluster_distribution
             )
@@ -492,25 +494,25 @@ class ClusterLightningModel(LightningModule):
         features = self.network.encoder(inputs)
         clusters = self.network.clustering_layer(features)
         outputs = self.network.decoder(features)
-        print(tar_dist.shape, clusters.shape)
-        loss = self.loss_func(inputs, outputs)
-        # cluster_loss = self.cluster_loss(
-        #   clusters, tar_dist.to(self.compute_device)
-        # )
-        # loss = reconstruction_loss + self.gamma * cluster_loss
+
+        reconstruction_loss = self.loss_func(inputs, outputs)
+        cluster_loss = self.cluster_loss(
+            clusters, tar_dist.to(self.compute_device)
+        )
+        loss = reconstruction_loss + self.gamma * cluster_loss
 
         self.manual_backward(loss, retain_graph=True)
         opt.step()
         tqdm_dict = {
-            "reconstruction_loss": loss,
-            "cluster_loss": loss,
+            "reconstruction_loss": reconstruction_loss,
+            "cluster_loss": cluster_loss,
             "epoch": self.current_epoch,
         }
         output = OrderedDict(
             {
                 "loss": loss,
-                "recon_loss": loss,
-                "cluster_loss": loss,
+                "recon_loss": reconstruction_loss,
+                "cluster_loss": cluster_loss,
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
