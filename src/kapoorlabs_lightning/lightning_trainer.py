@@ -465,7 +465,7 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
-    def validation_step(self, batch, batch_idx):
+    def on_train_epoch_end(self) -> None:
         if self.current_epoch % self.update_interval == 0:
             self.premodel = initialize_repeat_function(
                 self.network,
