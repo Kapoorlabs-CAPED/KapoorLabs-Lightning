@@ -416,7 +416,11 @@ class ClusterLightningModel(LightningModule):
         numerator = (out_distribution**self.q_power) / torch.sum(
             out_distribution, axis=0
         )
-        p = (numerator.t() / torch.sum(numerator, axis=1)).t()
+        p = torch.transpose(
+            torch.transpose(numerator, 0, 1) / torch.sum(numerator, axis=1),
+            0,
+            1,
+        )
         p = torch.tensor(p).to(self.compute_device)
         return p
 
@@ -472,7 +476,7 @@ class ClusterLightningModel(LightningModule):
         opt = self.optimizers()
         opt.zero_grad()
         self.batch_num = batch_idx + 1
-
+        print(batch.shape)
         if (
             (self.count == 0)
             or (self.current_epoch % self.update_interval == 0)
@@ -489,7 +493,7 @@ class ClusterLightningModel(LightningModule):
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
         ]
-        print(batch.shape)
+
         inputs = batch
         features = self.network.encoder(inputs)
         clusters = self.network.clustering_layer(features)
