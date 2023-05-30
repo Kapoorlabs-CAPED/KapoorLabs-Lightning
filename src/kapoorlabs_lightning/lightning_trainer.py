@@ -1083,7 +1083,7 @@ class ClusterLightningTrain:
 
         self.pretrainer.test(
             model=self.premodel,
-            test_dataloaders=val_dataloaders_inf,
+            dataloaders=val_dataloaders_inf,
             verbose=True,
         )
 
