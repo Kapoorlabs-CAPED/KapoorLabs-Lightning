@@ -1012,6 +1012,13 @@ class ClusterLightningTrain:
 
     def _train_model(self):
         print("Starting training...")
+        self.default_root_dir = (
+            Path(self.model_save_file).absolute().parent.as_posix()
+        )
+        self.default_root_dir = os.path.join(
+            self.default_root_dir, Path(self.model_save_file).stem
+        )
+        Path(self.default_root_dir).mkdir(exist_ok=True)
         self.trainer = Trainer(
             accelerator=self.accelerator,
             devices=self.devices,
@@ -1061,14 +1068,6 @@ class ClusterLightningTrain:
             gamma=self.gamma,
             mem_percent=self.mem_percent,
         )
-
-        self.default_root_dir = (
-            Path(self.model_save_file).absolute().parent.as_posix()
-        )
-        self.default_root_dir = os.path.join(
-            self.default_root_dir, Path(self.model_save_file).stem
-        )
-        Path(self.default_root_dir).mkdir(exist_ok=True)
 
         if self.ckpt_file is not None:
             self.trainer.fit(
