@@ -436,8 +436,7 @@ class ClusterLightningModel(LightningModule):
         outputs, feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
-        print(self.feature_array.shape)
-        print(self.cluster_distribution.shape)
+
         self.feature_array = self.feature_array.to(self.compute_device)
         self.cluster_distribution = self.cluster_distribution.to(
             self.compute_device
@@ -467,15 +466,19 @@ class ClusterLightningModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
+        print("A")
         if (
             (self.count == 0)
             or (self.current_epoch % self.update_interval == 0)
         ) and (batch_idx == 1):
+            print("B")
             if self.count > 0:
                 self._extract_features_distributions()
+            print("C")
             self.target_distribution = self._get_target_distribution(
                 self.cluster_distribution
             )
+        print(self.target_distribution.shape)
         self.count += 1
         batch_size = batch.shape[0]
 
