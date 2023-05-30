@@ -476,7 +476,6 @@ class ClusterLightningModel(LightningModule):
         opt = self.optimizers()
         opt.zero_grad()
         self.batch_num = batch_idx + 1
-        print(batch.shape)
         if (
             (self.count == 0)
             or (self.current_epoch % self.update_interval == 0)
@@ -490,7 +489,9 @@ class ClusterLightningModel(LightningModule):
         batch_size = batch.shape[0]
 
         tar_dist = self.target_distribution[
-            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
+            ((self.batch_num - 1) * batch_size) : (
+                self.batch_num * batch_size
+            ),
             :,
         ]
 
