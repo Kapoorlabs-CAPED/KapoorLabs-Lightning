@@ -423,11 +423,7 @@ class ClusterLightningModel(LightningModule):
         cluster_distribution = None
         feature_array = None
 
-        local_trainer = Trainer(
-            devices=self.devices, accelerator=self.accelerator
-        )
-
-        results = local_trainer.predict(self, self.dataloader_inf)
+        results = self.trainer.predict(self, self.dataloader_inf)
         feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
@@ -439,7 +435,6 @@ class ClusterLightningModel(LightningModule):
         self.predictions = self.predictions.to(self.compute_device)
 
     def forward(self, z):
-        print(z)
         features = self.encode(z)
         clusters = self.cluster(features)
         output = self.decode(features)
