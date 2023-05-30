@@ -467,11 +467,18 @@ class ClusterLightningModel(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         if self.current_epoch % self.update_interval == 0:
-            results = self(batch)
-            outputs, feature_array, cluster_distribution = zip(*results)
-            self.cluster_distribution = torch.stack(cluster_distribution)[
-                :, 0, :
-            ]
+            self.premodel = initialize_repeat_function(
+                self.network,
+                self.loss_func,
+                self.cluster_loss_func,
+                self.dataloader_inf,
+                self.optim_func,
+                self.gamma,
+                self.mem_percent,
+                self.trainer.accelerator,
+                False,
+            )
+            self.cluster_distribution = self.premodel.cluster_distribution
 
     def on_train_start(self) -> None:
         self.target_distribution = self._get_target_distribution(
@@ -509,7 +516,6 @@ class ClusterLightningDistModel(LightningModule):
         update_interval: int = 5,
         divergence_tolerance: float = 1e-2,
         mem_percent: int = 40,
-        get_kmeans: bool = False,
         q_power: int = 2,
         n_init: int = 20,
     ):
@@ -533,7 +539,6 @@ class ClusterLightningDistModel(LightningModule):
         self.update_interval = update_interval
         self.divergence_tolerance = divergence_tolerance
         self.mem_percent = mem_percent
-        self.get_kmeans = get_kmeans
         self.q_power = q_power
         self.n_init = n_init
 
@@ -568,17 +573,20 @@ class ClusterLightningDistModel(LightningModule):
         if verbose:
             print(f"Loaded weights for the following layers:\n{layers}")
 
-    def _initialise_centroid(self, results):
+    def _initialise_centroid(self, results, kmeans=True):
         device = self.network.clustering_layer.weight.device
         self.compute_device = device
         print(
             f" \t Initialising cluster centroids... on device {self.compute_device}"
         )
-        km = KMeans(n_clusters=self.network.num_clusters, n_init=self.n_init)
-        self._extract_features_distributions(results)
-        km.fit_predict(self.feature_array.detach().cpu().numpy())
-        weights = torch.from_numpy(km.cluster_centers_)
-        self.network.clustering_layer.set_weight(weights.to(self.device))
+        if kmeans:
+            km = KMeans(
+                n_clusters=self.network.num_clusters, n_init=self.n_init
+            )
+            self._extract_features_distributions(results)
+            km.fit_predict(self.feature_array.detach().cpu().numpy())
+            weights = torch.from_numpy(km.cluster_centers_)
+            self.network.clustering_layer.set_weight(weights.to(self.device))
 
         print("Cluster centres initialised")
 
@@ -601,7 +609,7 @@ class ClusterLightningDistModel(LightningModule):
         return self.network(z)
 
     def predict_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
-        self(batch)
+        return self(batch)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -1031,24 +1039,17 @@ class ClusterLightningTrain:
         else:
             self.get_kmeans = True
 
-        self.premodel = ClusterLightningDistModel(
+        self.premodel = initialize_repeat_function(
             self.network,
             self.loss_func,
             self.cluster_loss_func,
             val_dataloaders_inf,
             self.optim_func,
-            gamma=self.gamma,
-            mem_percent=self.mem_percent,
-            get_kmeans=self.get_kmeans,
+            self.gamma,
+            self.mem_percent,
+            self.accelerator,
+            self.get_kmeans,
         )
-
-        self.pretrainer = Trainer(accelerator=self.accelerator, devices=1)
-
-        results = self.pretrainer.predict(
-            model=self.premodel, dataloaders=val_dataloaders_inf
-        )
-
-        self.premodel._initialise_centroid(results)
 
         self.model = ClusterLightningModel(
             self.premodel.network,
@@ -1112,3 +1113,35 @@ class ClusterLightningTrain:
 
     def callback_metrics(self):
         return self.trainer.callback_metrics
+
+
+def initialize_repeat_function(
+    network,
+    loss_func,
+    cluster_loss_func,
+    val_dataloaders_inf,
+    optim_func,
+    gamma,
+    mem_percent,
+    accelerator,
+    kmeans,
+):
+    premodel = ClusterLightningDistModel(
+        network,
+        loss_func,
+        cluster_loss_func,
+        val_dataloaders_inf,
+        optim_func,
+        gamma=gamma,
+        mem_percent=mem_percent,
+    )
+
+    pretrainer = Trainer(accelerator=accelerator, devices=1)
+
+    results = pretrainer.predict(
+        model=premodel, dataloaders=val_dataloaders_inf
+    )
+
+    premodel._initialise_centroid(results, kmeans=kmeans)
+
+    return premodel
