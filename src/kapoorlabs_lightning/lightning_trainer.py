@@ -327,8 +327,6 @@ class ClusterLightningModel(LightningModule):
         cluster_loss_func: torch.nn.Module,
         dataloader_inf: DataLoader,
         optim_func: optim,
-        devices,
-        accelerator,
         cluster_distribution,
         scheduler: schedulers = None,
         gamma: int = 1,
@@ -359,8 +357,6 @@ class ClusterLightningModel(LightningModule):
         self.gamma = gamma
         self.update_interval = update_interval
         self.divergence_tolerance = divergence_tolerance
-        self.devices = devices
-        self.accelerator = accelerator
         self.mem_percent = mem_percent
         self.count = 0
         self.cluster_distribution = cluster_distribution
@@ -411,17 +407,6 @@ class ClusterLightningModel(LightningModule):
         print(p.shape)
         return p
 
-    def _extract_features_distributions(self):
-        cluster_distribution = None
-
-        local_trainer = Trainer(
-            devices=self.devices, accelerator=self.accelerator
-        )
-
-        results = local_trainer.predict(self, self.dataloader_inf)
-        outputs, feature_array, cluster_distribution = zip(*results)
-        self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
-
     def encode(self, x):
         z = self.network.encoder(x)
         return z
@@ -444,16 +429,6 @@ class ClusterLightningModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
-        if (
-            (self.count == 0)
-            or (self.current_epoch % self.update_interval == 0)
-        ) and (batch_idx == 1):
-            if self.count > 0:
-                self._extract_features_distributions()
-            self.target_distribution = self._get_target_distribution(
-                self.cluster_distribution
-            )
-        self.count += 1
         batch_size = batch.shape[0]
 
         tar_dist = self.target_distribution[
@@ -490,6 +465,19 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
+    def validation_step(self, batch, batch_idx):
+        if self.current_epoch % self.update_interval == 0:
+            results = self(batch)
+            outputs, feature_array, cluster_distribution = zip(*results)
+            self.cluster_distribution = torch.stack(cluster_distribution)[
+                :, 0, :
+            ]
+
+    def on_train_start(self) -> None:
+        self.target_distribution = self._get_target_distribution(
+            self.cluster_distribution
+        )
+
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
 
@@ -517,8 +505,6 @@ class ClusterLightningDistModel(LightningModule):
         cluster_loss_func: torch.nn.Module,
         dataloader_inf: DataLoader,
         optim_func: optim,
-        devices,
-        accelerator,
         gamma: int = 1,
         update_interval: int = 5,
         divergence_tolerance: float = 1e-2,
@@ -546,8 +532,6 @@ class ClusterLightningDistModel(LightningModule):
         self.gamma = gamma
         self.update_interval = update_interval
         self.divergence_tolerance = divergence_tolerance
-        self.devices = devices
-        self.accelerator = accelerator
         self.mem_percent = mem_percent
         self.get_kmeans = get_kmeans
         self.q_power = q_power
@@ -584,14 +568,14 @@ class ClusterLightningDistModel(LightningModule):
         if verbose:
             print(f"Loaded weights for the following layers:\n{layers}")
 
-    def _initialise_centroid(self):
+    def _initialise_centroid(self, batch):
         device = self.network.clustering_layer.weight.device
         self.compute_device = device
         print(
             f" \t Initialising cluster centroids... on device {self.compute_device}"
         )
         km = KMeans(n_clusters=self.network.num_clusters, n_init=self.n_init)
-        self._extract_features_distributions()
+        self._extract_features_distributions(batch)
         km.fit_predict(self.feature_array.detach().cpu().numpy())
         weights = torch.from_numpy(km.cluster_centers_)
         self.network.clustering_layer.set_weight(weights.to(self.device))
@@ -610,15 +594,11 @@ class ClusterLightningDistModel(LightningModule):
         p = torch.tensor(p).to(self.compute_device)
         return p
 
-    def _extract_features_distributions(self):
+    def _extract_features_distributions(self, batch):
         cluster_distribution = None
         feature_array = None
 
-        local_trainer = Trainer(
-            devices=self.devices, accelerator=self.accelerator
-        )
-
-        results = local_trainer.predict(self, self.dataloader_inf)
+        results = self(batch)
         outputs, feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
@@ -634,7 +614,7 @@ class ClusterLightningDistModel(LightningModule):
         return self.network(z)
 
     def test_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
-        self._initialise_centroid()
+        self._initialise_centroid(batch)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -1070,16 +1050,12 @@ class ClusterLightningTrain:
             self.cluster_loss_func,
             val_dataloaders_inf,
             self.optim_func,
-            self.devices,
-            self.accelerator,
             gamma=self.gamma,
             mem_percent=self.mem_percent,
             get_kmeans=self.get_kmeans,
         )
 
-        self.pretrainer = Trainer(
-            accelerator=self.accelerator, devices=self.devices
-        )
+        self.pretrainer = Trainer(accelerator=self.accelerator, devices=1)
 
         self.pretrainer.test(
             model=self.premodel,
@@ -1093,8 +1069,6 @@ class ClusterLightningTrain:
             self.cluster_loss_func,
             val_dataloaders_inf,
             self.optim_func,
-            self.devices,
-            self.accelerator,
             self.premodel.cluster_distribution,
             self.scheduler,
             gamma=self.gamma,
