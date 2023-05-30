@@ -1045,9 +1045,7 @@ class ClusterLightningTrain:
         self.pretrainer = Trainer(accelerator=self.accelerator, devices=1)
 
         results = self.pretrainer.predict(
-            model=self.premodel,
-            dataloaders=val_dataloaders_inf,
-            verbose=True,
+            model=self.premodel, dataloaders=val_dataloaders_inf
         )
 
         self.premodel._initialise_centroid(results)
