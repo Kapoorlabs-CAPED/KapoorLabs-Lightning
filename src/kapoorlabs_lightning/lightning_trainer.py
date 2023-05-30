@@ -568,37 +568,24 @@ class ClusterLightningDistModel(LightningModule):
         if verbose:
             print(f"Loaded weights for the following layers:\n{layers}")
 
-    def _initialise_centroid(self, batch):
+    def _initialise_centroid(self, results):
         device = self.network.clustering_layer.weight.device
         self.compute_device = device
         print(
             f" \t Initialising cluster centroids... on device {self.compute_device}"
         )
         km = KMeans(n_clusters=self.network.num_clusters, n_init=self.n_init)
-        self._extract_features_distributions(batch)
+        self._extract_features_distributions(results)
         km.fit_predict(self.feature_array.detach().cpu().numpy())
         weights = torch.from_numpy(km.cluster_centers_)
         self.network.clustering_layer.set_weight(weights.to(self.device))
 
         print("Cluster centres initialised")
 
-    def _get_target_distribution(self, out_distribution):
-        numerator = (out_distribution**self.q_power) / torch.sum(
-            out_distribution, axis=0
-        )
-        p = torch.transpose(
-            torch.transpose(numerator, 0, 1) / torch.sum(numerator, axis=1),
-            0,
-            1,
-        )
-        p = torch.tensor(p).to(self.compute_device)
-        return p
-
-    def _extract_features_distributions(self, batch):
+    def _extract_features_distributions(self, results):
         cluster_distribution = None
         feature_array = None
 
-        results = self(batch)
         outputs, feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
@@ -613,8 +600,8 @@ class ClusterLightningDistModel(LightningModule):
     def forward(self, z):
         return self.network(z)
 
-    def test_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
-        self._initialise_centroid(batch)
+    def predict_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
+        self(batch)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -1057,11 +1044,13 @@ class ClusterLightningTrain:
 
         self.pretrainer = Trainer(accelerator=self.accelerator, devices=1)
 
-        self.pretrainer.test(
+        results = self.pretrainer.predict(
             model=self.premodel,
             dataloaders=val_dataloaders_inf,
             verbose=True,
         )
+
+        self.premodel._initialise_centroid(results)
 
         self.model = ClusterLightningModel(
             self.premodel.network,
