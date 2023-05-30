@@ -452,7 +452,7 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
-    def on_train_epoch_end(self) -> None:
+    def on_train_end(self) -> None:
         if self.current_epoch % self.update_interval == 0:
             self.premodel = initialize_repeat_function(
                 self.network,
