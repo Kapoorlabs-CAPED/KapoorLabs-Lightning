@@ -7,6 +7,7 @@ import torch
 from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
+from lightning.pytorch.utilities.types import STEP_OUTPUT
 from sklearn.cluster import KMeans
 from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -328,12 +329,12 @@ class ClusterLightningModel(LightningModule):
         optim_func: optim,
         devices,
         accelerator,
+        cluster_distribution,
         scheduler: schedulers = None,
         gamma: int = 1,
         update_interval: int = 5,
         divergence_tolerance: float = 1e-2,
         mem_percent: int = 40,
-        get_kmeans: bool = False,
         q_power: int = 2,
         n_init: int = 20,
     ):
@@ -361,8 +362,194 @@ class ClusterLightningModel(LightningModule):
         self.devices = devices
         self.accelerator = accelerator
         self.mem_percent = mem_percent
-        self.get_kmeans = get_kmeans
         self.count = 0
+        self.cluster_distribution = cluster_distribution
+        self.q_power = q_power
+        self.n_init = n_init
+
+    def load_pretrained(self, pretrained_file, strict=True, verbose=True):
+        if isinstance(pretrained_file, (list, tuple)):
+            pretrained_file = pretrained_file[0]
+        # Load the state dict
+        state_dict = torch.load(pretrained_file)["state_dict"]
+        # Make sure to have a weight dict
+        if not isinstance(state_dict, dict):
+            state_dict = dict(state_dict)
+
+        # Get parameter dict of current model
+        param_dict = dict(self.network.named_parameters())
+
+        layers = []
+        for layer in param_dict:
+            if strict and not "network." + layer in state_dict:
+                if verbose:
+                    print(f'Could not find weights for layer "{layer}"')
+                continue
+            try:
+                param_dict[layer].data.copy_(
+                    state_dict["network." + layer].data
+                )
+                layers.append(layer)
+            except (RuntimeError, KeyError) as e:
+                print(f"Error at layer {layer}:\n{e}")
+
+        self.network.load_state_dict(param_dict)
+
+        if verbose:
+            print(f"Loaded weights for the following layers:\n{layers}")
+
+    def _get_target_distribution(self, out_distribution):
+        numerator = (out_distribution**self.q_power) / torch.sum(
+            out_distribution, axis=0
+        )
+        p = torch.transpose(
+            torch.transpose(numerator, 0, 1) / torch.sum(numerator, axis=1),
+            0,
+            1,
+        )
+        p = torch.tensor(p)
+        print(p.shape)
+        return p
+
+    def _extract_features_distributions(self):
+        cluster_distribution = None
+
+        local_trainer = Trainer(
+            devices=self.devices, accelerator=self.accelerator
+        )
+
+        results = local_trainer.predict(self, self.dataloader_inf)
+        outputs, feature_array, cluster_distribution = zip(*results)
+        self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
+
+    def encode(self, x):
+        z = self.network.encoder(x)
+        return z
+
+    def cluster(self, z):
+        q = self.network.clustering_layer(z)
+        return q
+
+    def decode(self, z):
+        out = self.network.decoder(z)
+        return out
+
+    def forward(self, z):
+        return self.network(z)
+
+    def encoder_loss(self, y_hat, y):
+        return self.loss_func(y_hat, y)
+
+    def cluster_loss(self, clusters, tar_dist):
+        return self.cluster_loss_func(torch.log(clusters), tar_dist)
+
+    def training_step(self, batch, batch_idx):
+        if (
+            (self.count == 0)
+            or (self.current_epoch % self.update_interval == 0)
+        ) and (batch_idx == 1):
+            if self.count > 0:
+                self._extract_features_distributions()
+            self.target_distribution = self._get_target_distribution(
+                self.cluster_distribution
+            )
+        self.count += 1
+        batch_size = batch.shape[0]
+
+        tar_dist = self.target_distribution[
+            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
+            :,
+        ]
+
+        inputs = batch
+        outputs, features, clusters = self(inputs)
+
+        reconstruction_loss = self.loss_func(inputs, outputs)
+        cluster_loss = self.cluster_loss(clusters, tar_dist)
+        loss = reconstruction_loss + self.gamma * cluster_loss
+
+        tqdm_dict = {
+            "reconstruction_loss": reconstruction_loss,
+            "cluster_loss": cluster_loss,
+            "epoch": self.current_epoch,
+        }
+        output = OrderedDict(
+            {"loss": loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+        )
+
+        self.log(
+            "train_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            sync_dist=True,
+            rank_zero_only=True,
+        )
+
+        return output
+
+    def configure_optimizers(self):
+        optimizer = self.optim_func(self.parameters())
+
+        if self.scheduler is not None:
+            scheduler = self.scheduler(optimizer=optimizer)
+            optimizer_scheduler = OrderedDict(
+                {
+                    "optimizer": optimizer,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "monitor": "validation_loss",
+                        "frequency": 1,
+                    },
+                }
+            )
+            return optimizer_scheduler
+        return {"optimizer": optimizer}
+
+
+class ClusterLightningDistModel(LightningModule):
+    def __init__(
+        self,
+        network: DeepEmbeddedClustering,
+        loss_func: torch.nn.Module,
+        cluster_loss_func: torch.nn.Module,
+        dataloader_inf: DataLoader,
+        optim_func: optim,
+        devices,
+        accelerator,
+        gamma: int = 1,
+        update_interval: int = 5,
+        divergence_tolerance: float = 1e-2,
+        mem_percent: int = 40,
+        get_kmeans: bool = False,
+        q_power: int = 2,
+        n_init: int = 20,
+    ):
+        super().__init__()
+        self.save_hyperparameters(
+            ignore=[
+                "network",
+                "loss_func",
+                "cluster_loss_func",
+                "dataloader_inf",
+                "optim_func",
+            ]
+        )
+
+        self.network = network
+        self.loss_func = loss_func
+        self.cluster_loss_func = cluster_loss_func
+        self.dataloader_inf = dataloader_inf
+        self.optim_func = optim_func
+        self.gamma = gamma
+        self.update_interval = update_interval
+        self.divergence_tolerance = divergence_tolerance
+        self.devices = devices
+        self.accelerator = accelerator
+        self.mem_percent = mem_percent
+        self.get_kmeans = get_kmeans
         self.q_power = q_power
         self.n_init = n_init
 
@@ -443,101 +630,15 @@ class ClusterLightningModel(LightningModule):
         self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
         self.predictions = self.predictions.to(self.compute_device)
 
-    def encode(self, x):
-        z = self.network.encoder(x)
-        return z
-
-    def cluster(self, z):
-        q = self.network.clustering_layer(z)
-        return q
-
-    def decode(self, z):
-        out = self.network.decoder(z)
-        return out
-
     def forward(self, z):
         return self.network(z)
 
-    def encoder_loss(self, y_hat, y):
-        return self.loss_func(y_hat, y)
-
-    def cluster_loss(self, clusters, tar_dist):
-        return self.cluster_loss_func(torch.log(clusters), tar_dist)
-
-    def training_step(self, batch, batch_idx):
-        print("A")
-        if (
-            (self.count == 0)
-            or (self.current_epoch % self.update_interval == 0)
-        ) and (batch_idx == 1):
-            print("B")
-            if self.count > 0:
-                self._extract_features_distributions()
-            print("C")
-            self.target_distribution = self._get_target_distribution(
-                self.cluster_distribution
-            )
-        print(self.target_distribution.shape)
-        self.count += 1
-        batch_size = batch.shape[0]
-
-        tar_dist = self.target_distribution[
-            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
-            :,
-        ]
-
-        inputs = batch
-        self.to(self.compute_device)
-        outputs, features, clusters = self(inputs)
-
-        reconstruction_loss = self.loss_func(inputs, outputs)
-        cluster_loss = self.cluster_loss(
-            clusters, tar_dist.to(self.compute_device)
-        )
-        loss = reconstruction_loss + self.gamma * cluster_loss
-
-        tqdm_dict = {
-            "reconstruction_loss": reconstruction_loss,
-            "cluster_loss": cluster_loss,
-            "epoch": self.current_epoch,
-        }
-        output = OrderedDict(
-            {"loss": loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
-        )
-
-        self.log(
-            "train_loss",
-            loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            logger=True,
-            sync_dist=True,
-            rank_zero_only=True,
-        )
-
-        return output
-
-    def on_train_start(self) -> None:
+    def test_step(self) -> STEP_OUTPUT | None:
         self._initialise_centroid()
-        self.to(self.compute_device)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
 
-        if self.scheduler is not None:
-            scheduler = self.scheduler(optimizer=optimizer)
-            optimizer_scheduler = OrderedDict(
-                {
-                    "optimizer": optimizer,
-                    "lr_scheduler": {
-                        "scheduler": scheduler,
-                        "monitor": "validation_loss",
-                        "frequency": 1,
-                    },
-                }
-            )
-            return optimizer_scheduler
         return {"optimizer": optimizer}
 
 
@@ -962,7 +1063,8 @@ class ClusterLightningTrain:
             self.get_kmeans = False
         else:
             self.get_kmeans = True
-        self.model = ClusterLightningModel(
+
+        self.premodel = ClusterLightningDistModel(
             self.network,
             self.loss_func,
             self.cluster_loss_func,
@@ -970,10 +1072,33 @@ class ClusterLightningTrain:
             self.optim_func,
             self.devices,
             self.accelerator,
-            self.scheduler,
             gamma=self.gamma,
             mem_percent=self.mem_percent,
             get_kmeans=self.get_kmeans,
+        )
+
+        self.pretrainer = Trainer(
+            accelerator=self.accelerator, devices=self.devices
+        )
+
+        self.pretrainer.test(
+            model=self.premodel,
+            test_dataloaders=val_dataloaders_inf,
+            verbose=True,
+        )
+
+        self.model = ClusterLightningModel(
+            self.premodel.network,
+            self.loss_func,
+            self.cluster_loss_func,
+            val_dataloaders_inf,
+            self.optim_func,
+            self.devices,
+            self.accelerator,
+            self.premodel.cluster_distribution,
+            self.scheduler,
+            gamma=self.gamma,
+            mem_percent=self.mem_percent,
         )
 
         self.default_root_dir = (
