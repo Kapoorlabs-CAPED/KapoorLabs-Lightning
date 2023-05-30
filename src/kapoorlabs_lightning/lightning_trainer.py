@@ -404,20 +404,8 @@ class ClusterLightningModel(LightningModule):
             1,
         )
         p = torch.tensor(p)
-        print(p.shape)
+
         return p
-
-    def encode(self, x):
-        z = self.network.encoder(x)
-        return z
-
-    def cluster(self, z):
-        q = self.network.clustering_layer(z)
-        return q
-
-    def decode(self, z):
-        out = self.network.decoder(z)
-        return out
 
     def forward(self, z):
         return self.network(z)
@@ -432,13 +420,12 @@ class ClusterLightningModel(LightningModule):
         batch_size = batch.shape[0]
 
         tar_dist = self.target_distribution[
-            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
+            ((batch_idx) * batch_size) : (batch_idx + 1 * batch_size),
             :,
         ]
 
         inputs = batch
         outputs, features, clusters = self(inputs)
-
         reconstruction_loss = self.loss_func(inputs, outputs)
         cluster_loss = self.cluster_loss(clusters, tar_dist)
         loss = reconstruction_loss + self.gamma * cluster_loss
@@ -1126,6 +1113,7 @@ def initialize_repeat_function(
     accelerator,
     kmeans,
 ):
+    print("Initializing repeat function")
     premodel = ClusterLightningDistModel(
         network,
         loss_func,
@@ -1143,5 +1131,7 @@ def initialize_repeat_function(
     )
 
     premodel._initialise_centroid(results, kmeans=kmeans)
+
+    print("Initialised repeat function")
 
     return premodel
