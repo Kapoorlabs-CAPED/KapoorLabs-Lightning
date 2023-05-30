@@ -1,7 +1,7 @@
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, List
+from typing import List
 
 import torch
 from cellshape_cloud import CloudAutoEncoder
@@ -363,6 +363,7 @@ class ClusterLightningModel(LightningModule):
         self.mem_percent = mem_percent
         self.get_kmeans = get_kmeans
         self.count = 0
+        self.automatic_optimization = False
         self.q_power = q_power
         self.n_init = n_init
 
@@ -404,6 +405,7 @@ class ClusterLightningModel(LightningModule):
             f" \t Initialising cluster centroids... on device {self.compute_device}"
         )
         km = KMeans(n_clusters=self.network.num_clusters, n_init=self.n_init)
+        self._extract_features_distributions()
         km.fit_predict(self.feature_array.detach().cpu().numpy())
         weights = torch.from_numpy(km.cluster_centers_)
         self.network.clustering_layer.set_weight(weights.to(self.device))
@@ -417,6 +419,25 @@ class ClusterLightningModel(LightningModule):
         p = (numerator.t() / torch.sum(numerator, axis=1)).t()
         p = torch.tensor(p).to(self.compute_device)
         return p
+
+    def _extract_features_distributions(self):
+        cluster_distribution = None
+        feature_array = None
+
+        local_trainer = Trainer(
+            devices=self.devices, accelerator=self.accelerator
+        )
+
+        results = local_trainer.predict(self, self.dataloader_inf)
+        feature_array, cluster_distribution = zip(*results)
+        self.feature_array = torch.stack(feature_array)[:, 0, :]
+        self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
+        self.feature_array = self.feature_array.to(self.compute_device)
+        self.cluster_distribution = self.cluster_distribution.to(
+            self.compute_device
+        )
+        self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
+        self.predictions = self.predictions.to(self.compute_device)
 
     def forward(self, z):
         features = self.encode(z)
@@ -445,30 +466,17 @@ class ClusterLightningModel(LightningModule):
             torch.nn.functional.softmax(tar_dist),
         )
 
-    def predict_step(
-        self, batch: Any, batch_idx: int, dataloader_idx: int = 0
-    ) -> Any:
-        results = self(batch)
-        outputs, feature_array, cluster_distribution = zip(*results)
-        self.feature_array = torch.stack(feature_array)[:, 0, :]
-        self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
-        self.feature_array = self.feature_array.to(self.compute_device)
-        self.cluster_distribution = self.cluster_distribution.to(
-            self.compute_device
-        )
-        self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
-        self.predictions = self.predictions.to(self.compute_device)
-
     def training_step(self, batch, batch_idx):
+        opt = self.optimizers()
+        opt.zero_grad()
         self.batch_num = batch_idx + 1
 
         if (
             (self.count == 0)
             or (self.current_epoch % self.update_interval == 0)
         ) and (self.batch_num == 1):
-            if self.count > 0:
-                self.predict_step(self, self.dataloader_inf)
-
+            # if self.count > 0:
+            # self._extract_features_distributions()
             self.target_distribution = self._get_target_distribution(
                 self.cluster_distribution
             )
@@ -479,24 +487,30 @@ class ClusterLightningModel(LightningModule):
             ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
         ]
-        output, features, clusters = self(batch)
 
-        reconstruction_loss = self.loss_func(batch, output)
-        cluster_loss = self.cluster_loss(
-            clusters, tar_dist.to(self.compute_device)
-        )
-        loss = reconstruction_loss + self.gamma * cluster_loss
+        inputs = batch
+        features = self.network.encoder(inputs)
+        clusters = self.network.clustering_layer(features)
+        outputs = self.network.decoder(features)
+        print(tar_dist.shape, clusters.shape)
+        loss = self.loss_func(inputs, outputs)
+        # cluster_loss = self.cluster_loss(
+        #   clusters, tar_dist.to(self.compute_device)
+        # )
+        # loss = reconstruction_loss + self.gamma * cluster_loss
 
+        self.manual_backward(loss, retain_graph=True)
+        opt.step()
         tqdm_dict = {
-            "reconstruction_loss": reconstruction_loss,
-            "cluster_loss": cluster_loss,
+            "reconstruction_loss": loss,
+            "cluster_loss": loss,
             "epoch": self.current_epoch,
         }
         output = OrderedDict(
             {
                 "loss": loss,
-                "recon_loss": reconstruction_loss,
-                "cluster_loss": cluster_loss,
+                "recon_loss": loss,
+                "cluster_loss": loss,
                 "progress_bar": tqdm_dict,
                 "log": tqdm_dict,
             }
@@ -956,7 +970,7 @@ class ClusterLightningTrain:
 
         self.datas.batch_size = 1
         # train_dataloaders_inf = self.datas.train_dataloader()
-        val_dataloaders_inf = self.datas.train_dataloader()
+        val_dataloaders_inf = self.datas.val_dataloader()
         if self.ckpt_file is not None:
             self.get_kmeans = False
         else:
@@ -983,7 +997,6 @@ class ClusterLightningTrain:
         )
         Path(self.default_root_dir).mkdir(exist_ok=True)
         print("Starting training...")
-
         self.trainer = Trainer(
             accelerator=self.accelerator,
             devices=self.devices,
@@ -998,8 +1011,6 @@ class ClusterLightningTrain:
         )
 
         if self.ckpt_file is not None:
-            self.trainer.predict(self.model, val_dataloaders_inf)
-
             self.trainer.fit(
                 self.model,
                 train_dataloaders=train_dataloaders,
@@ -1014,8 +1025,6 @@ class ClusterLightningTrain:
                 verbose=True,
             )
         else:
-            self.trainer.predict(self.model, val_dataloaders_inf)
-
             self.trainer.fit(
                 self.model,
                 train_dataloaders=self.datas.train_dataloader(),
