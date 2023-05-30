@@ -363,7 +363,6 @@ class ClusterLightningModel(LightningModule):
         self.mem_percent = mem_percent
         self.get_kmeans = get_kmeans
         self.count = 0
-        self.automatic_optimization = False
         self.q_power = q_power
         self.n_init = n_init
 
