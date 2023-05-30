@@ -633,7 +633,7 @@ class ClusterLightningDistModel(LightningModule):
     def forward(self, z):
         return self.network(z)
 
-    def test_step(self) -> STEP_OUTPUT | None:
+    def test_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
         self._initialise_centroid()
 
     def configure_optimizers(self):
