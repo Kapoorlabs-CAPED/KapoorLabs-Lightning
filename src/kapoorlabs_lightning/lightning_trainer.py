@@ -363,7 +363,6 @@ class ClusterLightningModel(LightningModule):
         self.mem_percent = mem_percent
         self.get_kmeans = get_kmeans
         self.count = 0
-        self.automatic_optimization = False
         self.q_power = q_power
         self.n_init = n_init
 
@@ -474,8 +473,6 @@ class ClusterLightningModel(LightningModule):
         return features, clusters
 
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()
-        opt.zero_grad()
         self.batch_num = batch_idx + 1
 
         if (
@@ -506,8 +503,6 @@ class ClusterLightningModel(LightningModule):
         )
         loss = reconstruction_loss + self.gamma * cluster_loss
 
-        self.manual_backward(loss, retain_graph=True)
-        opt.step()
         tqdm_dict = {
             "reconstruction_loss": reconstruction_loss,
             "cluster_loss": cluster_loss,
