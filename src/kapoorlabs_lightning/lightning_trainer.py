@@ -445,12 +445,6 @@ class ClusterLightningModel(LightningModule):
         self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
         self.predictions = self.predictions.to(self.compute_device)
 
-    def forward(self, z):
-        features = self.encode(z)
-        clusters = self.cluster(features)
-        output = self.decode(features)
-        return output, features, clusters
-
     def encode(self, x):
         z = self.network.encoder(x)
         return z
@@ -463,42 +457,36 @@ class ClusterLightningModel(LightningModule):
         out = self.network.decoder(z)
         return out
 
+    def forward(self, z):
+        return self.network(z)
+
     def encoder_loss(self, y_hat, y):
         return self.loss_func(y_hat, y)
 
     def cluster_loss(self, clusters, tar_dist):
-        return self.cluster_loss_func(
-            torch.nn.functional.log_softmax(clusters),
-            torch.nn.functional.softmax(tar_dist),
-        )
+        return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()
-        opt.zero_grad()
-        self.batch_num = batch_idx + 1
         if (
             (self.count == 0)
             or (self.current_epoch % self.update_interval == 0)
-        ) and (self.batch_num == 1):
+        ) and (batch_idx == 1):
             if self.count > 0:
                 self._extract_features_distributions()
             self.target_distribution = self._get_target_distribution(
                 self.cluster_distribution
             )
-
+        self.count += 1
         batch_size = batch.shape[0]
 
         tar_dist = self.target_distribution[
-            ((self.batch_num - 1) * batch_size) : (
-                self.batch_num * batch_size
-            ),
+            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
             :,
         ]
 
         inputs = batch
-        features = self.network.encoder(inputs)
-        clusters = self.network.clustering_layer(features)
-        outputs = self.network.decoder(features)
+        self.to(self.compute_device)
+        outputs, features, clusters = self(inputs)
 
         reconstruction_loss = self.loss_func(inputs, outputs)
         cluster_loss = self.cluster_loss(
@@ -506,21 +494,13 @@ class ClusterLightningModel(LightningModule):
         )
         loss = reconstruction_loss + self.gamma * cluster_loss
 
-        self.manual_backward(loss, retain_graph=True)
-        opt.step()
         tqdm_dict = {
             "reconstruction_loss": reconstruction_loss,
             "cluster_loss": cluster_loss,
             "epoch": self.current_epoch,
         }
         output = OrderedDict(
-            {
-                "loss": loss,
-                "recon_loss": reconstruction_loss,
-                "cluster_loss": cluster_loss,
-                "progress_bar": tqdm_dict,
-                "log": tqdm_dict,
-            }
+            {"loss": loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
         )
 
         self.log(
@@ -533,8 +513,6 @@ class ClusterLightningModel(LightningModule):
             sync_dist=True,
             rank_zero_only=True,
         )
-
-        self.count += 1
 
         return output
 
