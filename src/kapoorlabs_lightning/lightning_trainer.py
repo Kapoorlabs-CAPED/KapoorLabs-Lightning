@@ -404,7 +404,6 @@ class ClusterLightningModel(LightningModule):
             f" \t Initialising cluster centroids... on device {self.compute_device}"
         )
         km = KMeans(n_clusters=self.network.num_clusters, n_init=self.n_init)
-        self._extract_features_distributions()
         km.fit_predict(self.feature_array.detach().cpu().numpy())
         weights = torch.from_numpy(km.cluster_centers_)
         self.network.clustering_layer.set_weight(weights.to(self.device))
@@ -418,21 +417,6 @@ class ClusterLightningModel(LightningModule):
         p = (numerator.t() / torch.sum(numerator, axis=1)).t()
         p = torch.tensor(p).to(self.compute_device)
         return p
-
-    def _extract_features_distributions(self):
-        cluster_distribution = None
-        feature_array = None
-
-        results = self.trainer.predict(self, self.dataloader_inf)
-        feature_array, cluster_distribution = zip(*results)
-        self.feature_array = torch.stack(feature_array)[:, 0, :]
-        self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
-        self.feature_array = self.feature_array.to(self.compute_device)
-        self.cluster_distribution = self.cluster_distribution.to(
-            self.compute_device
-        )
-        self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
-        self.predictions = self.predictions.to(self.compute_device)
 
     def forward(self, z):
         features = self.encode(z)
@@ -464,9 +448,16 @@ class ClusterLightningModel(LightningModule):
     def predict_step(
         self, batch: Any, batch_idx: int, dataloader_idx: int = 0
     ) -> Any:
-        output, features, clusters = self(batch)
-
-        return features, clusters
+        results = self(batch)
+        outputs, feature_array, cluster_distribution = zip(*results)
+        self.feature_array = torch.stack(feature_array)[:, 0, :]
+        self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
+        self.feature_array = self.feature_array.to(self.compute_device)
+        self.cluster_distribution = self.cluster_distribution.to(
+            self.compute_device
+        )
+        self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
+        self.predictions = self.predictions.to(self.compute_device)
 
     def training_step(self, batch, batch_idx):
         self.batch_num = batch_idx + 1
@@ -476,12 +467,11 @@ class ClusterLightningModel(LightningModule):
             or (self.current_epoch % self.update_interval == 0)
         ) and (self.batch_num == 1):
             if self.count > 0:
-                self._extract_features_distributions()
+                self.predict_step(self, self.dataloader_inf)
 
             self.target_distribution = self._get_target_distribution(
                 self.cluster_distribution
             )
-            print(self.target_distribution)
 
         batch_size = batch.shape[0]
 
@@ -993,6 +983,7 @@ class ClusterLightningTrain:
         )
         Path(self.default_root_dir).mkdir(exist_ok=True)
         print("Starting training...")
+
         self.trainer = Trainer(
             accelerator=self.accelerator,
             devices=self.devices,
@@ -1007,6 +998,8 @@ class ClusterLightningTrain:
         )
 
         if self.ckpt_file is not None:
+            self.trainer.predict(self.model, val_dataloaders_inf)
+
             self.trainer.fit(
                 self.model,
                 train_dataloaders=train_dataloaders,
@@ -1021,6 +1014,8 @@ class ClusterLightningTrain:
                 verbose=True,
             )
         else:
+            self.trainer.predict(self.model, val_dataloaders_inf)
+
             self.trainer.fit(
                 self.model,
                 train_dataloaders=self.datas.train_dataloader(),
