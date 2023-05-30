@@ -328,6 +328,8 @@ class ClusterLightningModel(LightningModule):
         dataloader_inf: DataLoader,
         optim_func: optim,
         cluster_distribution,
+        accelerator,
+        devices,
         scheduler: schedulers = None,
         gamma: int = 1,
         update_interval: int = 5,
@@ -354,6 +356,8 @@ class ClusterLightningModel(LightningModule):
         self.dataloader_inf = dataloader_inf
         self.optim_func = optim_func
         self.scheduler = scheduler
+        self.accelerator = accelerator
+        self.devices = devices
         self.gamma = gamma
         self.update_interval = update_interval
         self.divergence_tolerance = divergence_tolerance
@@ -465,7 +469,8 @@ class ClusterLightningModel(LightningModule):
                 self.optim_func,
                 self.gamma,
                 self.mem_percent,
-                self.trainer.accelerator,
+                self.accelerator,
+                self.devices,
                 False,
             )
             self.cluster_distribution = self.premodel.cluster_distribution
@@ -1054,6 +1059,7 @@ class ClusterLightningTrain:
             self.gamma,
             self.mem_percent,
             self.accelerator,
+            self.devices,
             self.get_kmeans,
         )
 
@@ -1064,6 +1070,8 @@ class ClusterLightningTrain:
             val_dataloaders_inf,
             self.optim_func,
             self.premodel.cluster_distribution,
+            self.accelerator,
+            self.devices,
             self.scheduler,
             gamma=self.gamma,
             mem_percent=self.mem_percent,
@@ -1109,6 +1117,7 @@ def initialize_repeat_function(
     gamma,
     mem_percent,
     accelerator,
+    devices,
     kmeans,
 ):
     print("Initializing repeat function")
@@ -1122,14 +1131,13 @@ def initialize_repeat_function(
         mem_percent=mem_percent,
     )
 
-    pretrainer = Trainer(accelerator=accelerator, devices=1)
+    pretrainer = Trainer(accelerator=accelerator, devices=devices)
 
     results = pretrainer.predict(
         model=premodel, dataloaders=val_dataloaders_inf
     )
 
     premodel._initialise_centroid(results, kmeans=kmeans)
-
     print("Initialised repeat function")
-
+    pretrainer._teardown()
     return premodel
