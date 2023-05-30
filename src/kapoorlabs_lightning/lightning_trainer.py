@@ -398,16 +398,11 @@ class ClusterLightningModel(LightningModule):
         if verbose:
             print(f"Loaded weights for the following layers:\n{layers}")
 
-    def _get_target_distribution(self, out_distribution):
-        numerator = (out_distribution**self.q_power) / torch.sum(
+    def _get_target_distribution(self, out_distribution, q_power):
+        numerator = (out_distribution**q_power) / torch.sum(
             out_distribution, axis=0
         )
-        p = torch.transpose(
-            torch.transpose(numerator, 0, 1) / torch.sum(numerator, axis=1),
-            0,
-            1,
-        )
-        p = torch.tensor(p)
+        p = (numerator.t() / torch.sum(numerator, axis=1)).t()
 
         return p
 
