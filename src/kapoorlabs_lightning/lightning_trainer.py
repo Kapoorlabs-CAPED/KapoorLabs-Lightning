@@ -576,7 +576,7 @@ class ClusterLightningDistModel(LightningModule):
 
         print("Cluster centres initialised")
 
-        return cluster_distribution
+        return self.network, cluster_distribution
 
     def _extract_features_distributions(self, results):
         cluster_distribution = None
@@ -1137,9 +1137,9 @@ def initialize_repeat_function(
         model=premodel, dataloaders=val_dataloaders_inf
     )
 
-    cluster_distribution = premodel._initialise_centroid(
+    net, cluster_distribution = premodel._initialise_centroid(
         results, kmeans=kmeans
     )
     print("Initialised repeat function")
     pretrainer._teardown()
-    return network, cluster_distribution
+    return net, cluster_distribution
