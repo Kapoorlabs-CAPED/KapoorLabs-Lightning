@@ -471,8 +471,8 @@ class ClusterLightningModel(LightningModule):
                 self.mem_percent,
                 self.accelerator,
                 self.devices,
-                self.compute_device,
-                False,
+                compute_device=self.compute_device,
+                kmeans=False,
             )
             self.cluster_distribution = cluster_distribution.to(
                 self.compute_device
@@ -1070,7 +1070,7 @@ class ClusterLightningTrain:
             self.mem_percent,
             self.accelerator,
             self.devices,
-            self.get_kmeans,
+            kmeans=self.get_kmeans,
         )
 
         self.model = ClusterLightningModel(
