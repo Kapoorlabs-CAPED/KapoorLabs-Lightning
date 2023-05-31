@@ -366,8 +366,6 @@ class ClusterLightningModel(LightningModule):
         self.cluster_distribution = cluster_distribution
         self.q_power = q_power
         self.n_init = n_init
-        self.compute_device = self.device
-        print("Training on device: ", self.compute_device)
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
@@ -418,6 +416,9 @@ class ClusterLightningModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
+        self.compute_device = batch.device
+        print("Training on device: ", self.compute_device)
+
         self.to(self.compute_device)
         self.target_distribution = self._get_target_distribution(
             self.cluster_distribution
@@ -569,9 +570,6 @@ class ClusterLightningDistModel(LightningModule):
             print(f"Loaded weights for the following layers:\n{layers}")
 
     def _initialise_centroid(self, results, kmeans=True):
-        print(
-            f" \t Initialising cluster centroids... on device {self.compute_device}"
-        )
         cluster_distribution = self._extract_features_distributions(results)
         if kmeans:
             km = KMeans(
@@ -1026,7 +1024,6 @@ class ClusterLightningTrain:
         self.hparams.update(kwargs=kwargs)
 
     def _train_model(self):
-        print("Starting training...")
         self.default_root_dir = (
             Path(self.model_save_file).absolute().parent.as_posix()
         )
@@ -1131,7 +1128,6 @@ def initialize_repeat_function(
     compute_device=None,
     kmeans=False,
 ):
-    print("Initializing repeat function")
     premodel = ClusterLightningDistModel(
         network,
         loss_func,
@@ -1157,6 +1153,5 @@ def initialize_repeat_function(
     if compute_device is not None:
         net.to(compute_device)
         cluster_distribution = cluster_distribution.to(compute_device)
-    print("Initialised repeat function")
     pretrainer._teardown()
     return net, cluster_distribution
