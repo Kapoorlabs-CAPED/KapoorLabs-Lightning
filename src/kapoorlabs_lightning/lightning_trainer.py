@@ -418,7 +418,7 @@ class ClusterLightningModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
-        self.to(self.comute_device)
+        self.to(self.compute_device)
         self.target_distribution = self._get_target_distribution(
             self.cluster_distribution
         )
@@ -471,6 +471,7 @@ class ClusterLightningModel(LightningModule):
                 self.mem_percent,
                 self.accelerator,
                 self.devices,
+                self.compute_device,
                 False,
             )
             self.cluster_distribution = cluster_distribution.to(
@@ -1127,7 +1128,8 @@ def initialize_repeat_function(
     mem_percent,
     accelerator,
     devices,
-    kmeans,
+    compute_device=None,
+    kmeans=False,
 ):
     print("Initializing repeat function")
     premodel = ClusterLightningDistModel(
@@ -1139,16 +1141,22 @@ def initialize_repeat_function(
         gamma=gamma,
         mem_percent=mem_percent,
     )
+    if compute_device is not None:
+        premodel.to(compute_device)
 
     pretrainer = Trainer(accelerator=accelerator, devices=devices)
 
     results = pretrainer.predict(
         model=premodel, dataloaders=val_dataloaders_inf
     )
-
+    if compute_device is not None:
+        results = results.to(compute_device)
     net, cluster_distribution = premodel._initialise_centroid(
         results, kmeans=kmeans
     )
+    if compute_device is not None:
+        net.to(compute_device)
+        cluster_distribution = cluster_distribution.to(compute_device)
     print("Initialised repeat function")
     pretrainer._teardown()
     return net, cluster_distribution
