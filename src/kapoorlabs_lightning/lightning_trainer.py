@@ -1144,8 +1144,7 @@ def initialize_repeat_function(
     results = pretrainer.predict(
         model=premodel, dataloaders=val_dataloaders_inf
     )
-    if compute_device is not None:
-        results = results.to(compute_device)
+
     net, cluster_distribution = premodel._initialise_centroid(
         results, kmeans=kmeans
     )
