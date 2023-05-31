@@ -468,7 +468,7 @@ class ClusterLightningModel(LightningModule):
                 self.devices,
                 False,
             )
-            self.cluster_distribution = cluster_distribution
+            self.cluster_distribution = cluster_distribution.to(self.device)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
