@@ -366,6 +366,8 @@ class ClusterLightningModel(LightningModule):
         self.cluster_distribution = cluster_distribution
         self.q_power = q_power
         self.n_init = n_init
+        self.comute_device = self.device
+        print("Training on device: ", self.comute_device)
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
@@ -416,6 +418,7 @@ class ClusterLightningModel(LightningModule):
         return self.cluster_loss_func(torch.log(clusters), tar_dist)
 
     def training_step(self, batch, batch_idx):
+        self.to(self.comute_device)
         self.target_distribution = self._get_target_distribution(
             self.cluster_distribution
         )
@@ -468,7 +471,10 @@ class ClusterLightningModel(LightningModule):
                 self.devices,
                 False,
             )
-            self.cluster_distribution = cluster_distribution.to(self.device)
+            self.cluster_distribution = cluster_distribution.to(
+                self.comute_device
+            )
+            self.to(self.comute_device)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -558,9 +564,8 @@ class ClusterLightningDistModel(LightningModule):
         if verbose:
             print(f"Loaded weights for the following layers:\n{layers}")
 
-    def _initialise_centroid(self, results, kmeans=True):
-        device = self.network.clustering_layer.weight.device
-        self.compute_device = device
+    def _initialise_centroid(self, results, compute_device, kmeans=True):
+        self.compute_device = compute_device
         print(
             f" \t Initialising cluster centroids... on device {self.compute_device}"
         )
