@@ -593,7 +593,7 @@ class ClusterLightningDistModel(LightningModule):
         self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
         self.predictions = self.predictions.to(self.compute_device)
 
-        return cluster_distribution
+        return self.cluster_distribution
 
     def forward(self, z):
         return self.network(z)
