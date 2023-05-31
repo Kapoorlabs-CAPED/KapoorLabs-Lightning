@@ -456,7 +456,7 @@ class ClusterLightningModel(LightningModule):
 
     def on_train_epoch_end(self) -> None:
         if self.current_epoch % self.update_interval == 0:
-            self.premodel = initialize_repeat_function(
+            net, cluster_distribution = initialize_repeat_function(
                 self.network,
                 self.loss_func,
                 self.cluster_loss_func,
@@ -468,7 +468,7 @@ class ClusterLightningModel(LightningModule):
                 self.devices,
                 False,
             )
-            self.cluster_distribution = self.premodel.cluster_distribution
+            self.cluster_distribution = cluster_distribution
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -564,7 +564,7 @@ class ClusterLightningDistModel(LightningModule):
         print(
             f" \t Initialising cluster centroids... on device {self.compute_device}"
         )
-        self._extract_features_distributions(results)
+        cluster_distribution = self._extract_features_distributions(results)
         if kmeans:
             km = KMeans(
                 n_clusters=self.network.num_clusters, n_init=self.n_init
@@ -575,6 +575,8 @@ class ClusterLightningDistModel(LightningModule):
             self.network.clustering_layer.set_weight(weights.to(self.device))
 
         print("Cluster centres initialised")
+
+        return cluster_distribution
 
     def _extract_features_distributions(self, results):
         cluster_distribution = None
@@ -590,6 +592,8 @@ class ClusterLightningDistModel(LightningModule):
         )
         self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
         self.predictions = self.predictions.to(self.compute_device)
+
+        return cluster_distribution
 
     def forward(self, z):
         return self.network(z)
@@ -1046,7 +1050,7 @@ class ClusterLightningTrain:
         else:
             self.get_kmeans = True
 
-        self.premodel = initialize_repeat_function(
+        net, cluster_distribution = initialize_repeat_function(
             self.network,
             self.loss_func,
             self.cluster_loss_func,
@@ -1060,12 +1064,12 @@ class ClusterLightningTrain:
         )
 
         self.model = ClusterLightningModel(
-            self.premodel.network,
+            net,
             self.loss_func,
             self.cluster_loss_func,
             val_dataloaders_inf,
             self.optim_func,
-            self.premodel.cluster_distribution,
+            cluster_distribution,
             self.accelerator,
             self.devices,
             self.scheduler,
@@ -1133,7 +1137,9 @@ def initialize_repeat_function(
         model=premodel, dataloaders=val_dataloaders_inf
     )
 
-    premodel._initialise_centroid(results, kmeans=kmeans)
+    cluster_distribution = premodel._initialise_centroid(
+        results, kmeans=kmeans
+    )
     print("Initialised repeat function")
     pretrainer._teardown()
-    return premodel
+    return network, cluster_distribution
