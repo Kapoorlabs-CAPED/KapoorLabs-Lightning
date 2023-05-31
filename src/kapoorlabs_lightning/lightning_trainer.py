@@ -564,11 +564,12 @@ class ClusterLightningDistModel(LightningModule):
         print(
             f" \t Initialising cluster centroids... on device {self.compute_device}"
         )
+        self._extract_features_distributions(results)
         if kmeans:
             km = KMeans(
                 n_clusters=self.network.num_clusters, n_init=self.n_init
             )
-            self._extract_features_distributions(results)
+
             km.fit_predict(self.feature_array.detach().cpu().numpy())
             weights = torch.from_numpy(km.cluster_centers_)
             self.network.clustering_layer.set_weight(weights.to(self.device))
