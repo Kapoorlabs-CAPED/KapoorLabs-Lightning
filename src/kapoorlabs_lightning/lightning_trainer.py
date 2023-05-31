@@ -417,7 +417,6 @@ class ClusterLightningModel(LightningModule):
 
     def training_step(self, batch, batch_idx):
         self.compute_device = batch.device
-        print("Training on device: ", self.compute_device)
 
         self.to(self.compute_device)
         self.target_distribution = self._get_target_distribution(
