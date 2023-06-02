@@ -419,14 +419,11 @@ class ClusterLightningModel(LightningModule):
         self.target_distribution = self._get_target_distribution(
             self.cluster_distribution
         )
-        print("cluster distribution", self.target_distribution.shape)
-        print("target distribution", self.target_distribution.shape)
         batch_size = batch.shape[0]
         tar_dist = self.target_distribution[
-            ((batch_idx) * batch_size) : (batch_idx + 1 * batch_size),
+            (batch_idx * batch_size) : ((batch_idx + 1) * batch_size),
             :,
         ]
-        print(tar_dist.shape)
 
         inputs = batch
         outputs, features, clusters = self(inputs)
@@ -1116,7 +1113,7 @@ def initialize_repeat_function(
     network,
     loss_func,
     cluster_loss_func,
-    val_dataloaders_inf,
+    test_loaders,
     optim_func,
     gamma,
     mem_percent,
@@ -1129,7 +1126,7 @@ def initialize_repeat_function(
         network,
         loss_func,
         cluster_loss_func,
-        val_dataloaders_inf,
+        test_loaders,
         optim_func,
         gamma=gamma,
         mem_percent=mem_percent,
@@ -1139,9 +1136,7 @@ def initialize_repeat_function(
 
     pretrainer = Trainer(accelerator=accelerator, devices=devices)
 
-    results = pretrainer.predict(
-        model=premodel, dataloaders=val_dataloaders_inf
-    )
+    results = pretrainer.predict(model=premodel, dataloaders=test_loaders)
 
     net, cluster_distribution = premodel._initialise_centroid(
         results, kmeans=kmeans
