@@ -410,7 +410,6 @@ class ClusterLightningModel(LightningModule):
         return self.loss_func(y_hat, y)
 
     def cluster_loss(self, clusters, tar_dist):
-        print(clusters.shape, tar_dist.shape)
         return self.cluster_loss_func(clusters, tar_dist)
 
     def training_step(self, batch, batch_idx):
