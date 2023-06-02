@@ -411,7 +411,10 @@ class ClusterLightningModel(LightningModule):
 
     def cluster_loss(self, clusters, tar_dist):
         print(clusters.shape, tar_dist.shape)
-        return self.cluster_loss_func(torch.log(clusters), tar_dist)
+        if clusters.shape == tar_dist.shape:
+            return self.cluster_loss_func(clusters, tar_dist)
+        else:
+            return 0
 
     def training_step(self, batch, batch_idx):
         self.compute_device = batch.device
@@ -589,6 +592,7 @@ class ClusterLightningDistModel(LightningModule):
 
         outputs, feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
+        print("pre", cluster_distribution.shape)
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
 
         self.feature_array = self.feature_array.to(self.compute_device)
@@ -1050,6 +1054,10 @@ class ClusterLightningTrain:
         # train_dataloaders_inf = self.datas.train_dataloader()
         val_dataloaders_inf = self.datas.val_dataloader()
 
+        if self.ckpt_file is None:
+            get_kmeans = True
+        else:
+            get_kmeans = False
         net, cluster_distribution = initialize_repeat_function(
             self.network,
             self.loss_func,
@@ -1060,7 +1068,7 @@ class ClusterLightningTrain:
             self.mem_percent,
             self.accelerator,
             self.devices,
-            kmeans=True,
+            kmeans=get_kmeans,
         )
 
         self.model = ClusterLightningModel(
