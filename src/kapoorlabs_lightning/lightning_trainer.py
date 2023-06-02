@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import List
 
 import torch
-from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
 from lightning.pytorch.utilities.types import STEP_OUTPUT
@@ -13,7 +12,7 @@ from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
 
 from . import optimizers, schedulers
-from .pytorch_models import DeepEmbeddedClustering
+from .pytorch_models import CloudAutoEncoder, DeepEmbeddedClustering
 
 
 class LightningData(LightningDataModule):
@@ -1049,10 +1048,6 @@ class ClusterLightningTrain:
         self.datas.batch_size = 1
         # train_dataloaders_inf = self.datas.train_dataloader()
         val_dataloaders_inf = self.datas.val_dataloader()
-        if self.ckpt_file is not None:
-            self.get_kmeans = False
-        else:
-            self.get_kmeans = True
 
         net, cluster_distribution = initialize_repeat_function(
             self.network,
@@ -1064,7 +1059,7 @@ class ClusterLightningTrain:
             self.mem_percent,
             self.accelerator,
             self.devices,
-            kmeans=self.get_kmeans,
+            kmeans=True,
         )
 
         self.model = ClusterLightningModel(
