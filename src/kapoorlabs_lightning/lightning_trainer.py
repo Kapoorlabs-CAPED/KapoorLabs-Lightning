@@ -322,7 +322,6 @@ class ClusterLightningModel(LightningModule):
         network: DeepEmbeddedClustering,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
-        dataloader_inf: DataLoader,
         optim_func: optim,
         cluster_distribution,
         accelerator,
@@ -350,7 +349,6 @@ class ClusterLightningModel(LightningModule):
         self.network = network
         self.loss_func = loss_func
         self.cluster_loss_func = cluster_loss_func
-        self.dataloader_inf = dataloader_inf
         self.optim_func = optim_func
         self.scheduler = scheduler
         self.accelerator = accelerator
@@ -415,14 +413,12 @@ class ClusterLightningModel(LightningModule):
 
     def training_step(self, batch, batch_idx):
         self.compute_device = batch.device
-        print("cluster_dist", self.cluster_distribution.shape)
         self.to(self.compute_device)
         self.target_distribution = self._get_target_distribution(
             self.cluster_distribution
         )
 
         batch_size = batch.shape[0]
-        print(self.target_distribution.shape, batch_size, batch.shape)
         tar_dist = self.target_distribution[
             ((batch_idx) * batch_size) : (batch_idx + 1 * batch_size),
             :,
@@ -464,7 +460,7 @@ class ClusterLightningModel(LightningModule):
                 self.network,
                 self.loss_func,
                 self.cluster_loss_func,
-                self.dataloader_inf,
+                self.train_dataloader(),
                 self.optim_func,
                 self.gamma,
                 self.mem_percent,
@@ -1049,7 +1045,6 @@ class ClusterLightningTrain:
 
         self.datas.batch_size = 1
         # train_dataloaders_inf = self.datas.train_dataloader()
-        val_dataloaders_inf = self.datas.val_dataloader()
 
         if self.ckpt_file is None:
             get_kmeans = True
@@ -1059,7 +1054,7 @@ class ClusterLightningTrain:
             self.network,
             self.loss_func,
             self.cluster_loss_func,
-            val_dataloaders_inf,
+            train_dataloaders,
             self.optim_func,
             self.gamma,
             self.mem_percent,
@@ -1072,7 +1067,6 @@ class ClusterLightningTrain:
             net,
             self.loss_func,
             self.cluster_loss_func,
-            val_dataloaders_inf,
             self.optim_func,
             cluster_distribution,
             self.accelerator,
