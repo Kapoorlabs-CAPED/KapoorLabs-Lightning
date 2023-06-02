@@ -419,12 +419,14 @@ class ClusterLightningModel(LightningModule):
         self.target_distribution = self._get_target_distribution(
             self.cluster_distribution
         )
-
+        print("cluster distribution", self.target_distribution.shape)
+        print("target distribution", self.target_distribution.shape)
         batch_size = batch.shape[0]
         tar_dist = self.target_distribution[
             ((batch_idx) * batch_size) : (batch_idx + 1 * batch_size),
             :,
         ]
+        print(tar_dist.shape)
 
         inputs = batch
         outputs, features, clusters = self(inputs)
