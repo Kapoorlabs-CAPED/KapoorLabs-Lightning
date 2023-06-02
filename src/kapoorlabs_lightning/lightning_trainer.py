@@ -323,6 +323,7 @@ class ClusterLightningModel(LightningModule):
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
         optim_func: optim,
+        train_dataloaders_inf,
         cluster_distribution,
         accelerator,
         devices,
@@ -340,7 +341,7 @@ class ClusterLightningModel(LightningModule):
                 "network",
                 "loss_func",
                 "cluster_loss_func",
-                "dataloader_inf",
+                "train_dataloaders_inf",
                 "optim_func",
                 "scheduler",
             ]
@@ -354,6 +355,7 @@ class ClusterLightningModel(LightningModule):
         self.accelerator = accelerator
         self.devices = devices
         self.gamma = gamma
+        self.train_dataloaders_inf = train_dataloaders_inf
         self.update_interval = update_interval
         self.divergence_tolerance = divergence_tolerance
         self.mem_percent = mem_percent
@@ -460,7 +462,7 @@ class ClusterLightningModel(LightningModule):
                 self.network,
                 self.loss_func,
                 self.cluster_loss_func,
-                self.train_dataloader(),
+                self.train_dataloaders_inf,
                 self.optim_func,
                 self.gamma,
                 self.mem_percent,
@@ -1044,7 +1046,7 @@ class ClusterLightningTrain:
         val_dataloaders = self.datas.val_dataloader()
 
         self.datas.batch_size = 1
-        # train_dataloaders_inf = self.datas.train_dataloader()
+        train_dataloaders_inf = self.datas.train_dataloader()
 
         if self.ckpt_file is None:
             get_kmeans = True
@@ -1054,7 +1056,7 @@ class ClusterLightningTrain:
             self.network,
             self.loss_func,
             self.cluster_loss_func,
-            train_dataloaders,
+            train_dataloaders_inf,
             self.optim_func,
             self.gamma,
             self.mem_percent,
@@ -1068,6 +1070,7 @@ class ClusterLightningTrain:
             self.loss_func,
             self.cluster_loss_func,
             self.optim_func,
+            train_dataloaders_inf,
             cluster_distribution,
             self.accelerator,
             self.devices,
