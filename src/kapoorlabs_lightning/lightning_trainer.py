@@ -592,7 +592,7 @@ class ClusterLightningDistModel(LightningModule):
 
         outputs, feature_array, cluster_distribution = zip(*results)
         self.feature_array = torch.stack(feature_array)[:, 0, :]
-        print("pre", cluster_distribution.shape)
+        print("pre", torch.stack(cluster_distribution).shape)
         self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
 
         self.feature_array = self.feature_array.to(self.compute_device)
