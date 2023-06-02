@@ -192,8 +192,7 @@ class LightningModel(LightningModule):
     def _shared_eval(self, batch, batch_idx, prefix):
         x, y = batch
         y_hat = self(x)
-        loss = self.loss(y_hat, y)
-        print(f"{prefix}_loss: {loss}")
+        self.loss(y_hat, y)
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
@@ -266,7 +265,7 @@ class AutoLightningModel(LightningModule):
         self.network.load_state_dict(param_dict)
 
         if verbose:
-            print(f"Loaded weights for the following layers:\n{layers}")
+            (f"Loaded weights for the following layers:\n{layers}")
 
     def loss(self, y_hat, y):
         return self.loss_func(y_hat, y)
@@ -294,8 +293,7 @@ class AutoLightningModel(LightningModule):
     def _shared_eval(self, batch, batch_idx, prefix):
         inputs = batch
         y_hat, features = self(inputs)
-        loss = self.loss(y_hat, inputs)
-        print(f"{prefix}_loss: {loss}")
+        self.loss(y_hat, inputs)
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
