@@ -107,19 +107,20 @@ class CloudAutoEncoder(nn.Module):
 
 
 class DeepEmbeddedClustering(nn.Module):
-    def __init__(self, autoencoder, num_clusters):
+    def __init__(self, encoder, decoder, num_clusters):
         super().__init__()
-        self.autoencoder = autoencoder
+        self.encoder = encoder
+        self.decoder = decoder
         self.num_clusters = num_clusters
         self.clustering_layer = ClusteringLayer(
-            num_features=self.autoencoder.encoder.num_features,
+            num_features=self.encoder.num_features,
             num_clusters=self.num_clusters,
         )
 
     def forward(self, x):
-        features = self.autoencoder.encoder(x)
+        features = self.encoder(x)
         clusters = self.clustering_layer(features)
-        output = self.autoencoder.decoder(features)
+        output = self.decoder(features)
         return output, features, clusters
 
 
