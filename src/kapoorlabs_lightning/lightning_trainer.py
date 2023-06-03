@@ -53,7 +53,7 @@ class LightningData(LightningDataModule):
             len(self.dataset) - sum(self.train_val_test_split)
         )
         print(
-            f"LightningData.setup() called with stage={stage} on dataset of length {len(self.dataset)} with {self.train_val_test_split} split."
+            f"LightningData.setup() called with stage={stage} on dataset of length {len(self.dataset)} with {self.train_val_test_split} split and batch size {self._batch_size}"
         )
         self.data_train, self.data_val, self.data_test = random_split(
             dataset=self.dataset,
