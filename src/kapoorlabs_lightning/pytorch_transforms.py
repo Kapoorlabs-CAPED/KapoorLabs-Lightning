@@ -40,6 +40,12 @@ class Transforms:
             transform_list.append(
                 transforms.Normalize(mean=self.mean, std=self.std)
             )
+        if "resnet" in self.aug_str:
+            transform_list.append(transforms.Resize((224, 224)))
+            transform_list.append(transforms.ToTensor())
+            transform_list.append(
+                transforms.Normalize(mean=self.mean, std=self.std)
+            )
 
         self.transform = transforms.Compose(transform_list)
 
