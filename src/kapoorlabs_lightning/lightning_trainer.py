@@ -4,15 +4,15 @@ from pathlib import Path
 from typing import List
 
 import torch
-from cellshape_cloud import CloudAutoEncoder
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
+from lightning.pytorch.utilities.types import STEP_OUTPUT
 from sklearn.cluster import KMeans
 from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
 
 from . import optimizers, schedulers
-from .pytorch_models import DeepEmbeddedClustering
+from .pytorch_models import CloudAutoEncoder, DeepEmbeddedClustering
 
 
 class LightningData(LightningDataModule):
@@ -200,15 +200,7 @@ class LightningModel(LightningModule):
     def _shared_eval(self, batch, batch_idx, prefix):
         x, y = batch
         y_hat = self(x)
-        loss = self.loss(y_hat, y)
-        self.log(
-            f"{prefix}_loss",
-            loss,
-            on_step=True,
-            on_epoch=True,
-            sync_dist=True,
-            rank_zero_only=True,
-        )
+        self.loss(y_hat, y)
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
@@ -281,7 +273,7 @@ class AutoLightningModel(LightningModule):
         self.network.load_state_dict(param_dict)
 
         if verbose:
-            print(f"Loaded weights for the following layers:\n{layers}")
+            (f"Loaded weights for the following layers:\n{layers}")
 
     def loss(self, y_hat, y):
         return self.loss_func(y_hat, y)
@@ -309,15 +301,7 @@ class AutoLightningModel(LightningModule):
     def _shared_eval(self, batch, batch_idx, prefix):
         inputs = batch
         y_hat, features = self(inputs)
-        loss = self.loss(y_hat, inputs)
-        self.log(
-            f"{prefix}_loss",
-            loss,
-            on_step=True,
-            on_epoch=True,
-            sync_dist=True,
-            rank_zero_only=True,
-        )
+        self.loss(y_hat, inputs)
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
@@ -347,22 +331,26 @@ class ClusterLightningModel(LightningModule):
         network: DeepEmbeddedClustering,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
-        dataloader_inf: DataLoader,
         optim_func: optim,
-        devices,
+        train_dataloaders_inf,
+        cluster_distribution,
         accelerator,
+        devices,
         scheduler: schedulers = None,
         gamma: int = 1,
-        update_interval: int = 1,
+        update_interval: int = 5,
         divergence_tolerance: float = 1e-2,
+        mem_percent: int = 40,
+        q_power: int = 2,
+        n_init: int = 20,
     ):
         super().__init__()
         self.save_hyperparameters(
             ignore=[
-                "autoencoder",
+                "network",
                 "loss_func",
                 "cluster_loss_func",
-                "dataloader_inf",
+                "train_dataloaders_inf",
                 "optim_func",
                 "scheduler",
             ]
@@ -371,14 +359,19 @@ class ClusterLightningModel(LightningModule):
         self.network = network
         self.loss_func = loss_func
         self.cluster_loss_func = cluster_loss_func
-        self.dataloader_inf = dataloader_inf
         self.optim_func = optim_func
         self.scheduler = scheduler
+        self.accelerator = accelerator
+        self.devices = devices
         self.gamma = gamma
+        self.train_dataloaders_inf = train_dataloaders_inf
         self.update_interval = update_interval
         self.divergence_tolerance = divergence_tolerance
-        self.devices = devices
-        self.accelerator = accelerator
+        self.mem_percent = mem_percent
+        self.count = 0
+        self.cluster_distribution = cluster_distribution
+        self.q_power = q_power
+        self.n_init = n_init
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
@@ -411,6 +404,14 @@ class ClusterLightningModel(LightningModule):
         if verbose:
             print(f"Loaded weights for the following layers:\n{layers}")
 
+    def _get_target_distribution(self, out_distribution):
+        numerator = (out_distribution**self.q_power) / torch.sum(
+            out_distribution, axis=0
+        )
+        p = (numerator.t() / torch.sum(numerator, axis=1)).t()
+
+        return p
+
     def forward(self, z):
         return self.network(z)
 
@@ -418,31 +419,26 @@ class ClusterLightningModel(LightningModule):
         return self.loss_func(y_hat, y)
 
     def cluster_loss(self, clusters, tar_dist):
-        return self.cluster_loss_func(torch.log(clusters), tar_dist)
+        return self.cluster_loss_func(clusters, tar_dist)
 
     def training_step(self, batch, batch_idx):
-        batch_size = batch.shape[0]
-
-        distribution = Distributions(
-            self,
-            self.dataloader_inf,
-            self.network.num_clusters,
-            devices=self.devices,
-            accelerator=self.accelerator,
+        self.compute_device = batch.device
+        self.to(self.compute_device)
+        self.target_distribution = self._get_target_distribution(
+            self.cluster_distribution
         )
-        distribution.get_distributions_kmeans()
-        self.target_distribution = distribution.target_distribution
-
+        batch_size = batch.shape[0]
         tar_dist = self.target_distribution[
-            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
+            (batch_idx * batch_size) : ((batch_idx + 1) * batch_size),
             :,
         ]
 
         inputs = batch
         outputs, features, clusters = self(inputs)
-
         reconstruction_loss = self.loss_func(inputs, outputs)
-        cluster_loss = self.cluster_loss(clusters, tar_dist)
+        cluster_loss = self.cluster_loss(
+            clusters, tar_dist.to(self.compute_device)
+        )
         loss = reconstruction_loss + self.gamma * cluster_loss
 
         tqdm_dict = {
@@ -467,39 +463,25 @@ class ClusterLightningModel(LightningModule):
 
         return output
 
-    def test_step(self, batch, batch_idx):
-        self._shared_eval(batch, batch_idx, "test")
-
-    def _shared_eval(self, batch, batch_idx, prefix):
-        batch_size = batch.shape[0]
-        distribution = Distributions(
-            self,
-            self.dataloader_inf,
-            self.network.num_clusters,
-            devices=self.devices,
-            accelerator=self.accelerator,
-        )
-        distribution.get_distributions_kmeans()
-        self.target_distribution = distribution.target_distribution
-
-        tar_dist = self.target_distribution[
-            ((batch_idx - 1) * batch_size) : (batch_idx * batch_size),
-            :,
-        ]
-        inputs = batch
-        outputs, features, clusters = self(inputs)
-        loss = self.cluster_loss(clusters, tar_dist)
-        self.log(
-            f"{prefix}_loss",
-            loss,
-            on_step=True,
-            on_epoch=True,
-            sync_dist=True,
-            rank_zero_only=True,
-        )
-
-    def validation_step(self, batch, batch_idx):
-        self._shared_eval(batch, batch_idx, "validation")
+    def on_train_epoch_end(self) -> None:
+        if self.current_epoch % self.update_interval == 0:
+            net, cluster_distribution = initialize_repeat_function(
+                self.network,
+                self.loss_func,
+                self.cluster_loss_func,
+                self.train_dataloaders_inf,
+                self.optim_func,
+                self.gamma,
+                self.mem_percent,
+                self.accelerator,
+                self.devices,
+                compute_device=self.compute_device,
+                kmeans=False,
+            )
+            self.cluster_distribution = cluster_distribution.to(
+                self.compute_device
+            )
+            self.to(self.compute_device)
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
@@ -519,20 +501,121 @@ class ClusterLightningModel(LightningModule):
             return optimizer_scheduler
         return {"optimizer": optimizer}
 
-    def on_train_epoch_start(self) -> None:
-        print("Starting KMeans")
 
-        distribution = Distributions(
-            self.network,
-            self.dataloader_inf,
-            self.network.num_clusters,
-            devices=self.devices,
-            accelerator=self.accelerator,
-            get_kmeans=True,
+class ClusterLightningDistModel(LightningModule):
+    def __init__(
+        self,
+        network: DeepEmbeddedClustering,
+        loss_func: torch.nn.Module,
+        cluster_loss_func: torch.nn.Module,
+        dataloader_inf: DataLoader,
+        optim_func: optim,
+        gamma: int = 1,
+        update_interval: int = 5,
+        divergence_tolerance: float = 1e-2,
+        mem_percent: int = 40,
+        q_power: int = 2,
+        n_init: int = 20,
+    ):
+        super().__init__()
+        self.save_hyperparameters(
+            ignore=[
+                "network",
+                "loss_func",
+                "cluster_loss_func",
+                "dataloader_inf",
+                "optim_func",
+            ]
         )
-        distribution.get_distributions_kmeans()
-        self.target_distribution = distribution.target_distribution
-        self.network = distribution.network
+
+        self.network = network
+        self.loss_func = loss_func
+        self.cluster_loss_func = cluster_loss_func
+        self.dataloader_inf = dataloader_inf
+        self.optim_func = optim_func
+        self.gamma = gamma
+        self.update_interval = update_interval
+        self.divergence_tolerance = divergence_tolerance
+        self.mem_percent = mem_percent
+        self.q_power = q_power
+        self.n_init = n_init
+        self.compute_device = self.device
+
+    def load_pretrained(self, pretrained_file, strict=True, verbose=True):
+        if isinstance(pretrained_file, (list, tuple)):
+            pretrained_file = pretrained_file[0]
+        # Load the state dict
+        state_dict = torch.load(pretrained_file)["state_dict"]
+        # Make sure to have a weight dict
+        if not isinstance(state_dict, dict):
+            state_dict = dict(state_dict)
+
+        # Get parameter dict of current model
+        param_dict = dict(self.network.named_parameters())
+
+        layers = []
+        for layer in param_dict:
+            if strict and not "network." + layer in state_dict:
+                if verbose:
+                    print(f'Could not find weights for layer "{layer}"')
+                continue
+            try:
+                param_dict[layer].data.copy_(
+                    state_dict["network." + layer].data
+                )
+                layers.append(layer)
+            except (RuntimeError, KeyError) as e:
+                print(f"Error at layer {layer}:\n{e}")
+
+        self.network.load_state_dict(param_dict)
+
+        if verbose:
+            print(f"Loaded weights for the following layers:\n{layers}")
+
+    def _initialise_centroid(self, results, kmeans=True):
+        cluster_distribution = self._extract_features_distributions(results)
+        if kmeans:
+            km = KMeans(
+                n_clusters=self.network.num_clusters, n_init=self.n_init
+            )
+
+            km.fit_predict(self.feature_array.detach().cpu().numpy())
+            weights = torch.from_numpy(km.cluster_centers_)
+            self.network.clustering_layer.set_weight(
+                weights.to(self.compute_device)
+            )
+
+        print("Cluster centres initialised")
+
+        return self.network, cluster_distribution
+
+    def _extract_features_distributions(self, results):
+        cluster_distribution = None
+        feature_array = None
+
+        outputs, feature_array, cluster_distribution = zip(*results)
+        self.feature_array = torch.stack(feature_array)[:, 0, :]
+        self.cluster_distribution = torch.stack(cluster_distribution)[:, 0, :]
+
+        self.feature_array = self.feature_array.to(self.compute_device)
+        self.cluster_distribution = self.cluster_distribution.to(
+            self.compute_device
+        )
+        self.predictions = torch.argmax(self.cluster_distribution.data, axis=1)
+        self.predictions = self.predictions.to(self.compute_device)
+
+        return self.cluster_distribution
+
+    def forward(self, z):
+        return self.network(z)
+
+    def predict_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
+        return self(batch)
+
+    def configure_optimizers(self):
+        optimizer = self.optim_func(self.parameters())
+
+        return {"optimizer": optimizer}
 
 
 class LightningSpecialTrain:
@@ -868,12 +951,13 @@ class ClusterLightningTrain:
         dataset: Dataset,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
-        network: torch.nn.Module,
+        network: DeepEmbeddedClustering,
         optim_func: optimizers._Optimizer,
         model_save_file: str,
         ckpt_file: str = None,
         train_val_test_split: List = [95, 2.5, 2.5],
         gamma: int = 1,
+        num_workers: int = 4,
         batch_size: int = 64,
         min_epochs: int = 1,
         epochs: int = 10,
@@ -885,6 +969,7 @@ class ClusterLightningTrain:
         callbacks: List[Callback] = None,
         scheduler: schedulers = None,
         logger: Logger = None,
+        mem_percent: int = 20,
         **kwargs,
     ):
         self.dataset = dataset
@@ -927,6 +1012,10 @@ class ClusterLightningTrain:
 
         self.num_nodes = num_nodes
 
+        self.mem_percent = mem_percent
+
+        self.num_workers = num_workers
+
         self.hparams = {
             "loss_func": self.loss_func,
             "network": self.network,
@@ -941,25 +1030,6 @@ class ClusterLightningTrain:
         self.hparams.update(kwargs=kwargs)
 
     def _train_model(self):
-        self.datas = LightningData(hparams=self.hparams)
-        self.datas.setup("fit")
-        train_dataloaders = self.datas.train_dataloader()
-        val_dataloaders = self.datas.val_dataloader()
-
-        val_dataloaders_inf = self.datas.predict_dataloader()
-
-        self.model = ClusterLightningModel(
-            self.network,
-            self.loss_func,
-            self.cluster_loss_func,
-            val_dataloaders_inf,
-            self.optim_func,
-            self.devices,
-            self.accelerator,
-            self.scheduler,
-            gamma=self.gamma,
-        )
-
         self.default_root_dir = (
             Path(self.model_save_file).absolute().parent.as_posix()
         )
@@ -967,7 +1037,6 @@ class ClusterLightningTrain:
             self.default_root_dir, Path(self.model_save_file).stem
         )
         Path(self.default_root_dir).mkdir(exist_ok=True)
-
         self.trainer = Trainer(
             accelerator=self.accelerator,
             devices=self.devices,
@@ -979,6 +1048,47 @@ class ClusterLightningTrain:
             default_root_dir=self.default_root_dir,
             enable_checkpointing=self.enable_checkpointing,
             num_nodes=self.num_nodes,
+        )
+
+        self.datas = LightningData(
+            hparams=self.hparams, num_workers=self.num_workers
+        )
+        self.datas.setup("fit")
+        train_dataloaders = self.datas.train_dataloader()
+        val_dataloaders = self.datas.val_dataloader()
+
+        self.datas.batch_size = 1
+        train_dataloaders_inf = self.datas.train_dataloader()
+
+        if self.ckpt_file is None:
+            get_kmeans = True
+        else:
+            get_kmeans = False
+        net, cluster_distribution = initialize_repeat_function(
+            self.network,
+            self.loss_func,
+            self.cluster_loss_func,
+            train_dataloaders_inf,
+            self.optim_func,
+            self.gamma,
+            self.mem_percent,
+            self.accelerator,
+            self.devices,
+            kmeans=get_kmeans,
+        )
+
+        self.model = ClusterLightningModel(
+            net,
+            self.loss_func,
+            self.cluster_loss_func,
+            self.optim_func,
+            train_dataloaders_inf,
+            cluster_distribution,
+            self.accelerator,
+            self.devices,
+            self.scheduler,
+            gamma=self.gamma,
+            mem_percent=self.mem_percent,
         )
 
         if self.ckpt_file is not None:
@@ -1012,57 +1122,40 @@ class ClusterLightningTrain:
         return self.trainer.callback_metrics
 
 
-class Distributions(LightningModule):
-    def __init__(
-        self,
-        network: DeepEmbeddedClustering,
-        dataloader,
-        num_clusters,
-        devices,
-        accelerator,
-        get_kmeans=False,
-        n_init=20,
-    ):
-        super().__init__()
-        self.network = network
-        self.dataloader = dataloader
-        self.get_kmeans = get_kmeans
-        self.n_clusters = num_clusters
-        self.n_init = n_init
-        self.devices = devices
-        self.accelerator = accelerator
+def initialize_repeat_function(
+    network,
+    loss_func,
+    cluster_loss_func,
+    test_loaders,
+    optim_func,
+    gamma,
+    mem_percent,
+    accelerator,
+    devices,
+    compute_device=None,
+    kmeans=False,
+):
+    premodel = ClusterLightningDistModel(
+        network,
+        loss_func,
+        cluster_loss_func,
+        test_loaders,
+        optim_func,
+        gamma=gamma,
+        mem_percent=mem_percent,
+    )
+    if compute_device is not None:
+        premodel.to(compute_device)
 
-    def forward(self, inputs):
-        return self.network(inputs)
+    pretrainer = Trainer(accelerator=accelerator, devices=devices)
 
-    def get_distributions_kmeans(self):
-        cluster_distribution = None
-        feature_array = None
-        self.network.eval()
-        if self.get_kmeans:
-            km = KMeans(n_clusters=self.n_clusters, n_init=self.n_init)
+    results = pretrainer.predict(model=premodel, dataloaders=test_loaders)
 
-        self.trainer = Trainer(
-            accelerator=self.accelerator, devices=self.devices
-        )
-        results = self.trainer.predict(self.network, self.dataloader)
-
-        outputs, features, clusters = zip(*results)
-
-        cluster_distribution = torch.cat(clusters, dim=0)
-        feature_array = torch.cat(features, dim=0)
-
-        if self.get_kmeans:
-            km.fit_predict(feature_array)
-            weights = torch.from_numpy(km.cluster_centers_)
-            self.network.clustering_layer.set_weight(weights)
-
-        self.predictions = torch.argmax(cluster_distribution.data, axis=1)
-        self.cluster_distribution = cluster_distribution
-
-        tar_dist = self.cluster_distribution**2 / torch.sum(
-            self.cluster_distribution, axis=0
-        )
-        self.target_distribution = torch.transpose(
-            torch.transpose(tar_dist, 0, 1) / torch.sum(tar_dist, axis=1), 0, 1
-        )
+    net, cluster_distribution = premodel._initialise_centroid(
+        results, kmeans=kmeans
+    )
+    if compute_device is not None:
+        net.to(compute_device)
+        cluster_distribution = cluster_distribution.to(compute_device)
+    pretrainer._teardown()
+    return net, cluster_distribution
