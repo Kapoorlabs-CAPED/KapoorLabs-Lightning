@@ -67,7 +67,9 @@ class LightningData(LightningDataModule):
         )
 
     def predict_dataloader(self):
-        return DataLoader(self.dataset, batch_size=1)
+        return DataLoader(
+            self.dataset, batch_size=1, num_workers=self.num_workers
+        )
 
     def teardown(self, stage: str):
         # Used to clean-up when the run is finished
