@@ -23,26 +23,10 @@ class LightningData(LightningDataModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        self._num_workers = num_workers
+        self.num_workers = num_workers
         self.train_val_test_split: float = hparams["train_val_test_split"]
-        self._batch_size: int = hparams["batch_size"]
+        self.batch_size: int = hparams["batch_size"]
         self.dataset: Dataset = hparams["dataset"]
-
-    @property
-    def batch_size(self):
-        return self._batch_size
-
-    @batch_size.setter
-    def batch_size(self, value):
-        self._batch_size = value
-
-    @property
-    def num_workers(self):
-        return self._num_workers
-
-    @num_workers.setter
-    def num_workers(self, value):
-        self._num_workers = value
 
     def setup(self, stage: str):
         self.train_val_test_split = [
@@ -53,7 +37,7 @@ class LightningData(LightningDataModule):
             len(self.dataset) - sum(self.train_val_test_split)
         )
         print(
-            f"LightningData.setup() called with stage={stage} on dataset of length {len(self.dataset)} with {self.train_val_test_split} split and batch size {self._batch_size}"
+            f"LightningData.setup() called with stage={stage} on dataset of length {len(self.dataset)} with {self.train_val_test_split} split and batch size {self.batch_size}"
         )
         self.data_train, self.data_val, self.data_test = random_split(
             dataset=self.dataset,
@@ -64,22 +48,22 @@ class LightningData(LightningDataModule):
     def train_dataloader(self):
         return DataLoader(
             self.data_train,
-            batch_size=self._batch_size,
-            num_workers=self._num_workers,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
         )
 
     def val_dataloader(self):
         return DataLoader(
             self.data_val,
-            batch_size=self._batch_size,
-            num_workers=self._num_workers,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
         )
 
     def test_dataloader(self):
         return DataLoader(
             self.data_test,
-            batch_size=self._batch_size,
-            num_workers=self._num_workers,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
         )
 
     def predict_dataloader(self):
@@ -700,6 +684,7 @@ class LightningTrain:
         accelerator: str = "gpu",
         devices: int = -1,
         strategy: str = "auto",
+        num_workers: int = 4,
         enable_checkpointing: bool = True,
         callbacks: List[Callback] = None,
         scheduler: schedulers = None,
@@ -742,6 +727,8 @@ class LightningTrain:
 
         self.precision = precision
 
+        self.num_workers = num_workers
+
         self.hparams = {
             "loss_func": self.loss_func,
             "model_func": self.model_func,
@@ -760,7 +747,9 @@ class LightningTrain:
             self.model_func, self.loss_func, self.optim_func, self.scheduler
         )
 
-        self.datas = LightningData(hparams=self.hparams)
+        self.datas = LightningData(
+            hparams=self.hparams, num_workers=self.num_workers
+        )
         self.datas.setup("fit")
         self.default_root_dir = (
             Path(self.model_save_file).absolute().parent.as_posix()
@@ -791,23 +780,11 @@ class LightningTrain:
                 ckpt_path=self.ckpt_file,
             )
 
-            self.trainer.validate(
-                model=self.model,
-                dataloaders=self.datas.val_dataloader(),
-                ckpt_path=self.ckpt_file,
-                verbose=True,
-            )
         else:
             self.trainer.fit(
                 self.model,
                 train_dataloaders=self.datas.train_dataloader(),
                 val_dataloaders=self.datas.val_dataloader(),
-            )
-
-            self.trainer.validate(
-                model=self.model,
-                dataloaders=self.datas.val_dataloader(),
-                verbose=True,
             )
 
     def callback_metrics(self):
@@ -831,6 +808,7 @@ class AutoLightningTrain:
         devices: int = -1,
         strategy: str = "auto",
         num_nodes: int = 1,
+        num_workers: int = 4,
         enable_checkpointing: bool = True,
         callbacks: List[Callback] = None,
         scheduler: schedulers = None,
@@ -873,6 +851,8 @@ class AutoLightningTrain:
 
         self.num_nodes = num_nodes
 
+        self.num_workers = num_workers
+
         self.hparams = {
             "loss_func": self.loss_func,
             "model_func": self.model_func,
@@ -891,7 +871,9 @@ class AutoLightningTrain:
             self.model_func, self.loss_func, self.optim_func, self.scheduler
         )
 
-        self.datas = LightningData(hparams=self.hparams)
+        self.datas = LightningData(
+            hparams=self.hparams, num_workers=self.num_workers
+        )
         self.datas.setup("fit")
         self.default_root_dir = (
             Path(self.model_save_file).absolute().parent.as_posix()
@@ -1055,10 +1037,7 @@ class ClusterLightningTrain:
         )
         self.datas.setup("fit")
         train_dataloaders = self.datas.train_dataloader()
-        val_dataloaders = self.datas.val_dataloader()
-
-        self.datas.batch_size = 1
-        train_dataloaders_inf = self.datas.train_dataloader()
+        predict_loader = self.datas.predict_dataloader()
 
         if self.ckpt_file is None:
             get_kmeans = True
@@ -1068,7 +1047,7 @@ class ClusterLightningTrain:
             self.network,
             self.loss_func,
             self.cluster_loss_func,
-            train_dataloaders_inf,
+            predict_loader,
             self.optim_func,
             self.gamma,
             self.mem_percent,
@@ -1082,7 +1061,7 @@ class ClusterLightningTrain:
             self.loss_func,
             self.cluster_loss_func,
             self.optim_func,
-            train_dataloaders_inf,
+            predict_loader,
             cluster_distribution,
             self.accelerator,
             self.devices,
@@ -1095,27 +1074,14 @@ class ClusterLightningTrain:
             self.trainer.fit(
                 self.model,
                 train_dataloaders=train_dataloaders,
-                val_dataloaders=val_dataloaders,
                 ckpt_path=self.ckpt_file,
             )
 
-            self.trainer.validate(
-                model=self.model,
-                dataloaders=val_dataloaders,
-                ckpt_path=self.ckpt_file,
-                verbose=True,
-            )
         else:
             self.trainer.fit(
                 self.model,
                 train_dataloaders=self.datas.train_dataloader(),
                 val_dataloaders=self.datas.val_dataloader(),
-            )
-
-            self.trainer.validate(
-                model=self.model,
-                dataloaders=self.datas.val_dataloader(),
-                verbose=True,
             )
 
     def callback_metrics(self):
