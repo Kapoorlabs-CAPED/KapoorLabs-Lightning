@@ -1015,7 +1015,7 @@ class ClusterLightningTrain:
 class Distributions(LightningModule):
     def __init__(
         self,
-        network: torch.nn.Module,
+        network: DeepEmbeddedClustering,
         dataloader,
         num_clusters,
         devices,
