@@ -450,7 +450,10 @@ class ClusterLightningModel(LightningModule):
         return output
 
     def on_train_epoch_end(self) -> None:
-        if self.current_epoch % self.update_interval == 0:
+        if (
+            self.current_epoch > 0
+            and self.current_epoch % self.update_interval == 0
+        ):
             net, cluster_distribution = initialize_repeat_function(
                 self.network,
                 self.loss_func,
