@@ -14,7 +14,7 @@ from torch.utils.data import Dataset
 
 
 class PointCloudDataset(Dataset):
-    def __init__(self, points_dir, centre=True, scale=20.0):
+    def __init__(self, points_dir, centre=True, scale=1.0):
         self.points_dir = points_dir
         self.centre = centre
         self.scale = scale
@@ -40,7 +40,7 @@ class PointCloudDataset(Dataset):
 
 
 class PointCloudNpzDataset(Dataset):
-    def __init__(self, npz_path, centre=True, scale=20.0):
+    def __init__(self, npz_path, centre=True, scale=1.0):
         self.npz_path = npz_path
         self.centre = centre
         self.scale = scale
@@ -460,7 +460,7 @@ class OPMDataset(Dataset):
 
 
 class VesselMNIST3D(Dataset):
-    def __init__(self, points_dir, centre=True, scale=20.0, partition="train"):
+    def __init__(self, points_dir, centre=True, scale=1.0, partition="train"):
         self.points_dir = points_dir
         self.centre = centre
         self.scale = scale
