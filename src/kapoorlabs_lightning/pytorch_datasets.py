@@ -14,10 +14,11 @@ from torch.utils.data import Dataset
 
 
 class PointCloudDataset(Dataset):
-    def __init__(self, points_dir, centre=True, scale=1.0):
+    def __init__(self, points_dir, centre=True, scale_z=1.0, scale_xy=1.0):
         self.points_dir = points_dir
         self.centre = centre
-        self.scale = scale
+        self.scale_z = scale_z
+        self.scale_xy = scale_xy
         self.p = Path(self.points_dir)
         self.files = list(self.p.glob("**/*.ply"))
 
@@ -33,7 +34,7 @@ class PointCloudDataset(Dataset):
         if self.centre:
             mean = torch.mean(point_cloud, 0)
 
-        scale = torch.tensor([[self.scale, self.scale, self.scale]])
+        scale = torch.tensor([[self.scale_z, self.scale_xy, self.scale_xy]])
         point_cloud = (point_cloud - mean) / scale
 
         return point_cloud
