@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List
 
 import torch
+import torch.nn.functional as F
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
 from lightning.pytorch.utilities.types import STEP_OUTPUT
@@ -405,7 +406,9 @@ class ClusterLightningModel(LightningModule):
         return self.loss_func(y_hat, y)
 
     def cluster_loss(self, clusters, tar_dist):
-        return self.cluster_loss_func(torch.log(clusters), tar_dist)
+        return self.cluster_loss_func(
+            F.log_softmax(clusters), F.softmax(tar_dist)
+        )
 
     def training_step(self, batch, batch_idx):
         self.compute_device = batch.device
