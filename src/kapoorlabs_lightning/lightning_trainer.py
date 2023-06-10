@@ -343,6 +343,7 @@ class ClusterLightningModel(LightningModule):
             ]
         )
 
+        # params
         self.network = network
         self.loss_func = loss_func
         self.cluster_loss_func = cluster_loss_func
