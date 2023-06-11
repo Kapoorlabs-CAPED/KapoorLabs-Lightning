@@ -1,7 +1,7 @@
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 import torch
 import torch.nn.functional as F
@@ -218,6 +218,8 @@ class AutoLightningModel(LightningModule):
         loss_func: torch.nn.Module,
         optim_func: optim,
         scheduler: schedulers = None,
+        scale_z=1,
+        scale_xy=1,
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -228,6 +230,8 @@ class AutoLightningModel(LightningModule):
         self.loss_func = loss_func
         self.optim_func = optim_func
         self.scheduler = scheduler
+        self.scale_z = scale_z
+        self.scale_xy = scale_xy
 
     def forward(self, z):
         return self.network(z)
@@ -264,6 +268,19 @@ class AutoLightningModel(LightningModule):
 
     def loss(self, y_hat, y):
         return self.loss_func(y_hat, y)
+
+    def predict_step(self, batch: Any, batch_idx: int) -> Any:
+        if isinstance(batch, (list, tuple)):
+            batch = batch[0]
+
+        mean = torch.mean(batch, 0)
+        scale = torch.tensor([[self.scale_z, self.scale_xy, self.scale_xy]])
+
+        outputs, features = self(batch)
+
+        outputs = outputs * scale + mean
+
+        return outputs
 
     def training_step(self, batch, batch_idx):
         inputs = batch
