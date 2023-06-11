@@ -280,10 +280,9 @@ class AutoLightningModel(LightningModule):
 
         outputs, features = self(batch)
 
-        if outputs.shape != mean.shape:
-            mean = mean.reshape(outputs.shape)
-        if outputs.shape != scale.shape:
-            scale = scale.reshape(outputs.shape)
+        output_mean = outputs.clone()
+        output_mean[:, : mean.shape[1], :] = mean
+
         outputs = outputs * scale + mean
 
         return outputs
