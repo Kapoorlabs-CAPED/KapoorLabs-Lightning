@@ -273,8 +273,10 @@ class AutoLightningModel(LightningModule):
         if isinstance(batch, (list, tuple)):
             batch = batch[0]
 
-        mean = torch.mean(batch, 0)
-        scale = torch.tensor([[self.scale_z, self.scale_xy, self.scale_xy]])
+        mean = torch.mean(batch, 0).to(self.device)
+        scale = torch.tensor(
+            [[self.scale_z, self.scale_xy, self.scale_xy]]
+        ).to(self.device)
 
         outputs, features = self(batch)
 
