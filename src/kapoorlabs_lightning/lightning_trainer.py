@@ -279,8 +279,10 @@ class AutoLightningModel(LightningModule):
         ).to(self.device)
 
         outputs, features = self(batch)
-
-        outputs = outputs * scale + mean
+        batch_size = batch.shape[0]
+        outputs = outputs * scale
+        for i in range(batch_size):
+            outputs[i, :] = outputs[i, :] + mean[i, :]
 
         return outputs
 
