@@ -7,7 +7,6 @@ import torch
 import torch.nn.functional as F
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers.logger import Logger
-from lightning.pytorch.utilities.types import STEP_OUTPUT
 from sklearn.cluster import KMeans
 from torch import optim
 from torch.utils.data import DataLoader, Dataset, random_split
@@ -623,7 +622,7 @@ class ClusterLightningDistModel(LightningModule):
     def forward(self, z):
         return self.network(z)
 
-    def predict_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
+    def predict_step(self, batch, batch_idx):
         return self(batch)
 
     def configure_optimizers(self):
