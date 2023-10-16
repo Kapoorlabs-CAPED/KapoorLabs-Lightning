@@ -10,7 +10,7 @@ class _Optimizer(Module):
     def __init__(
         self,
         lr=1e-3,
-        betas=(0.9, 0.999),
+        betas=(0.9, 0.9999),
         eps=1e-8,
         momentum=0,
         dampening=0,
