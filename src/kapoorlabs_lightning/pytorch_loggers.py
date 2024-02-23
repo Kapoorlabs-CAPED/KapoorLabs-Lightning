@@ -10,30 +10,25 @@ from torch.nn import Module
 
 
 class CustomNPZLogger(Logger):
-
-    def __init__(self, save_dir:str, experiment_name: str = 'Autoencoder', name: str = 'Autoencoder_net', version: str = "1"):
-
-         super().__init__() 
-         self._experiment = None
-         self._save_dir: Optional[str]
-         self.rest_api_key: Optional[str]
-         self.train_loss_epoch = []
-         self.val_loss_epoch = []
-         self.train_loss_step = []
-         self.val_loss_step = [] 
-         self.val_accuracy_field = []
-         
-         self._experiment_name: Optional[str] = experiment_name 
-         self._save_dir = save_dir
-         self._name = name 
-         self._version = version
-         self.hparams_logged = None
-         self.metrics_logged = {}
-         self.finalized = False
-         self.after_save_checkpoint_called = False 
-
+    def __init__(self, save_dir: str, experiment_name: str = "BLT", version: str = "1"):
+        super().__init__()
+        self._experiment = None
+        self._save_dir = save_dir
+        self._experiment_name = experiment_name
+        self._version = version
+        self.finalized = False
+        self.hparams_logged = None
+        self.after_save_checkpoint_called = False
+        self.metrics_logged = {}
+        # make sure savedir exists
+        if not os.path.exists(self._save_dir):
+            print(f"Creating save directory {self._save_dir} for custom npz logger.")
+            os.makedirs(self._save_dir)
 
     @property
+    def name(self):
+        return "NPZLogger"
+
     @rank_zero_experiment
     def experiment(self):
         if self._experiment is not None:
@@ -48,19 +43,14 @@ class CustomNPZLogger(Logger):
 
     @rank_zero_only
     def log_metrics(self, metrics, step):
-        self.metrics_logged = metrics
+        if not hasattr(self, "metrics_logged"):
+            self.metrics_logged = {}
 
-        if 'train_loss_step' in self.metrics_logged:
-          self.train_loss_step.append([step, metrics['train_loss_step']])
-        if 'train_loss_epoch' in self.metrics_logged:
-          self.train_loss_epoch.append([step, metrics['train_loss_epoch']])
-        if 'val_loss_step' in self.metrics_logged:
-          self.val_loss_step.append([step, metrics['val_loss_step']])
-        if 'val_loss_epoch' in self.metrics_logged:
-          self.val_loss_epoch.append([step, metrics['val_loss_epoch']])
-        if 'val_accuracy' in self.metrics_logged:  
-             self.val_accuracy_field.append([step, metrics['val_accuracy']])
-
+        for key, value in metrics.items():
+            if key not in self.metrics_logged:
+                self.metrics_logged[key] = {"steps": [], "values": []}
+            self.metrics_logged[key]["steps"].append(step)
+            self.metrics_logged[key]["values"].append(value)
 
     @rank_zero_only
     def finalize(self, status):
@@ -68,21 +58,11 @@ class CustomNPZLogger(Logger):
 
     @rank_zero_only
     def save(self):
-        save_experiment = os.path.join(self._save_dir, self._experiment_name)
-        Path(os.path.join(save_experiment))
-        np.savez(save_experiment+self._name+'.npz', train_loss_step=self.train_loss_step , train_loss_epoch=self.train_loss_epoch, val_loss_step=self.val_loss_step,  val_loss_epoch = self.val_loss_epoch )
-
-    @property
-    def save_dir(self) -> Optional[str]:
-        """Return the root directory where experiment logs get saved, or `None` if the logger does not save data
-        locally."""
-        return self._save_dir
-
-  
-    
-    @property
-    def name(self):
-        return self._name
+        save_experiment = self._save_dir
+        save_experiment = os.fspath(save_experiment)
+        save_experiment_name = str(self._experiment_name) + ".npz"
+        save_path = Path(save_experiment) / save_experiment_name
+        np.savez(save_path, **self.metrics_logged)
 
     @property
     def version(self):
@@ -90,15 +70,9 @@ class CustomNPZLogger(Logger):
 
     def __getstate__(self) -> Dict[str, Any]:
         state = self.__dict__.copy()
-
-        # Save the experiment id in case an experiment object already exists,
-        # this way we could create an ExistingExperiment pointing to the same
-        # experiment
-        state["_experiment_key"] = self._experiment.id if self._experiment is not None else None
-
-        # Remove the experiment object as it contains hard to pickle objects
-        # (like network connections), the experiment object will be recreated if
-        # needed later
+        state["_experiment_key"] = (
+            self._experiment.id if self._experiment is not None else None
+        )
         state["_experiment"] = None
         return state
 
