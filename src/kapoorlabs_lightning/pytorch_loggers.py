@@ -36,7 +36,10 @@ class CustomNPZLogger(Logger):
         if self._experiment_name:
             self._experiment.set_name(self._experiment_name)
 
-
+    @rank_zero_only
+    def log_hyperparams(self, params):
+        self.hparams_logged = params
+        
 
     @rank_zero_only
     def log_metrics(self, metrics, step):
