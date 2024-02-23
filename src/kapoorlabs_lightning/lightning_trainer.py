@@ -186,7 +186,17 @@ class LightningModel(LightningModule):
     def _shared_eval(self, batch, batch_idx, prefix):
         x, y = batch
         y_hat = self(x)
-        self.loss(y_hat, y)
+        loss = self.loss(y_hat, y)
+        self.log(
+            f"{prefix}_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            sync_dist=True,
+            rank_zero_only=True,
+        )
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
