@@ -341,6 +341,7 @@ class LightningModel(LightningModule):
         on_epoch: bool = True,
         sync_dist: bool = True,
         rank_zero_only: bool = False,
+        num_classes = 2
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -357,6 +358,7 @@ class LightningModel(LightningModule):
         self.on_epoch = on_epoch
         self.sync_dist = sync_dist
         self.rank_zero_only = rank_zero_only
+        self.num_classes = num_classes
 
     @classmethod
     def extract_json(cls, backbone_model_json):
@@ -568,8 +570,7 @@ class LightningModel(LightningModule):
     def compute_accuracy(self, outputs, labels):
 
         predicted = outputs.data
-        num_classes = torch.unique(labels).size(0) + 1
-        accuracy = Accuracy(task="multiclass", num_classes=num_classes).to(self.device)
+        accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(self.device)
         accuracies = accuracy(predicted, labels)
 
         return accuracies
