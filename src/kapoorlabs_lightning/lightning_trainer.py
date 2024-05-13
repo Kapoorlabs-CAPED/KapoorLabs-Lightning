@@ -92,7 +92,7 @@ class MitosisInception:
         patience: int = 10,
         threshold: float = 1e-4,
         t_warmup: int = 0,
-        t_max: int = 1,
+        t_max: int = None,
         strategy: str = "auto",
     ):
         self.npz_file = npz_file
@@ -104,7 +104,8 @@ class MitosisInception:
         self.kernel_size = kernel_size
         self.num_workers = num_workers
         self.epochs = epochs
-        self.t_max = t_max
+        self.t_max = t_max if t_max is not None else self.epochs
+
         self.batch_size = batch_size
         self.log_path = log_path
         self.accelerator = accelerator
@@ -129,6 +130,7 @@ class MitosisInception:
         self.threshold = threshold
         self.t_warmup = t_warmup
         self.strategy = strategy
+        self.scheduler = None
         if self.loss_function not in self.LOSS_CHOICES:
             raise ValueError(
                 f"Invalid loss function choice, must be one of {self.LOSS_CHOICES}"
