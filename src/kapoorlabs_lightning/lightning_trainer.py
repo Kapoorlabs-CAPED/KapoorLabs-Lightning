@@ -505,7 +505,7 @@ class LightningModel(LightningModule):
             opt.step()
         else:
             loss = self.loss(y_hat, y)
-        
+
         accuracy = self.compute_accuracy(y_hat, y)
 
         self.log(
@@ -516,19 +516,19 @@ class LightningModel(LightningModule):
             prog_bar=True,
             logger=True,
             sync_dist=self.sync_dist,
-            rank_zero_only=self.rank_zero_only
+            rank_zero_only=self.rank_zero_only,
         )
 
         self.log(
-                "train_accuracy",
-                accuracy,
-                on_step=self.on_step,
-                on_epoch=self.on_epoch,
-                prog_bar=True,
-                logger=True,
-                sync_dist=self.sync_dist,
-                rank_zero_only=self.rank_zero_only,
-            )
+            "train_accuracy",
+            accuracy,
+            on_step=self.on_step,
+            on_epoch=self.on_epoch,
+            prog_bar=True,
+            logger=True,
+            sync_dist=self.sync_dist,
+            rank_zero_only=self.rank_zero_only,
+        )
 
         return loss
 
@@ -539,7 +539,7 @@ class LightningModel(LightningModule):
         x, y = batch
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        acc_running += self.compute_accuracy(y_hat, y)
+        accuracy = self.compute_accuracy(y_hat, y)
         self.log(
             f"{prefix}_loss",
             loss,
@@ -548,30 +548,28 @@ class LightningModel(LightningModule):
             prog_bar=True,
             logger=True,
             sync_dist=self.sync_dist,
-            rank_zero_only=self.rank_zero_only
+            rank_zero_only=self.rank_zero_only,
         )
 
         self.log(
             f"{prefix}_accuracy",
-            loss,
+            accuracy,
             on_step=self.on_step,
             on_epoch=self.on_epoch,
             prog_bar=True,
             logger=True,
             sync_dist=self.sync_dist,
-            rank_zero_only=self.rank_zero_only
+            rank_zero_only=self.rank_zero_only,
         )
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
-    
+
     def compute_accuracy(self, outputs, labels):
 
         predicted = outputs.data
         num_classes = torch.unique(labels).size(0) + 1
-        accuracy = Accuracy(
-                        task="multiclass", num_classes = num_classes
-                    ).to(self.device)
+        accuracy = Accuracy(task="multiclass", num_classes=num_classes).to(self.device)
         accuracies = accuracy(predicted, labels)
 
         return accuracies
@@ -1593,6 +1591,7 @@ class LightningModelTrain:
         self.trainer.fit(
             self.model,
             train_dataloaders=self.train_dataloader,
+            val_dataloaders=self.val_dataloader,
             ckpt_path=self.ckpt_path,
         )
 
