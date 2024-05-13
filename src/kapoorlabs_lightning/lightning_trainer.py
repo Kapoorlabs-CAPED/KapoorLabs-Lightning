@@ -514,6 +514,7 @@ class LightningModel(LightningModule):
             logger=True,
             sync_dist=self.sync_dist,
             rank_zero_only=self.rank_zero_only,
+            format = '.9f'
         )
 
         return loss
@@ -534,6 +535,7 @@ class LightningModel(LightningModule):
             logger=True,
             sync_dist=self.sync_dist,
             rank_zero_only=self.rank_zero_only,
+            format = '.9f'
         )
 
     def validation_step(self, batch, batch_idx):
@@ -644,6 +646,7 @@ class AutoLightningModel(LightningModule):
             on_epoch=True,
             prog_bar=True,
             logger=True,
+            format = '.9f'
         )
 
         return loss
@@ -809,6 +812,7 @@ class ClusterLightningModel(LightningModule):
             logger=True,
             sync_dist=True,
             rank_zero_only=True,
+            format = '.9f'
         )
 
         return output
