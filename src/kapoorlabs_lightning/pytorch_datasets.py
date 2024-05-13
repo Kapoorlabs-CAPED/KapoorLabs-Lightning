@@ -132,6 +132,23 @@ class SingleCellDataset(Dataset):
         return image, treatment, feats, serial_number
 
 
+class MitosisDataset(Dataset):
+    def __init__(self, arrays, labels):
+        self.arrays = arrays
+        self.labels = labels
+        self.input_channels = arrays.shape[2]
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def __len__(self):
+        return len(self.arrays)
+
+    def __getitem__(self, idx):
+        array = self.arrays[idx]
+        array = torch.tensor(array).permute(1, 0).float().to(self.device)
+        label = torch.tensor(self.labels[idx]).to(self.device)
+        return array, label
+
+
 class GefGapDataset(Dataset):
     def __init__(
         self,

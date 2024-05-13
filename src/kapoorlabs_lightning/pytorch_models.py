@@ -4,8 +4,212 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import torch.nn.init as init
+from torch.utils.data import Dataset
 from .graph_functions import get_graph_feature, knn, local_cov, local_maxpool
+
+
+class DenseLayer(nn.Module):
+    """ """
+
+    def __init__(self, input_channels, growth_rate, bottleneck_size, kernel_size):
+        super().__init__()
+        self.use_bottleneck = bottleneck_size > 0
+        self.num_bottleneck_output_filters = growth_rate * bottleneck_size
+        if self.use_bottleneck:
+            self.bn2 = nn.GroupNorm(1, input_channels)
+            self.act2 = nn.ReLU(inplace=True)
+            self.conv2 = nn.Conv1d(
+                input_channels,
+                self.num_bottleneck_output_filters,
+                kernel_size=1,
+                stride=1,
+            )
+        self.bn1 = nn.GroupNorm(1, self.num_bottleneck_output_filters)
+        self.act1 = nn.ReLU(inplace=True)
+        self.conv1 = nn.Conv1d(
+            self.num_bottleneck_output_filters,
+            growth_rate,
+            kernel_size=kernel_size,
+            stride=1,
+            dilation=1,
+            padding=kernel_size // 2,
+        )
+
+    def forward(self, x):
+        if self.use_bottleneck:
+            x = self.bn2(x)
+            x = self.act2(x)
+            x = self.conv2(x)
+        x = self.bn1(x)
+        x = self.act1(x)
+        x = self.conv1(x)
+        return x
+
+
+class DenseBlock(nn.ModuleDict):
+    """ """
+
+    def __init__(
+        self, num_layers, input_channels, growth_rate, kernel_size, bottleneck_size
+    ):
+        super().__init__()
+        self.num_layers = num_layers
+        for i in range(self.num_layers):
+            self.add_module(
+                f"denselayer{i}",
+                DenseLayer(
+                    input_channels + i * growth_rate,
+                    growth_rate,
+                    bottleneck_size,
+                    kernel_size,
+                ),
+            )
+
+    def forward(self, x):
+        layer_outputs = [x]
+        for _, layer in self.items():
+            x = layer(x)
+            layer_outputs.append(x)
+            x = torch.cat(layer_outputs, dim=1)
+        return x
+
+
+class TransitionBlock(nn.Module):
+    """ """
+
+    def __init__(self, input_channels, out_channels):
+        super().__init__()
+        self.bn = nn.GroupNorm(1, input_channels)
+        self.act = nn.ReLU(inplace=True)
+        self.conv = nn.Conv1d(
+            input_channels, out_channels, kernel_size=1, stride=1, dilation=1
+        )
+        self.pool = nn.AvgPool1d(kernel_size=2, stride=2)
+
+    def forward(self, x):
+        x = self.bn(x)
+        x = self.act(x)
+        x = self.conv(x)
+        x = self.pool(x)
+        return x
+
+
+class DenseNet(nn.Module):
+    def __init__(
+        self,
+        input_channels,
+        num_classes,
+        growth_rate: int = 32,
+        block_config: tuple = (6, 12, 24, 16),
+        num_init_features: int = 32,
+        bottleneck_size: int = 4,
+        kernel_size: int = 3,
+    ):
+
+        super().__init__()
+        self._initialize_weights()
+
+        self.features = nn.Sequential(
+            nn.Conv1d(input_channels, num_init_features, kernel_size=1),
+            nn.GroupNorm(1, num_init_features),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(kernel_size=1),
+        )
+
+        num_features = num_init_features
+        for i, num_layers in enumerate(block_config):
+            block = DenseBlock(
+                num_layers=num_layers,
+                input_channels=num_features,
+                growth_rate=growth_rate,
+                kernel_size=kernel_size,
+                bottleneck_size=bottleneck_size,
+            )
+            self.features.add_module(f"denseblock{i}", block)
+            num_features = num_features + num_layers * growth_rate
+            if i != len(block_config) - 1:
+                trans = TransitionBlock(
+                    input_channels=num_features, out_channels=num_features // 2
+                )
+                self.features.add_module(f"transition{i}", trans)
+                num_features = num_features // 2
+
+        self.final_bn = nn.GroupNorm(1, num_features)
+        self.final_act = nn.ReLU(inplace=True)
+        self.final_pool = nn.AdaptiveAvgPool1d(1)
+        self.classifier_1 = nn.Linear(num_features, num_classes)
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv1d):
+                init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.GroupNorm):
+                init.constant_(m.weight, 1)
+                init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                init.kaiming_normal_(m.weight)
+                init.constant_(m.bias, 0)
+
+    def forward_features(self, x):
+        out = self.features(x)
+        out = self.final_bn(out)
+        out = self.final_act(out)
+        out = self.final_pool(out)
+        return out
+
+    def forward(self, x):
+        features = self.forward_features(x)
+        features = features.squeeze(-1)
+        out_1 = self.classifier_1(features)
+        return out_1
+
+    def reset_classifier(self):
+        self.classifier = nn.Identity()
+
+    def get_classifier(self):
+        return self.classifier
+
+
+class MitosisNet(nn.Module):
+    def __init__(self, input_channels, num_classes):
+
+        super().__init__()
+        self.conv1 = nn.Conv1d(
+            input_channels=input_channels, out_channels=32, kernel_size=3
+        )
+        self.pool1 = nn.MaxPool1d(kernel_size=2)
+        self.conv2 = nn.Conv1d(input_channels=32, out_channels=64, kernel_size=3)
+        self.pool2 = nn.MaxPool1d(kernel_size=2)
+
+        self.global_pooling = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Linear(64, num_classes)
+
+    def forward(self, x):
+        x = self.pool1(nn.functional.relu(self.conv1(x)))
+        x = self.pool2(nn.functional.relu(self.conv2(x)))
+        x = self.global_pooling(x).squeeze()
+        x = self.fc(x)
+        return x
+
+
+class MitosisDataset(Dataset):
+    def __init__(self, arrays, labels):
+        self.arrays = arrays
+        self.labels = labels
+        self.input_channels = arrays.shape[2]
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def __len__(self):
+        return len(self.arrays)
+
+    def __getitem__(self, idx):
+        array = self.arrays[idx]
+        array = torch.tensor(array).permute(1, 0).float().to(self.device)
+        label = torch.tensor(self.labels[idx]).to(self.device)
+        return array, label
 
 
 class ClusteringLayer(nn.Module):
@@ -14,9 +218,7 @@ class ClusteringLayer(nn.Module):
         self.num_features = num_features
         self.num_clusters = num_clusters
         self.alpha = alpha
-        self.weight = nn.Parameter(
-            torch.Tensor(self.num_clusters, self.num_features)
-        )
+        self.weight = nn.Parameter(torch.Tensor(self.num_clusters, self.num_features))
         self.weight = nn.init.xavier_uniform_(self.weight)
 
     def forward(self, x):
@@ -73,15 +275,11 @@ class CloudAutoEncoder(nn.Module):
         self.encoder_type = encoder_type.lower()
         self.decoder_type = decoder_type.lower()
         if self.encoder_type == "dgcnn":
-            self.encoder = DGCNNEncoder(
-                num_features=self.num_features, k=self.k
-            )
+            self.encoder = DGCNNEncoder(num_features=self.num_features, k=self.k)
         # elif self.encoder_type == "dgcnn_orig":
         #     self.encoder = DGCNN(num_features=self.num_features, k=self.k)
         else:
-            self.encoder = FoldNetEncoder(
-                num_features=self.num_features, k=self.k
-            )
+            self.encoder = FoldNetEncoder(num_features=self.num_features, k=self.k)
 
         if self.decoder_type == "foldingnet":
             self.decoder = FoldNetDecoder(
@@ -178,9 +376,7 @@ class FoldingNetBasicDecoder(nn.Module):
             range_x = torch.linspace(-std, std, 45)
             range_y = torch.linspace(-std, std, 45)
             x_coor, y_coor = torch.meshgrid(range_x, range_y, indexing="ij")
-            self.grid = (
-                torch.stack([x_coor, y_coor], axis=-1).float().reshape(-1, 2)
-            )
+            self.grid = torch.stack([x_coor, y_coor], axis=-1).float().reshape(-1, 2)
         elif shape == "sphere":
             self.grid = torch.tensor(np.load(sphere_path))
         elif self.shape == "gaussian":
@@ -524,6 +720,8 @@ class Flatten(nn.Module):
 
 
 __all__ = [
+    "DenseNet",
+    "MitosisNet",
     "CloudAutoEncoder",
     "DGCNNEncoder",
     "FoldNetEncoder",

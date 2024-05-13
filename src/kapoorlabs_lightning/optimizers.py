@@ -1,22 +1,24 @@
 from typing import Optional
 
-import torch
+from torch import optim
 from torch.nn.modules.module import Module
 
-__all__ = ["Adam", "SGD", "Rprop"]
+__all__ = ["Adam", "SGD", "Rprop", "RMSprop"]
 
 
 class _Optimizer(Module):
     def __init__(
         self,
         lr=1e-3,
-        betas=(0.9, 0.9999),
+        betas=(0.9, 0.999),
         eps=1e-8,
         momentum=0,
         dampening=0,
         nesterov=False,
         weight_decay=0,
         amsgrad=False,
+        alpha=0.99,
+        centered=False,
         *,
         foreach: Optional[bool] = None,
         maximize: bool = False,
@@ -31,18 +33,20 @@ class _Optimizer(Module):
         self.lr = lr
         self.betas = betas
         self.eps = eps
-        self.weight_decay = weight_decay
         self.amsgrad = amsgrad
+        self.alpha = alpha
+        self.weight_decay = weight_decay
+        self.momentum = momentum
         self.foreach = foreach
         self.maximize = maximize
         self.capturable = capturable
         self.differentiable = differentiable
         self.fused = fused
-        self.momentum = momentum
         self.dampening = dampening
         self.nesterov = nesterov
         self.etas = etas
         self.step_sizes = step_sizes
+        self.centered = centered
 
 
 class Adam(_Optimizer):
@@ -74,7 +78,7 @@ class Adam(_Optimizer):
         )
 
     def forward(self, params):
-        return torch.optim.Adam(
+        return optim.Adam(
             params,
             lr=self.lr,
             betas=self.betas,
@@ -109,13 +113,54 @@ class SGD(_Optimizer):
         )
 
     def forward(self, params):
-        return torch.optim.SGD(
+        return optim.SGD(
             params,
             lr=self.lr,
             momentum=self.momentum,
             dampening=self.dampening,
             weight_decay=self.weight_decay,
             nesterov=self.nesterov,
+        )
+
+
+class RMSprop(_Optimizer):
+    def __init__(
+        self,
+        lr=1e-2,
+        alpha=0.99,
+        eps=1e-8,
+        weight_decay=0,
+        momentum=0,
+        centered=False,
+        foreach: Optional[bool] = None,
+        maximize: bool = False,
+        differentiable: bool = False,
+    ):
+
+        super().__init__(
+            lr=lr,
+            alpha=alpha,
+            eps=eps,
+            weight_decay=weight_decay,
+            momentum=momentum,
+            centered=centered,
+            foreach=foreach,
+            maximize=maximize,
+            differentiable=differentiable,
+        )
+
+    def forward(self, params):
+        return optim.RMSprop(
+            params,
+            lr=self.lr,
+            alpha=self.alpha,
+            eps=self.eps,
+            weight_decay=self.weight_decay,
+            momentum=self.momentum,
+            centered=self.centered,
+            foreach=self.foreach,
+            maximize=self.maximize,
+            differentiable=self.differentiable,
         )
 
 
@@ -138,6 +183,6 @@ class Rprop(_Optimizer):
         self.differentiable = differentiable
 
     def forward(self, params):
-        return torch.optim.Rprop(
+        return optim.Rprop(
             params, lr=self.lr, etas=self.etas, step_sizes=self.step_sizes
         )
