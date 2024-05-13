@@ -568,8 +568,9 @@ class LightningModel(LightningModule):
     def compute_accuracy(self, outputs, labels):
 
         predicted = outputs.data
+        num_classes = torch.unique(labels).size(0)
         accuracy = Accuracy(
-                        task="multiclass"
+                        task="multiclass", num_classes = num_classes
                     ).to(self.device)
         accuracies = accuracy(predicted, labels)
 
