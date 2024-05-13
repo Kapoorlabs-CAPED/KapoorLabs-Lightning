@@ -129,11 +129,10 @@ class CustomProgressBar(RichProgressBar):
     def __init__(
         self,
         theme: RichProgressBarTheme = RichProgressBarTheme(
-            description="green_yellow", progress_bar="green1"
+            description="green_yellow", progress_bar="green1", metrics_format=".9f"
         ),
     ):
         super().__init__(theme=theme)
-        theme.metrics_format='.9f'
         self.progress_bar = RichProgressBar(theme=theme)
 
 
