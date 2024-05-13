@@ -61,7 +61,6 @@ class MitosisInception:
     def __init__(
         self,
         npz_file: str,
-        input_channels,
         num_classes,
         growth_rate: int = 32,
         block_config: tuple = (6, 12, 24, 16),
@@ -84,7 +83,7 @@ class MitosisInception:
         epsilon: float = 1.0,
         gamma: float = 0.94,
         slurm_auto_requeue: bool = False,
-        train_precision: str = "16-mixed",
+        train_precision: str = "32",
         gradient_clip_val: float = None,
         gradient_clip_algorithm: str = None,
         milestones: List = None,
@@ -96,7 +95,6 @@ class MitosisInception:
         strategy: str = "auto",
     ):
         self.npz_file = npz_file
-        self.input_channels = input_channels
         self.num_classes = num_classes
         self.growth_rate = growth_rate
         self.block_config = block_config
@@ -130,7 +128,6 @@ class MitosisInception:
         self.threshold = threshold
         self.t_warmup = t_warmup
         self.strategy = strategy
-        self.dataset_path = os.path.join(self.dataset_dir, self.dataset_name + ".h5")
         if self.loss_function not in self.LOSS_CHOICES:
             raise ValueError(
                 f"Invalid loss function choice, must be one of {self.LOSS_CHOICES}"
@@ -161,6 +158,8 @@ class MitosisInception:
         )
 
         self.dataset_train = MitosisDataset(train_arrays, train_labels)
+
+        self.input_channels = self.dataset_train.input_channels
 
         val_arrays = np.concatenate((val_dividing_arrays, val_non_dividing_arrays))
         val_labels = np.concatenate((val_dividing_labels, val_non_dividing_labels))
@@ -240,12 +239,7 @@ class MitosisInception:
                 t_warmup=self.t_warmup, t_max=self.t_max, eta_min=self.eta_min
             )
 
-    def setup_lightning_model(
-        self,
-        tensor_dtype=torch.long,
-        use_bce_loss=False,
-        reduce_lr_metric="val_accuracy_epoch",
-    ):
+    def setup_lightning_model(self):
         if self.loss_function == "cross_entropy":
             self.loss = CrossEntropyLoss()
         if self.loss_function == "cosine":
@@ -261,9 +255,6 @@ class MitosisInception:
             self.loss,
             self.optimizer,
             scheduler=self.scheduler,
-            use_bce_loss=use_bce_loss,
-            tensor_dtype=tensor_dtype,
-            reduce_lr_metric=reduce_lr_metric,
         )
         model_hyperparameters = {
             "input_channels": self.input_channels,

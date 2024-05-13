@@ -9,6 +9,7 @@ from .lightning_trainer import (
     LightningData,
     LightningModel,
     LightningTrain,
+    MitosisInception,
 )
 from .pytorch_datasets import (
     PointCloudDataset,
@@ -61,5 +62,6 @@ __all__ = [
     "Adam",
     "RMSprop",
     "Rprop",
+    "MitosisInception",
 ]
 __all__.extend(all_pytorch_models)
