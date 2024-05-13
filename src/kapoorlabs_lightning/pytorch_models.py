@@ -178,10 +178,10 @@ class MitosisNet(nn.Module):
 
         super().__init__()
         self.conv1 = nn.Conv1d(
-            input_channels=input_channels, out_channels=32, kernel_size=3
+            in_channels=input_channels, out_channels=32, kernel_size=3
         )
         self.pool1 = nn.MaxPool1d(kernel_size=2)
-        self.conv2 = nn.Conv1d(input_channels=32, out_channels=64, kernel_size=3)
+        self.conv2 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3)
         self.pool2 = nn.MaxPool1d(kernel_size=2)
 
         self.global_pooling = nn.AdaptiveAvgPool1d(1)
