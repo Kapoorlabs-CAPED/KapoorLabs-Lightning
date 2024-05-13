@@ -156,7 +156,7 @@ class RichProgressBarTheme:
     processing_speed: Union[str, Style] = "grey70"
     metrics: Union[str, Style] = "white"
     metrics_text_delimiter: str = " "
-    metrics_format: str = ".3f"
+    metrics_format: str = ".9f"
 
 class CustomProgressBar(RichProgressBar):
     def __init__(
