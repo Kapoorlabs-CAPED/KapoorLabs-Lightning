@@ -128,12 +128,18 @@ class EarlyStoppingCall(EarlyStopping):
 class CustomProgressBar(RichProgressBar):
     def __init__(
         self,
-        theme: RichProgressBarTheme = RichProgressBarTheme(
-            description="green_yellow", progress_bar="green1", metrics_format=".9f"
-        ),
+        description_color: str = "green_yellow",
+        progress_bar_color: str = "green1",
+        metrics_precision: int = 9,
+        
     ):
-        super().__init__(theme=theme)
-        self.progress_bar = RichProgressBar(theme=theme)
+        custom_theme = RichProgressBarTheme(
+            description=description_color,
+            progress_bar=progress_bar_color,
+            metrics_format=f".{metrics_precision}f",
+        )
+        super().__init__(theme=custom_theme)
+        self.progress_bar = RichProgressBar(theme=custom_theme)
 
 
 class CheckpointModel(ModelCheckpoint):
