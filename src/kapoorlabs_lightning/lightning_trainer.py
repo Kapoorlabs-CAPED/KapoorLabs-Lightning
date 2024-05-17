@@ -132,7 +132,7 @@ class MitosisInception:
         self.threshold = threshold
         self.t_warmup = t_warmup
         self.strategy = strategy
-        self.weight_decay = weight_decay 
+        self.weight_decay = weight_decay
         self.eps = eps
         self.scheduler = None
         if self.loss_function not in self.LOSS_CHOICES:
@@ -156,7 +156,9 @@ class MitosisInception:
         val_dividing_labels = training_data["dividing_val_labels"]
         val_non_dividing_arrays = training_data["non_dividing_val_arrays"]
         val_non_dividing_labels = training_data["non_dividing_val_labels"]
-        print(f'Dividing labels in training {len(train_dividing_labels)}, Non Dividing labels in training {len(train_non_dividing_labels)}')
+        print(
+            f"Dividing labels in training {len(train_dividing_labels)}, Non Dividing labels in training {len(train_non_dividing_labels)}"
+        )
         train_arrays = np.concatenate(
             (train_dividing_arrays, train_non_dividing_arrays)
         )
@@ -193,7 +195,7 @@ class MitosisInception:
             bottleneck_size=self.bottleneck_size,
             kernel_size=self.kernel_size,
         )
-        print(f'Training Model {self.model}')
+        print(f"Training Mitosis Inception Model {self.model}")
 
     def setup_mitosisnet_model(self):
         self.model = MitosisNet(
@@ -212,7 +214,9 @@ class MitosisInception:
         self.modelcheckpoint = CheckpointModel(save_dir=self.log_path)
 
     def setup_adam(self):
-        self.optimizer = Adam(lr=self.learning_rate, weight_decay=self.weight_decay, eps=self.eps)
+        self.optimizer = Adam(
+            lr=self.learning_rate, weight_decay=self.weight_decay, eps=self.eps
+        )
 
     def setup_rmsprop(self):
         self.optimizer = RMSprop(
@@ -326,7 +330,7 @@ class LightningData(LightningDataModule):
             self.data_train,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            shuffle=True
+            shuffle=True,
         )
 
     def val_dataloader(self):
@@ -334,7 +338,7 @@ class LightningData(LightningDataModule):
             self.data_val,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            shuffle=False
+            shuffle=False,
         )
 
 
@@ -350,7 +354,7 @@ class LightningModel(LightningModule):
         on_epoch: bool = True,
         sync_dist: bool = True,
         rank_zero_only: bool = False,
-        num_classes = 2
+        num_classes=2,
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -507,7 +511,6 @@ class LightningModel(LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        
 
         if not self.automatic_optimization:
             opt = self.optimizers()
@@ -517,8 +520,6 @@ class LightningModel(LightningModule):
             opt.step()
         else:
             loss = self.loss(y_hat, y)
-
-        
 
         self.log(
             "train_loss",
@@ -542,7 +543,7 @@ class LightningModel(LightningModule):
             sync_dist=self.sync_dist,
             rank_zero_only=self.rank_zero_only,
         )
-        
+
         accuracy = self.compute_accuracy(y_hat, y)
 
         self.log(
@@ -555,7 +556,6 @@ class LightningModel(LightningModule):
             sync_dist=self.sync_dist,
             rank_zero_only=self.rank_zero_only,
         )
-        
 
         return loss
 
@@ -604,12 +604,14 @@ class LightningModel(LightningModule):
             rank_zero_only=self.rank_zero_only,
         )
         if isinstance(sch, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            sch.step(self.trainer.callback_metrics[self.reduce_lr_metric])    
+            sch.step(self.trainer.callback_metrics[self.reduce_lr_metric])
 
     def compute_accuracy(self, outputs, labels):
 
         predicted = outputs.data
-        accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(self.device)
+        accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
+            self.device
+        )
         accuracies = accuracy(predicted, labels)
 
         return accuracies
@@ -1180,7 +1182,11 @@ class LightningTrain:
             self.model_func, self.loss_func, self.optim_func, self.scheduler
         )
 
-        self.datas = LightningData(data_train=self.dataset_train, data_val=self.dataset_val, num_workers=self.num_workers)
+        self.datas = LightningData(
+            data_train=self.dataset_train,
+            data_val=self.dataset_val,
+            num_workers=self.num_workers,
+        )
         self.default_root_dir = Path(self.model_save_file).absolute().parent.as_posix()
         self.default_root_dir = os.path.join(
             self.default_root_dir, Path(self.model_save_file).stem
@@ -1244,7 +1250,7 @@ class AutoLightningTrain:
         logger: Logger = None,
         **kwargs,
     ):
-        self.dataset_train = dataset_train 
+        self.dataset_train = dataset_train
 
         self.dataset_val = dataset_val
 
@@ -1303,7 +1309,11 @@ class AutoLightningTrain:
             self.model_func, self.loss_func, self.optim_func, self.scheduler
         )
 
-        self.datas = LightningData(data_train=self.dataset_train, data_val= self.dataset_val, num_workers=self.num_workers)
+        self.datas = LightningData(
+            data_train=self.dataset_train,
+            data_val=self.dataset_val,
+            num_workers=self.num_workers,
+        )
         self.default_root_dir = Path(self.model_save_file).absolute().parent.as_posix()
         self.default_root_dir = os.path.join(
             self.default_root_dir, Path(self.model_save_file).stem
@@ -1358,7 +1368,7 @@ class ClusterLightningTrain:
     def __init__(
         self,
         dataset_train: Dataset,
-        dataset_val: Dataset, 
+        dataset_val: Dataset,
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
         network: DeepEmbeddedClustering,
@@ -1461,7 +1471,11 @@ class ClusterLightningTrain:
             num_nodes=self.num_nodes,
         )
 
-        self.datas = LightningData(data_train= self.dataset_train, data_val=self.dataset_val, num_workers=self.num_workers)
+        self.datas = LightningData(
+            data_train=self.dataset_train,
+            data_val=self.dataset_val,
+            num_workers=self.num_workers,
+        )
         train_dataloaders = self.datas.train_dataloader()
         predict_loader = self.datas.predict_dataloader()
 
