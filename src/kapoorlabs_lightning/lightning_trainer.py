@@ -156,8 +156,7 @@ class MitosisInception:
         val_dividing_labels = training_data["dividing_val_labels"]
         val_non_dividing_arrays = training_data["non_dividing_val_arrays"]
         val_non_dividing_labels = training_data["non_dividing_val_labels"]
-        print(f'Dividing labels in training {len(train_dividing_labels)},
-              Non Dividing labels in training {len(train_non_dividing_labels)} ')
+        print(f'Dividing labels in training {len(train_dividing_labels)}, Non Dividing labels in training {len(train_non_dividing_labels)}')
         train_arrays = np.concatenate(
             (train_dividing_arrays, train_non_dividing_arrays)
         )
