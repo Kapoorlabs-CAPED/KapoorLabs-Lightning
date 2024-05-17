@@ -22,7 +22,7 @@ from .pytorch_datasets import (
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_models import __all__ as all_pytorch_models
 from .pytorch_transforms import Transforms
-from .utils import get_most_recent_file
+from .utils import get_most_recent_file, plot_npz_files
 from .pytorch_callbacks import (
     CustomDeviceStatsMonitor,
     ExponentialDecayCallback,
@@ -63,5 +63,6 @@ __all__ = [
     "RMSprop",
     "Rprop",
     "MitosisInception",
+    "plot_npz_files"
 ]
 __all__.extend(all_pytorch_models)

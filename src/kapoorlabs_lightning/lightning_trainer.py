@@ -547,7 +547,6 @@ class LightningModel(LightningModule):
         self.log(
             f"{prefix}_loss",
             loss,
-            on_step=self.on_step,
             on_epoch=self.on_epoch,
             prog_bar=True,
             logger=True,
@@ -558,7 +557,6 @@ class LightningModel(LightningModule):
         self.log(
             f"{prefix}_accuracy",
             accuracy,
-            on_step=self.on_step,
             on_epoch=self.on_epoch,
             prog_bar=True,
             logger=True,
