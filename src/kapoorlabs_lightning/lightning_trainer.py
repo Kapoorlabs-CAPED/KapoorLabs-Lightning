@@ -93,6 +93,8 @@ class MitosisInception:
         threshold: float = 1e-4,
         t_warmup: int = 0,
         t_max: int = None,
+        weight_decay: float = 1e-5,
+        eps: float = 1e-1,
         strategy: str = "auto",
     ):
         self.npz_file = npz_file
@@ -130,6 +132,8 @@ class MitosisInception:
         self.threshold = threshold
         self.t_warmup = t_warmup
         self.strategy = strategy
+        self.weight_decay = weight_decay 
+        self.eps = eps
         self.scheduler = None
         if self.loss_function not in self.LOSS_CHOICES:
             raise ValueError(
@@ -207,7 +211,7 @@ class MitosisInception:
         self.modelcheckpoint = CheckpointModel(save_dir=self.log_path)
 
     def setup_adam(self):
-        self.optimizer = Adam(lr=self.learning_rate)
+        self.optimizer = Adam(lr=self.learning_rate, weight_decay=self.weight_decay, eps=self.eps)
 
     def setup_rmsprop(self):
         self.optimizer = RMSprop(
@@ -500,9 +504,7 @@ class LightningModel(LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        if not self.automatic_optimization:
-            opt = self.optimizers()
-            opt.zero_grad()
+        
 
         if not self.automatic_optimization:
             opt = self.optimizers()
