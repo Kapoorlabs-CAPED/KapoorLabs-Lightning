@@ -363,17 +363,17 @@ class LightningModel(LightningModule):
         self.num_classes = num_classes
 
     @classmethod
-    def extract_json(cls, backbone_model_json):
-        if backbone_model_json is not None:
+    def extract_json(cls, checkpoint_model_json):
+        if checkpoint_model_json is not None:
             assert isinstance(
-                backbone_model_json, (str, dict)
-            ), "backbone_model_json must be a json or dict"
+                checkpoint_model_json, (str, dict)
+            ), "checkpoint_model_json must be a json or dict"
 
-            if isinstance(backbone_model_json, str):
-                with open(backbone_model_json) as file:
+            if isinstance(checkpoint_model_json, str):
+                with open(checkpoint_model_json) as file:
                     mitosis_data = json.load(file)
             else:
-                mitosis_data = backbone_model_json
+                mitosis_data = checkpoint_model_json
             return mitosis_data
 
     @classmethod
@@ -390,7 +390,7 @@ class LightningModel(LightningModule):
         if mitosis_model_json is not None:
             assert isinstance(
                 mitosis_model_json, (str, dict)
-            ), "backbone_model_json must be a json or dict"
+            ), "checkpoint_model_json must be a json or dict"
 
             if isinstance(mitosis_model_json, str):
                 with open(mitosis_model_json) as file:
@@ -408,27 +408,30 @@ class LightningModel(LightningModule):
                 kernel_size = mitosis_data["kernel_size"]
 
             if ckpt_model_path is None:
-                backbone_model_path = mitosis_data["model_path"]
-                most_recent_backbone_ckpt = get_most_recent_file(
-                    backbone_model_path, ".ckpt"
+                checkpoint_model_path = mitosis_data["model_path"]
+                most_recent_checkpoint_ckpt = get_most_recent_file(
+                    checkpoint_model_path, ".ckpt"
                 )
             else:
-                most_recent_backbone_ckpt = ckpt_model_path
+                most_recent_checkpoint_ckpt = ckpt_model_path
             checkpoint = torch.load(
-                most_recent_backbone_ckpt, map_location=map_location
+                most_recent_checkpoint_ckpt, map_location=map_location
             )
-            learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
+            learning_rate = 1.0e-3
             if isinstance(scheduler, CosineAnnealingScheduler):
                 t_max = checkpoint["lr_schedulers"][0]["T_max"]
                 eta_min = checkpoint["lr_schedulers"][0]["eta_min"]
                 scheduler = scheduler(t_max=t_max, eta_min=eta_min)
+                learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
             if isinstance(scheduler, ExponentialLR):
                 gamma = checkpoint["lr_schedulers"][0]["gamma"]
                 scheduler = scheduler(gamma=gamma)
+                learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
             if isinstance(scheduler, MultiStepLR):
                 milestones = checkpoint["lr_schedulers"][0]["milestones"]
                 gamma = checkpoint["lr_schedulers"][0]["gamma"]
                 scheduler = scheduler(milestones=milestones, gamma=gamma)
+                learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
 
             optimizer = optim_func(lr=learning_rate)
             network = mitosis_model(input_channels, num_classes)
@@ -443,8 +446,8 @@ class LightningModel(LightningModule):
                     kernel_size=kernel_size,
                 )
 
-            backbone_lightning_model = cls.load_from_checkpoint(
-                most_recent_backbone_ckpt,
+            checkpoint_lightning_model = cls.load_from_checkpoint(
+                most_recent_checkpoint_ckpt,
                 network=network,
                 loss_func=loss_func,
                 optim_func=optimizer,
@@ -452,9 +455,9 @@ class LightningModel(LightningModule):
                 map_location=map_location,
             )
 
-            backbone_torch_model = backbone_lightning_model.network
+            checkpoint_torch_model = checkpoint_lightning_model.network
 
-            return backbone_lightning_model, backbone_torch_model
+            return checkpoint_lightning_model, checkpoint_torch_model
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
         if isinstance(pretrained_file, (list, tuple)):
