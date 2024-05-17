@@ -194,6 +194,7 @@ class MitosisInception:
             bottleneck_size=self.bottleneck_size,
             kernel_size=self.kernel_size,
         )
+        print(f'Training Model {self.model}')
 
     def setup_mitosisnet_model(self):
         self.model = MitosisNet(
@@ -326,6 +327,7 @@ class LightningData(LightningDataModule):
             self.data_train,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            shuffle=True
         )
 
     def val_dataloader(self):
@@ -333,6 +335,7 @@ class LightningData(LightningDataModule):
             self.data_val,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            shuffle=False
         )
 
 
@@ -1349,7 +1352,8 @@ class AutoLightningTrain:
 class ClusterLightningTrain:
     def __init__(
         self,
-        dataset: Dataset,
+        dataset_train: Dataset,
+        dataset_val: Dataset, 
         loss_func: torch.nn.Module,
         cluster_loss_func: torch.nn.Module,
         network: DeepEmbeddedClustering,
@@ -1373,7 +1377,9 @@ class ClusterLightningTrain:
         mem_percent: int = 20,
         **kwargs,
     ):
-        self.dataset = dataset
+        self.dataset_train = dataset_train
+
+        self.dataset_val = dataset_val
 
         self.loss_func = loss_func
 
@@ -1449,8 +1455,7 @@ class ClusterLightningTrain:
             num_nodes=self.num_nodes,
         )
 
-        self.datas = LightningData(hparams=self.hparams, num_workers=self.num_workers)
-        self.datas.setup("fit")
+        self.datas = LightningData(data_train= self.dataset_train, data_val=self.dataset_val, num_workers=self.num_workers)
         train_dataloaders = self.datas.train_dataloader()
         predict_loader = self.datas.predict_dataloader()
 
