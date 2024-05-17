@@ -1100,7 +1100,8 @@ class LightningSpecialTrain:
 class LightningTrain:
     def __init__(
         self,
-        dataset: Dataset,
+        dataset_train: Dataset,
+        dataset_val: Dataset,
         loss_func: torch.nn.Module,
         model_func: torch.nn.Module,
         optim_func: optimizers._Optimizer,
@@ -1121,7 +1122,9 @@ class LightningTrain:
         logger: Logger = None,
         **kwargs,
     ):
-        self.dataset = dataset
+        self.dataset_train = dataset_train
+
+        self.dataset_val = dataset_val
 
         self.loss_func = loss_func
 
@@ -1168,7 +1171,8 @@ class LightningTrain:
             "scheduler": self.scheduler,
             "train_val_test_split": self.train_val_test_split,
             "batch_size": self.batch_size,
-            "dataset": self.dataset,
+            "dataset_train": self.dataset_train,
+            "dataset_val": self.dataset_val,
         }
         self.hparams.update(kwargs=kwargs)
 
@@ -1177,8 +1181,7 @@ class LightningTrain:
             self.model_func, self.loss_func, self.optim_func, self.scheduler
         )
 
-        self.datas = LightningData(hparams=self.hparams, num_workers=self.num_workers)
-        self.datas.setup("fit")
+        self.datas = LightningData(data_train=self.dataset_train, data_val=self.dataset_val, num_workers=self.num_workers)
         self.default_root_dir = Path(self.model_save_file).absolute().parent.as_posix()
         self.default_root_dir = os.path.join(
             self.default_root_dir, Path(self.model_save_file).stem
@@ -1220,7 +1223,8 @@ class LightningTrain:
 class AutoLightningTrain:
     def __init__(
         self,
-        dataset: Dataset,
+        dataset_train: Dataset,
+        dataset_val: Dataset,
         loss_func: torch.nn.Module,
         model_func: torch.nn.Module,
         optim_func: optimizers._Optimizer,
@@ -1241,7 +1245,9 @@ class AutoLightningTrain:
         logger: Logger = None,
         **kwargs,
     ):
-        self.dataset = dataset
+        self.dataset_train = dataset_train 
+
+        self.dataset_val = dataset_val
 
         self.loss_func = loss_func
 
@@ -1288,7 +1294,8 @@ class AutoLightningTrain:
             "scheduler": self.scheduler,
             "train_val_test_split": self.train_val_test_split,
             "batch_size": self.batch_size,
-            "dataset": self.dataset,
+            "dataset_train": self.dataset_train,
+            "dataset_val": self.dataset_val,
         }
         self.hparams.update(kwargs=kwargs)
 
@@ -1297,8 +1304,7 @@ class AutoLightningTrain:
             self.model_func, self.loss_func, self.optim_func, self.scheduler
         )
 
-        self.datas = LightningData(hparams=self.hparams, num_workers=self.num_workers)
-        self.datas.setup("fit")
+        self.datas = LightningData(data_train=self.dataset_train, data_val= self.dataset_val, num_workers=self.num_workers)
         self.default_root_dir = Path(self.model_save_file).absolute().parent.as_posix()
         self.default_root_dir = os.path.join(
             self.default_root_dir, Path(self.model_save_file).stem
@@ -1432,7 +1438,8 @@ class ClusterLightningTrain:
             "scheduler": self.scheduler,
             "train_val_test_split": self.train_val_test_split,
             "batch_size": self.batch_size,
-            "dataset": self.dataset,
+            "dataset_train": self.dataset_train,
+            "dataset_val": self.dataset_val,
         }
         self.hparams.update(kwargs=kwargs)
 
