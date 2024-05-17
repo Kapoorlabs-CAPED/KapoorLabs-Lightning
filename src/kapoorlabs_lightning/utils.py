@@ -56,7 +56,7 @@ def plot_npz_files(filepaths):
 
         keys = data.files
         keys = sorted(keys, key=lambda x: ("epoch" in x, x), reverse=True)
-        unwanted_substrings = ["step", "gpu", "memory"]
+        unwanted_substrings = ["gpu", "memory"]
         for idx, key in enumerate(keys):
             if not any(substring in key for substring in unwanted_substrings):
                 data_values = data[key].tolist()

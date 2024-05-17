@@ -515,7 +515,7 @@ class LightningModel(LightningModule):
         else:
             loss = self.loss(y_hat, y)
 
-        accuracy = self.compute_accuracy(y_hat, y)
+        
 
         self.log(
             "train_loss",
@@ -528,6 +528,20 @@ class LightningModel(LightningModule):
             rank_zero_only=self.rank_zero_only,
         )
 
+        current_lr = self.optimizers().param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            current_lr,
+            on_step=self.on_step,
+            on_epoch=self.on_epoch,
+            prog_bar=True,
+            logger=True,
+            sync_dist=self.sync_dist,
+            rank_zero_only=self.rank_zero_only,
+        )
+        
+        accuracy = self.compute_accuracy(y_hat, y)
+
         self.log(
             "train_accuracy",
             accuracy,
@@ -538,6 +552,7 @@ class LightningModel(LightningModule):
             sync_dist=self.sync_dist,
             rank_zero_only=self.rank_zero_only,
         )
+        
 
         return loss
 
@@ -571,6 +586,22 @@ class LightningModel(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "validation")
+
+    def on_train_epoch_end(self) -> None:
+        """Actions to perform at the end of each training epoch."""
+
+        sch = self.lr_schedulers()
+        learning_rate = self.optimizers().param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            learning_rate,
+            prog_bar=True,
+            logger=False,
+            sync_dist=self.sync_dist,
+            rank_zero_only=self.rank_zero_only,
+        )
+        if isinstance(sch, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            sch.step(self.trainer.callback_metrics[self.reduce_lr_metric])    
 
     def compute_accuracy(self, outputs, labels):
 
