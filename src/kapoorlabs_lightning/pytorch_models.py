@@ -17,7 +17,7 @@ class DenseLayer(nn.Module):
         self.use_bottleneck = bottleneck_size > 0
         self.num_bottleneck_output_filters = growth_rate * bottleneck_size
         if self.use_bottleneck:
-            self.bn2 = nn.GroupNorm(1, input_channels)
+            self.bn2 = nn.BatchNorm1d(input_channels)
             self.act2 = nn.ReLU(inplace=True)
             self.conv2 = nn.Conv1d(
                 input_channels,
@@ -25,7 +25,7 @@ class DenseLayer(nn.Module):
                 kernel_size=1,
                 stride=1,
             )
-        self.bn1 = nn.GroupNorm(1, self.num_bottleneck_output_filters)
+        self.bn1 = nn.BatchNorm1d(self.num_bottleneck_output_filters)
         self.act1 = nn.ReLU(inplace=True)
         self.conv1 = nn.Conv1d(
             self.num_bottleneck_output_filters,
@@ -80,7 +80,7 @@ class TransitionBlock(nn.Module):
 
     def __init__(self, input_channels, out_channels):
         super().__init__()
-        self.bn = nn.GroupNorm(1, input_channels)
+        self.bn = nn.BatchNorm1d(input_channels)
         self.act = nn.ReLU(inplace=True)
         self.conv = nn.Conv1d(
             input_channels, out_channels, kernel_size=1, stride=1, dilation=1
@@ -104,18 +104,21 @@ class DenseNet(nn.Module):
         block_config: tuple = (6, 12, 24, 16),
         num_init_features: int = 32,
         bottleneck_size: int = 4,
-        kernel_size: int = 7,
+        kernel_size: int = 3,
     ):
 
         super().__init__()
         self._initialize_weights()
-
+        
         self.features = nn.Sequential(
-            nn.Conv1d(input_channels, num_init_features, kernel_size=kernel_size),
-            nn.GroupNorm(1, num_init_features),
+            nn.Conv1d(
+                input_channels, num_init_features, 
+                kernel_size=7, stride=2, padding=3, dilation=1),
+            nn.BatchNorm1d(num_init_features),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(kernel_size=kernel_size),
+            nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
         )
+     
 
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
@@ -123,7 +126,7 @@ class DenseNet(nn.Module):
                 num_layers=num_layers,
                 input_channels=num_features,
                 growth_rate=growth_rate,
-                kernel_size=3,
+                kernel_size=kernel_size,
                 bottleneck_size=bottleneck_size,
             )
             self.features.add_module(f"denseblock{i}", block)
@@ -135,7 +138,7 @@ class DenseNet(nn.Module):
                 self.features.add_module(f"transition{i}", trans)
                 num_features = num_features // 2
 
-        self.final_bn = nn.GroupNorm(1, num_features)
+        self.final_bn = nn.BatchNorm1d(num_features)
         self.final_act = nn.ReLU(inplace=True)
         self.final_pool = nn.AdaptiveAvgPool1d(1)
         self.classifier_1 = nn.Linear(num_features, num_classes)
