@@ -67,7 +67,7 @@ class MitosisInception:
         block_config: tuple = (6, 12, 24, 16),
         num_init_features: int = 32,
         bottleneck_size: int = 4,
-        kernel_size: int = 3,
+        kernel_size: int = 7,
         num_workers: int = 1,
         epochs: int = 1,
         log_path="log_path",
@@ -215,7 +215,7 @@ class MitosisInception:
 
     def setup_adam(self):
         self.optimizer = Adam(
-            lr=self.learning_rate, weight_decay=self.weight_decay, eps=self.eps
+            lr=self.learning_rate
         )
 
     def setup_rmsprop(self):

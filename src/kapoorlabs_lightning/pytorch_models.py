@@ -104,17 +104,17 @@ class DenseNet(nn.Module):
         block_config: tuple = (6, 12, 24, 16),
         num_init_features: int = 32,
         bottleneck_size: int = 4,
-        kernel_size: int = 3,
+        kernel_size: int = 7,
     ):
 
         super().__init__()
         self._initialize_weights()
 
         self.features = nn.Sequential(
-            nn.Conv1d(input_channels, num_init_features, kernel_size=1),
+            nn.Conv1d(input_channels, num_init_features, kernel_size=kernel_size),
             nn.GroupNorm(1, num_init_features),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(kernel_size=1),
+            nn.MaxPool1d(kernel_size=kernel_size),
         )
 
         num_features = num_init_features
@@ -123,7 +123,7 @@ class DenseNet(nn.Module):
                 num_layers=num_layers,
                 input_channels=num_features,
                 growth_rate=growth_rate,
-                kernel_size=kernel_size,
+                kernel_size=3,
                 bottleneck_size=bottleneck_size,
             )
             self.features.add_module(f"denseblock{i}", block)
