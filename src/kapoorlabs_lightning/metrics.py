@@ -13,9 +13,7 @@ import seaborn as sns
 def extract_metrics_from_model(lightning_model, after_final_validation=True):
 
     if after_final_validation:
-        extra_validation_runs = (
-            1  # to account for the last additional validation run done by the trainer
-        )
+        extra_validation_runs = 1
         val_losses = lightning_model.val_losses[:-extra_validation_runs]
         val_accuracies = lightning_model.val_accuracies[:-extra_validation_runs]
         extra_val_loss = lightning_model.val_losses[-1]  # extra run
