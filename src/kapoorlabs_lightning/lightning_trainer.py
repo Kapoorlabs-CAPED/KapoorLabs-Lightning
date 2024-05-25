@@ -144,11 +144,9 @@ class MitosisInception:
                 f"Invalid scheduler choice, must be one of {self.SCHEDULER_CHOICES}"
             )
 
-
     def setup_gbr_datasets(self):
 
         training_data = np.load(self.npz_file)
-
 
         train_goblet_arrays = training_data["goblet_train_arrays"]
         train_goblet_labels = training_data["goblet_train_labels"]
@@ -164,7 +162,6 @@ class MitosisInception:
         val_radial_arrays = training_data["radial_val_arrays"]
         val_radial_labels = training_data["radial_val_labels"]
 
-
         print(
             f"Goblet labels in training {len(train_goblet_labels)}, Radial labels in training {len(train_radial_labels)}, Basal labels in training {len(train_basal_labels)}"
         )
@@ -179,8 +176,12 @@ class MitosisInception:
 
         self.input_channels = self.dataset_train.input_channels
 
-        val_arrays = np.concatenate((val_goblet_arrays, val_basal_arrays, val_radial_arrays))
-        val_labels = np.concatenate((val_goblet_labels, val_basal_labels, val_radial_labels))
+        val_arrays = np.concatenate(
+            (val_goblet_arrays, val_basal_arrays, val_radial_arrays)
+        )
+        val_labels = np.concatenate(
+            (val_goblet_labels, val_basal_labels, val_radial_labels)
+        )
 
         self.dataset_val = MitosisDataset(val_arrays, val_labels)
 
@@ -264,9 +265,7 @@ class MitosisInception:
         self.modelcheckpoint = CheckpointModel(save_dir=self.log_path)
 
     def setup_adam(self):
-        self.optimizer = Adam(
-            lr=self.learning_rate
-        )
+        self.optimizer = Adam(lr=self.learning_rate)
 
     def setup_rmsprop(self):
         self.optimizer = RMSprop(
@@ -317,6 +316,7 @@ class MitosisInception:
             self.loss,
             self.optimizer,
             scheduler=self.scheduler,
+            num_classes=self.num_classes,
         )
         model_hyperparameters = {
             "input_channels": self.input_channels,
@@ -560,7 +560,7 @@ class LightningModel(LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        print(x.shape, y, y.shape) 
+        print(x.shape, y, y.shape)
         y_hat = self(x)
         print(y_hat.shape)
         if not self.automatic_optimization:
@@ -660,13 +660,10 @@ class LightningModel(LightningModule):
     def compute_accuracy(self, outputs, labels):
 
         predicted = outputs.data
-        print(self.num_classes)
         accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
             self.device
         )
-        print(predicted.shape, labels.shape)
         accuracies = accuracy(predicted, labels)
-        print(accuracies)
         return accuracies
 
     def configure_optimizers(self):
