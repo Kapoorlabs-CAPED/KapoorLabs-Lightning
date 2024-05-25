@@ -663,6 +663,7 @@ class LightningModel(LightningModule):
         accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
             self.device
         )
+        print(predicted.shape, labels.shape)
         accuracies = accuracy(predicted, labels)
 
         return accuracies
