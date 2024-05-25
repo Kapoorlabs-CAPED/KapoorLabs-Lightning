@@ -144,6 +144,56 @@ class MitosisInception:
                 f"Invalid scheduler choice, must be one of {self.SCHEDULER_CHOICES}"
             )
 
+
+    def setup_gbr_datasets(self):
+
+        training_data = np.load(self.npz_file)
+
+
+        train_goblet_arrays = training_data["goblet_train_arrays"]
+        train_goblet_labels = training_data["goblet_train_labels"]
+        train_basal_arrays = training_data["basal_train_arrays"]
+        train_basal_labels = training_data["basal_train_labels"]
+        train_radial_arrays = training_data["radial_train_arrays"]
+        train_radial_labels = training_data["radial_train_labels"]
+
+        val_goblet_arrays = training_data["goblet_val_arrays"]
+        val_goblet_labels = training_data["goblet_val_labels"]
+        val_basal_arrays = training_data["basal_val_arrays"]
+        val_basal_labels = training_data["basal_val_labels"]
+        val_radial_arrays = training_data["radial_val_arrays"]
+        val_radial_labels = training_data["radial_val_labels"]
+
+
+        print(
+            f"Goblet labels in training {len(train_goblet_labels)}, Radial labels in training {len(train_radial_labels)}, Basal labels in training {len(train_basal_labels)}"
+        )
+        train_arrays = np.concatenate(
+            (train_goblet_arrays, train_basal_arrays, train_radial_arrays)
+        )
+        train_labels = np.concatenate(
+            (train_goblet_labels, train_basal_labels, train_radial_labels)
+        )
+
+        self.dataset_train = MitosisDataset(train_arrays, train_labels)
+
+        self.input_channels = self.dataset_train.input_channels
+
+        val_arrays = np.concatenate((val_goblet_arrays, val_basal_arrays, val_radial_arrays))
+        val_labels = np.concatenate((val_goblet_labels, val_basal_labels, val_radial_labels))
+
+        self.dataset_val = MitosisDataset(val_arrays, val_labels)
+
+        self.mitosis_data = LightningData(
+            data_train=self.dataset_train,
+            data_val=self.dataset_val,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+        )
+
+        self.train_loader = self.mitosis_data.train_dataloader()
+        self.val_loader = self.mitosis_data.val_dataloader()
+
     def setup_datasets(self):
 
         training_data = np.load(self.npz_file)
