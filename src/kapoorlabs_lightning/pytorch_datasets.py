@@ -145,7 +145,7 @@ class MitosisDataset(Dataset):
         array = self.arrays[idx]
         array = torch.tensor(array).permute(1, 0).float()
         label = torch.tensor(self.labels[idx])
-        print(array.shape, label.shape)
+        print(array.shape, label)
         return array, label
 
 
