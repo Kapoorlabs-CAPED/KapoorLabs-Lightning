@@ -7,16 +7,10 @@ import torch.nn.functional as F
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from sklearn.cluster import KMeans
 from torch import optim
-import threading
 from datetime import timedelta
 import logging
-import fcntl
-import shutil
-from subprocess import call
 from types import FrameType
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Union
-from lightning.pytorch.utilities.rank_zero import rank_zero_info
-from lightning_utilities.core.rank_zero import rank_prefixed_message
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 from torch.nn import CosineSimilarity, BCEWithLogitsLoss, MSELoss
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader, Dataset
@@ -1693,11 +1687,6 @@ class LightningModelTrain:
             gradient_clip_val=self.gradient_clip_val,
             gradient_clip_algorithm=self.gradient_clip_algorithm,
         )
-        if self.slurm_auto_requeue:
-            self.trainer._signal_connector = _KlabSignalConnector(
-                self.trainer, self.model
-            )
-            self.trainer._signal_connector.register_signal_handlers()
 
         self.trainer.fit(
             self.model,
@@ -1822,160 +1811,3 @@ class _HandlersCompose:
                 signal_handler = signal.getsignal(signal_handler)
             if callable(signal_handler):
                 signal_handler(signum, frame)
-
-
-class _KlabSignalConnector:
-    def __init__(self, trainer: LightningTrainer, model: LightningModel) -> None:
-        self.received_sigterm = False
-        self.trainer = trainer
-        self.model = model
-        self._original_handlers: Dict[_SIGNUM, _HANDLER] = {}
-
-    def register_signal_handlers(self) -> None:
-        self.received_sigterm = False
-        self._original_handlers = self._get_current_signal_handlers()
-
-        sigusr_handlers: List[_HANDLER] = []
-        sigterm_handlers: List[_HANDLER] = [self._sigterm_notifier_fn]
-
-        environment = self.trainer._accelerator_connector.cluster_environment
-        if isinstance(environment, SLURMEnvironment) and environment.auto_requeue:
-            log.info("SLURM auto-requeueing enabled. Setting signal handlers for H100.")
-            sigusr_handlers.append(self._slurm_sigusr_handler_fn)
-            sigterm_handlers.append(self._sigterm_handler_fn)
-
-        sigusr = (
-            environment.requeue_signal
-            if isinstance(environment, SLURMEnvironment)
-            else signal.SIGUSR1
-        )
-        assert sigusr is not None
-        if sigusr_handlers and not self._has_already_handler(sigusr):
-            self._register_signal(sigusr, _HandlersCompose(sigusr_handlers))
-
-        # we have our own handler, but include existing ones too
-        if self._has_already_handler(signal.SIGTERM):
-            sigterm_handlers.append(signal.getsignal(signal.SIGTERM))
-        self._register_signal(signal.SIGTERM, _HandlersCompose(sigterm_handlers))
-
-    def _slurm_sigusr_handler_fn(self, signum: _SIGNUM, _: FrameType) -> None:
-        rank_zero_info(f"Handling auto-requeue signal on H100: {signum}")
-
-        log.info("recieved sigusr, Klabs custom pytorch lightning handler")
-
-        # save logger to make sure we get all the metrics
-        for logger in self.trainer.loggers:
-            logger.finalize("finished")
-        # Save the metrics
-        self._copy_files_on_sigterm()
-
-    def _copy_files_on_sigterm(self) -> None:
-        log.info("Copying files before handling SIGTERM.")
-        present_files = os.listdir(self.trainer.default_root_dir)
-
-        for file in present_files:
-            if file.endswith(".npz") or file.endswith(".json"):
-                backup_dir = os.path.join(self.trainer.default_root_dir, "backup")
-                Path(backup_dir).mkdir(parents=True, exist_ok=True)
-
-                # Lock the file before copying
-                with open(
-                    os.path.join(self.trainer.default_root_dir, file), "rb"
-                ) as src_file:
-                    with open(
-                        os.path.join(
-                            backup_dir,
-                            Path(file).stem
-                            + f"_epoch_{self.trainer.current_epoch}_step_{self.trainer.global_step}"
-                            + ".npz",
-                        ),
-                        "wb",
-                    ) as dst_file:
-                        fcntl.lockf(src_file.fileno(), fcntl.LOCK_SH)
-                        shutil.copyfileobj(src_file, dst_file)
-                        fcntl.lockf(src_file.fileno(), fcntl.LOCK_UN)
-
-        hpc_save_path = self.trainer._checkpoint_connector.hpc_save_path(
-            self.trainer.default_root_dir
-        )
-        self.trainer.save_checkpoint(hpc_save_path)
-
-        if self.trainer.is_global_zero:
-            # find job id
-            array_job_id = os.getenv("SLURM_ARRAY_JOB_ID")
-            if array_job_id is not None:
-                array_task_id = os.environ["SLURM_ARRAY_TASK_ID"]
-                job_id = f"{array_job_id}_{array_task_id}"
-            else:
-                job_id = os.environ["SLURM_JOB_ID"]
-
-            cmd = ["scontrol", "requeue", job_id]
-
-            # requeue job
-            log.info(f"requeing job {job_id}...")
-            try:
-                result = call(cmd)
-            except FileNotFoundError:
-                # This can occur if a subprocess call to `scontrol` is run outside a shell context
-                # Re-attempt call (now with shell context). If any error is raised, propagate to user.
-                # When running a shell command, it should be passed as a single string.
-                joint_cmd = [str(x) for x in cmd]
-                result = call(" ".join(joint_cmd), shell=True)
-
-            # print result text
-            if result == 0:
-                log.info(f"requeued exp {job_id}")
-            else:
-                log.warning("requeue failed...")
-
-        input()
-
-    def _sigterm_notifier_fn(self, signum: _SIGNUM, _: FrameType) -> None:
-        log.info(
-            rank_prefixed_message(
-                f"Received SIGTERM: {signum}", self.trainer.local_rank
-            )
-        )
-        # subprocesses killing the parent process is not supported, only the parent (rank 0) does it
-        if not self.received_sigterm:
-            # send the same signal to the subprocesses
-            launcher = self.trainer.strategy.launcher
-            if launcher is not None:
-                launcher.kill(signum)
-        self.received_sigterm = True
-
-    def _sigterm_handler_fn(self, signum: _SIGNUM, _: FrameType) -> None:
-        log.info(f"Bypassing SIGTERM on H100: {signum}")
-
-    def teardown(self) -> None:
-        """Restores the signals that were previously configured before :class:`_SignalConnector` replaced them."""
-        for signum, handler in self._original_handlers.items():
-            if handler is not None:
-                self._register_signal(signum, handler)
-        self._original_handlers = {}
-
-    @staticmethod
-    def _get_current_signal_handlers() -> Dict[_SIGNUM, _HANDLER]:
-        """Collects the currently assigned signal handlers."""
-        valid_signals = _KlabSignalConnector._valid_signals()
-        valid_signals -= {signal.SIGKILL, signal.SIGSTOP}
-        return {signum: signal.getsignal(signum) for signum in valid_signals}
-
-    @staticmethod
-    def _valid_signals() -> Set[signal.Signals]:
-        """Returns all valid signals supported on the current platform."""
-        return signal.valid_signals()
-
-    @staticmethod
-    def _has_already_handler(signum: _SIGNUM) -> bool:
-        return signal.getsignal(signum) not in (None, signal.SIG_DFL)
-
-    @staticmethod
-    def _register_signal(signum: _SIGNUM, handlers: _HANDLER) -> None:
-        if threading.current_thread() is threading.main_thread():
-            signal.signal(signum, handlers)  # type: ignore[arg-type]
-
-    def __getstate__(self) -> Dict:
-        state = self.__dict__.copy()
-        state["_original_handlers"] = {}
-        return state
