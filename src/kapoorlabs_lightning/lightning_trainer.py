@@ -15,14 +15,19 @@ from torch.nn import CosineSimilarity, BCEWithLogitsLoss, MSELoss
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-from .utils import get_most_recent_file, load_checkpoint_model
+from .utils import (
+    get_most_recent_file,
+    load_checkpoint_model,
+    blockwise_causal_norm,
+    blockwise_sum,
+)
 from . import optimizers, schedulers
 from .pytorch_models import (
     CloudAutoEncoder,
     DeepEmbeddedClustering,
     DenseNet,
     MitosisNet,
-    TrackAsuraTransformer
+    TrackAsuraTransformer,
 )
 from .schedulers import (
     CosineAnnealingScheduler,
@@ -51,7 +56,6 @@ from lightning.pytorch.trainer.connectors.accelerator_connector import (
 from trackastra.data.wrfeat import get_features, build_windows
 from trackastra.utils import normalize
 from trackastra.model.predict import predict_windows
-
 
 
 class MitosisInception:
@@ -392,32 +396,59 @@ class LightningData(LightningDataModule):
         )
 
 
-
 logger = logging.getLogger(__name__)
+
+
 class Trackasura(LightningModule):
     def __init__(
-            self,
-            network: TrackAsuraTransformer,
-            loss_func: torch.nn.Module,
-            optim_func: optim,
-            scheduler: schedulers = None,
-            automatic_optimization: bool = True,
-            on_step: bool = True,
-            on_epoch: bool = True,
-            sync_dist: bool = True,
-            rank_zero_only: bool = False,
+        self,
+        network: TrackAsuraTransformer,
+        optim_func: optim,
+        causal_norm: bool = None,
+        delta_cutoff: int = 2,
+        tracking_frequency: int = -1,
+        div_upweight: float = 20,
+        scheduler: schedulers = None,
+        automatic_optimization: bool = True,
+        on_step: bool = True,
+        on_epoch: bool = True,
+        sync_dist: bool = True,
+        rank_zero_only: bool = False,
     ):
-        
+
+        """
+        Initializes the Trackasura model.
+
+        Args:
+            network (TrackAsuraTransformer): The neural network model.
+            optim_func (optim): The optimizer function.
+            causal_norm (bool, optional): Whether to apply causal normalization. Defaults to None.
+            delta_cutoff (int, optional): Delta cutoff value. Defaults to 2.
+            tracking_frequency (int, optional): Tracking frequency. Defaults to -1.
+            div_upweight (float, optional): Upweight value. Defaults to 20.
+            scheduler (schedulers, optional): The scheduler. Defaults to None.
+            automatic_optimization (bool, optional): Whether to use automatic optimization. Defaults to True.
+            on_step (bool, optional): Whether to apply on step. Defaults to True.
+            on_epoch (bool, optional): Whether to apply on epoch. Defaults to True.
+            sync_dist (bool, optional): Whether to synchronize distribution. Defaults to True.
+            rank_zero_only (bool, optional): Whether to apply only to rank zero. Defaults to False.
+        """
+
         super().__init__()
-        
+
         self.save_hyperparameters(
             logger=False,
-            ignore=["network", "loss_func", "optim_func", "scheduler"],
+            ignore=["network", "optim_func", "scheduler"],
         )
 
         self.network = network
-        self.loss_func = loss_func
+        self.criterion = torch.nn.BCEWithLogitsLoss(reduction="none")
+        self.criterion_softmax = torch.nn.BCELoss(reduction="none")
         self.optim_func = optim_func
+        self.casual_norm = causal_norm
+        self.delta_cutoff = delta_cutoff
+        self.tracking_frequency = tracking_frequency
+        self.div_upweight = div_upweight
         self.scheduler = scheduler
         self.automatic_optimization = automatic_optimization
         self.on_step = on_step
@@ -425,10 +456,19 @@ class Trackasura(LightningModule):
         self.sync_dist = sync_dist
         self.rank_zero_only = rank_zero_only
 
-
-
     @classmethod
     def extract_json(cls, checkpoint_model_json):
+
+        """
+        Extracts JSON checkpoint.
+
+        Args:
+            checkpoint_model_json (str, dict): Checkpoint model in JSON format.
+
+        Returns:
+            dict: Extracted JSON data.
+        """
+
         if checkpoint_model_json is not None:
             assert isinstance(
                 checkpoint_model_json, (str, dict)
@@ -446,12 +486,27 @@ class Trackasura(LightningModule):
         cls,
         trackastra_model,
         trackastra_model_json,
-        loss_func,
         optim_func,
         scheduler=None,
         ckpt_model_path=None,
         map_location="cuda",
     ):
+
+        """
+        Extracts Trackastra model.
+
+        Args:
+            trackastra_model: Trackastra model.
+            trackastra_model_json (str, dict): Trackastra model in JSON format.
+            optim_func: Optimizer function.
+            scheduler: Scheduler. Defaults to None.
+            ckpt_model_path: Checkpoint model path. Defaults to None.
+            map_location (str, optional): Map location. Defaults to "cuda".
+
+        Returns:
+            tuple: Extracted Trackastra lightning model and Torch model.
+        """
+
         if trackastra_model_json is not None:
             assert isinstance(
                 trackastra_model_json, (str, dict)
@@ -465,13 +520,13 @@ class Trackasura(LightningModule):
 
             coord_dim = trackastra_data["coord_dim"]
             embed_dim = trackastra_data["embed_dim"]
-            n_head = trackastra_data["n_head"] 
+            n_head = trackastra_data["n_head"]
             cutoff_spatial = trackastra_data["cutoff_spatial"]
             cutoff_temporal = trackastra_data["cutoff_temporal"]
             n_spatial = trackastra_data["n_spatial"]
             n_temporal = trackastra_data["n_temporal"]
-            dropout = trackastra_data['dropout']
-            mode = trackastra_data['mode']
+            dropout = trackastra_data["dropout"]
+            mode = trackastra_data["mode"]
 
             if ckpt_model_path is None:
                 checkpoint_model_path = trackastra_data["model_path"]
@@ -500,15 +555,21 @@ class Trackasura(LightningModule):
                 learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
 
             optimizer = optim_func(lr=learning_rate)
-            network = trackastra_model(coord_dim=coord_dim, embed_dim= embed_dim,n_head=n_head,cutoff_spatial=cutoff_spatial,
-                                       cutoff_temporal=cutoff_temporal, n_spatial=n_spatial,n_temposral=n_temporal,
-                                       dropout=dropout,mode=mode)
-            
+            network = trackastra_model(
+                coord_dim=coord_dim,
+                embed_dim=embed_dim,
+                n_head=n_head,
+                cutoff_spatial=cutoff_spatial,
+                cutoff_temporal=cutoff_temporal,
+                n_spatial=n_spatial,
+                n_temposral=n_temporal,
+                dropout=dropout,
+                mode=mode,
+            )
 
             checkpoint_lightning_model = cls.load_from_checkpoint(
                 most_recent_checkpoint_ckpt,
                 network=network,
-                loss_func=loss_func,
                 optim_func=optimizer,
                 scheduler=scheduler,
                 map_location=map_location,
@@ -516,10 +577,19 @@ class Trackasura(LightningModule):
 
             checkpoint_torch_model = checkpoint_lightning_model.network
 
-            return checkpoint_lightning_model, checkpoint_torch_model    
-
+            return checkpoint_lightning_model, checkpoint_torch_model
 
     def load_pretrained(self, pretrained_file, strict=True, verbose=True):
+
+        """
+        Loads pretrained weights into the model.
+
+        Args:
+            pretrained_file (str or list): Path to the pretrained file or list of paths.
+            strict (bool, optional): Whether to strictly load the weights. Defaults to True.
+            verbose (bool, optional): Whether to print verbose messages. Defaults to True.
+        """
+
         if isinstance(pretrained_file, (list, tuple)):
             pretrained_file = pretrained_file[0]
 
@@ -556,19 +626,154 @@ class Trackasura(LightningModule):
     def loss(self, y_hat, y):
 
         return self.loss_func(y_hat, y)
-    
-    def predict_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int, edge_threshold: float = 0.05, n_workers: int = 0):
-        imgs, masks = batch  
-        
+
+    def _shared_eval(self, batch, batch_idx):
+
+        """
+        Shared evaluation function for training and validation steps.
+
+        Args:
+            batch (dict): Batch data.
+            batch_idx (int): Batch index.
+
+        Returns:
+            dict: Evaluation results.
+        """
+
+        feats, coords, A, timepoints, padding_mask = (
+            batch["features"],
+            batch["coords"],
+            batch["assoc_matrix"],
+            batch["timepoints"],
+            batch["padding_mask"].bool(),
+        )
+
+        A_pred = self.model(coords, feats, padding_mask=padding_mask)
+        A_pred.clamp_(torch.finfo(torch.float16).min, torch.finfo(torch.float16).max)
+        mask_invalid = torch.logical_or(
+            padding_mask.unsqueeze(1), padding_mask.unsqueeze(2)
+        )
+        A_pred[mask_invalid] = 0
+        loss = self.criterion(A_pred, A)
+
+        if self.causal_norm is not None:
+            A_pred_soft = torch.stack(
+                [
+                    blockwise_causal_norm(
+                        _A, _t, mode=self.causal_norm, mask_invalid=_m
+                    )
+                    for _A, _t, _m in zip(A_pred, timepoints, mask_invalid)
+                ]
+            )
+            loss = 0.01 * loss + self.criterion_softmax(A_pred_soft, A)
+
+        with torch.no_grad():
+            block_sum1 = torch.stack(
+                [blockwise_sum(A, t, dim=-1) for A, t in zip(A, timepoints)], 0
+            )
+            block_sum2 = torch.stack(
+                [blockwise_sum(A, t, dim=-2) for A, t in zip(A, timepoints)], 0
+            )
+            block_sum = A * (block_sum1 + block_sum2)
+
+            normal_tracks = block_sum == 2
+            division_tracks = block_sum > 2
+
+            loss_weight = 1 + 1.0 * normal_tracks + self.div_upweight * division_tracks
+
+        loss *= loss_weight
+
+        mask_valid = ~mask_invalid
+        dt = timepoints.unsqueeze(1) - timepoints.unsqueeze(2)
+        mask_time = torch.logical_and(dt > 0, dt <= self.delta_cutoff)
+        mask = mask_time * mask_valid
+        mask = mask.float()
+
+        loss_before_reduce = loss * mask
+        loss_normalized = loss_before_reduce / (
+            mask.sum(dim=(1, 2), keepdim=True) + torch.finfo(torch.float32).eps
+        )
+        loss_per_sample = loss_normalized.sum(dim=(1, 2))
+
+        prefactor = torch.pow(mask.sum(dim=(1, 2)), 0.2)
+        loss = (
+            loss_per_sample
+            * prefactor
+            / (prefactor.sum() + torch.finfo(torch.float32).eps)
+        ).sum()
+
+        return {
+            "loss": loss,
+            "padding_fraction": padding_mask.float().mean(),
+            "loss_before_reduce": loss_before_reduce,
+            "A_pred": A_pred,
+            "mask": mask,
+            "mask_time": mask_time,
+            "mask_valid": mask_valid,
+        }
+
+    def train_step(self, batch, batch_idx):
+
+        out = self._shared_eval(batch)
+        loss = out["loss"]
+        if torch.isnan(loss):
+            print("NaN loss, skipping")
+            return None
+
+        self.log(
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=self.on_step,
+            on_epoch=self.on_epoch,
+            sync_dist=self.sync_dist,
+        )
+
+        self.log_dict(
+            {
+                "detections_per_sequence": batch["coords"].shape[1],
+                "padding_fraction": out["padding_fraction"],
+            },
+            on_step=True,
+            on_epoch=False,
+        )
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+
+        out = self._shared_eval(batch)
+        loss = out["loss"]
+        if torch.isnan(loss):
+            print("NaN loss, skipping")
+            return None
+
+        self.log(
+            "val_loss",
+            loss,
+            prog_bar=True,
+            on_step=self.on_step,
+            on_epoch=self.on_epoch,
+            sync_dist=self.sync_dist,
+        )
+
+        return loss
+
+    def predict_step(
+        self,
+        batch: tuple[torch.Tensor, torch.Tensor],
+        batch_idx: int,
+        edge_threshold: float = 0.05,
+        n_workers: int = 0,
+    ):
+        imgs, masks = batch
+
         logger.info("Predicting weights for candidate graph")
-        
-        
+
         imgs = normalize(imgs)
-        
-       
+
         self.network.eval()
 
-      
         features = get_features(
             detections=masks,
             imgs=imgs,
@@ -578,8 +783,7 @@ class Trackasura(LightningModule):
         )
 
         logger.info("Building windows")
-        
-        
+
         windows = build_windows(
             features,
             window_size=self.network.config["window"],
@@ -587,8 +791,7 @@ class Trackasura(LightningModule):
         )
 
         logger.info("Predicting windows")
-        
-        
+
         predictions = predict_windows(
             windows=windows,
             features=features,
@@ -599,7 +802,25 @@ class Trackasura(LightningModule):
         )
 
         return predictions
-    
+
+    def configure_optimizers(self):
+        optimizer = self.optim_func(self.parameters())
+
+        if self.scheduler is not None:
+            scheduler = self.scheduler(optimizer=optimizer)
+            optimizer_scheduler = OrderedDict(
+                {
+                    "optimizer": optimizer,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "monitor": "validation_loss",
+                        "frequency": 1,
+                    },
+                }
+            )
+            return optimizer_scheduler
+        return {"optimizer": optimizer}
+
 
 class LightningModel(LightningModule):
     def __init__(
@@ -2026,9 +2247,3 @@ class _HandlersCompose:
                 signal_handler = signal.getsignal(signal_handler)
             if callable(signal_handler):
                 signal_handler(signum, frame)
-
-
-
-
-
-
