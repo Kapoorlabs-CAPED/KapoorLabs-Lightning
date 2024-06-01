@@ -1,6 +1,5 @@
 import os
 import logging
-from natsort import natsorted
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -31,21 +30,8 @@ def get_most_recent_file(file_path, file_pattern):
 
 
 def load_checkpoint_model(log_path: str):
-    present_files = os.listdir(log_path)
-    hpc_ckpt_files = []
-    other_ckpt_files = []
-    ckpt_path = None
-    for file in present_files:
-        if file.endswith(".ckpt") and "hpc" in file:
-            hpc_ckpt_files.append(file)
-        if file.endswith(".ckpt") and "hpc" not in file:
-            other_ckpt_files.append(file)
-    if len(hpc_ckpt_files) > 0:
-        hpc_ckpt_files = natsorted(hpc_ckpt_files)
-        ckpt_path = os.path.join(log_path, hpc_ckpt_files[-1])
-    if len(hpc_ckpt_files) == 0 and len(other_ckpt_files) > 0:
-        other_ckpt_files = natsorted(other_ckpt_files)
-        ckpt_path = os.path.join(log_path, other_ckpt_files[-1])
+
+    ckpt_path = get_most_recent_file(log_path, ".ckpt")
 
     return ckpt_path
 

@@ -2,15 +2,151 @@ import json
 import os
 from glob import glob
 from pathlib import Path
-
 import h5py
 import numpy as np
 import pandas as pd
 import torch
+from tqdm import tqdm
 from pyntcloud import PyntCloud
 from sklearn import preprocessing
 from sklearn.decomposition import PCA
 from torch.utils.data import Dataset
+from napatrackmater.Trackvector import DYNAMIC_FEATURES, SHAPE_FEATURES
+import networkx as nx
+
+
+class TrackingDataset(Dataset):
+    def __init__(self, tracks_dataframe: pd.DataFrame, seg_image: np.ndarray):
+        self.tracks_dataframe = tracks_dataframe
+        self.seg_image = seg_image
+        assert seg_image is not None, "segmentation image needs to be supplied"
+        self.tracks = tracks_dataframe.copy()
+
+        self.unique_trackmate_track_ids = self.tracks["TrackMate Track ID"].unique()
+
+        for trackmate_track_id in self.unique_trackmate_track_ids:
+            subset = self.tracks[
+                (self.tracks["TrackMate Track ID"] == trackmate_track_id)
+            ].sort_values(by="t")
+            sorted_subset = sorted(subset["Track ID"].unique())
+            for tracklet_id in sorted_subset:
+
+                unique_tracklets = tracks_dataframe[
+                    (tracks_dataframe["Track ID"] == tracklet_id)
+                ].sort_values(by="t")
+
+                tracklet_shape_features = unique_tracklets[SHAPE_FEATURES].values
+                tracklet_dynamic_features = unique_tracklets[DYNAMIC_FEATURES].values
+                feat = torch.concat(
+                    (tracklet_shape_features, tracklet_dynamic_features), dim=1
+                )
+                (
+                    updated_unique_tracklets,
+                    labels,
+                    coords,
+                    timepoints,
+                ) = self._cell_labels_df(
+                    unique_tracklets, tracklet_id, trackmate_track_id
+                )
+                t_min = unique_tracklets["t"].min()
+                t_max = unique_tracklets["t"].max()
+                labels_array, ts, graph = self._ctc_lineages(
+                    updated_unique_tracklets, t_min, t_max
+                )
+
+                print(feat.shape, labels_array.shape, ts, graph)
+
+    def _ctc_lineages(self, unique_tracklets: pd.DataFrame, t_min: int, t_max: int):
+
+        if t_min > 0:
+            assert t_max is not None
+            assert t_max - t_min == len(self.seg_image)
+        if t_max is None:
+            t_max = len(self.seg_image)
+
+        graph = nx.DiGraph()
+        labels = []
+        ts = []
+
+        all_labels = set()
+        for t in tqdm(
+            range(t_min, t_max),
+            desc="Building and checking lineage graph",
+            leave=False,
+        ):
+
+            current_dataframe = unique_tracklets[unique_tracklets["t"] == t]
+            in_t = current_dataframe["labels"]
+            all_labels.update(in_t)
+            for row in current_dataframe.itertuples():
+
+                label, parent = row.label, row.parent
+                if label not in in_t:
+                    continue
+
+                labels.append(label)
+                ts.append(t)
+
+                # add label as node if not already in graph
+                if not graph.has_node(label):
+                    graph.add_node(label)
+
+                # Parents have been added in previous timepoints
+                if parent in all_labels:
+                    if not graph.has_node(parent):
+                        graph.add_node(parent)
+                    graph.add_edge(parent, label)
+
+        labels_array = np.array(labels)
+        ts = np.array(ts)
+        return labels_array, ts, graph
+
+    def _cell_labels_df(
+        self, unique_tracklets: pd.DataFrame, tracklet_id: int, trackmate_track_id: int
+    ):
+        """
+        Adds a column 'labels' to the unique_tracklets DataFrame containing the labels
+        from the segmentation image based on the provided coordinates.
+
+        Args:
+            unique_tracklets (pd.DataFrame): DataFrame containing the coordinates (t, z, y, x).
+            tracklet_id (int): Tracklet ID.
+            trackmate_track_id (int): Trackmate track ID.
+
+        Returns:
+            pd.DataFrame: Updated DataFrame with an added 'labels' column.
+        """
+        four_vector = unique_tracklets[["t", "z", "y", "x"]].values
+        coords = unique_tracklets[["z", "y", "x"]].values
+        timepoints = unique_tracklets[["t"]].values
+        labels = self.seg_image[
+            four_vector[:, 0], four_vector[:, 1], four_vector[:, 2], four_vector[:, 3]
+        ]
+        unique_tracklets["label"] = labels
+        unique_tracklets["t1"] = unique_tracklets["t"].min()
+        unique_tracklets["t2"] = unique_tracklets["t"].max()
+        unique_tracklets["parent"] = trackmate_track_id
+
+        return unique_tracklets, labels, coords, timepoints
+
+    def __len__(self):
+        return len(self.unique_trackmate_track_ids)
+
+
+class MitosisDataset(Dataset):
+    def __init__(self, arrays, labels):
+        self.arrays = arrays
+        self.labels = labels
+        self.input_channels = arrays.shape[2]
+
+    def __len__(self):
+        return len(self.arrays)
+
+    def __getitem__(self, idx):
+        array = self.arrays[idx]
+        array = torch.tensor(array).permute(1, 0).float()
+        label = torch.tensor(self.labels[idx])
+        return array, label
 
 
 class PointCloudDataset(Dataset):
@@ -130,22 +266,6 @@ class SingleCellDataset(Dataset):
         serial_number = self.new_df.loc[idx, "serialNumber"]
 
         return image, treatment, feats, serial_number
-
-
-class MitosisDataset(Dataset):
-    def __init__(self, arrays, labels):
-        self.arrays = arrays
-        self.labels = labels
-        self.input_channels = arrays.shape[2]
-
-    def __len__(self):
-        return len(self.arrays)
-
-    def __getitem__(self, idx):
-        array = self.arrays[idx]
-        array = torch.tensor(array).permute(1, 0).float()
-        label = torch.tensor(self.labels[idx])
-        return array, label
 
 
 class GefGapDataset(Dataset):
