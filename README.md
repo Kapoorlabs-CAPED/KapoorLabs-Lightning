@@ -16,7 +16,6 @@ This product is a testament to our expertise at KapoorLabs, where we specialize 
 [![License BSD-3](https://img.shields.io/pypi/l/KapoorLabs-Lightning.svg?color=green)](https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning/raw/main/LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/KapoorLabs-Lightning.svg?color=green)](https://pypi.org/project/KapoorLabs-Lightning)
 [![Python Version](https://img.shields.io/pypi/pyversions/KapoorLabs-Lightning.svg?color=green)](https://python.org)
-[![tests](https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning/workflows/tests/badge.svg)](https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning/actions)
 [![codecov](https://codecov.io/gh/Kapoorlabs-CAPED/KapoorLabs-Lightning/branch/main/graph/badge.svg)](https://codecov.io/gh/Kapoorlabs-CAPED/KapoorLabs-Lightning)
 
 
