@@ -7,14 +7,108 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.utils.data import Dataset
+
+import trackastra.trackastra
+import trackastra.trackastra.model
 from .graph_functions import get_graph_feature, knn, local_cov, local_maxpool
-from trackastra.trackastra.model.model_parts import RelativePositionalAttention, RelativePositionalBias, RotaryPositionalEncoding
+import trackastra 
 
 
+class TrackAsuraTransformer(trackastra.trackastra.model.model.TrackingTransformer):
 
-class TrackAsuraAttention(RelativePositionalAttention):
+    def __init__(
+        self,
+        coord_dim: int = 3,
+        feat_dim: int = 0,
+        d_model: int = 128,
+        nhead: int = 4,
+        num_encoder_layers: int = 4,
+        num_decoder_layers: int = 4,
+        dropout: float = 0.1,
+        pos_embed_per_dim: int = 32,
+        feat_embed_per_dim: int = 1,
+        window: int = 6,
+        spatial_pos_cutoff: int = 256,
+        attn_positional_bias: Literal["bias", "rope", "none"] = "rope",
+        attn_positional_bias_n_spatial: int = 16,
+        causal_norm: Literal[
+            "none", "linear", "softmax", "quiet_softmax"
+        ] = "quiet_softmax",
+    ):
+        
+        super().__init__(
+            coord_dim=coord_dim,
+            feat_dim=feat_dim,
+            d_model=d_model,
+            nhead=nhead,
+            num_encoder_layers=num_encoder_layers,
+            num_decoder_layers=num_decoder_layers,
+            dropout=dropout,
+            pos_embed_per_dim=pos_embed_per_dim,
+            feat_embed_per_dim=feat_embed_per_dim,
+            window=window,
+            spatial_pos_cutoff=spatial_pos_cutoff,
+            attn_positional_bias=attn_positional_bias,
+            attn_positional_bias_n_spatial=attn_positional_bias_n_spatial,
+            causal_norm=causal_norm,
 
-       def __ini__(self,
+        )
+
+
+class TrackAsuraEncoderLayer(trackastra.trackastra.model.model.EncoderLayer):
+      def __init__(
+        self,
+        coord_dim: int = 2,
+        d_model=256,
+        num_heads=4,
+        dropout=0.1,
+        cutoff_spatial: int = 256,
+        window: int = 16,
+        positional_bias: Literal["bias", "rope", "none"] = "bias",
+        positional_bias_n_spatial: int = 32,
+    ):
+
+          super().__init__(
+              coord_dim=coord_dim,
+              d_model=d_model,
+              num_heads=num_heads,
+              dropout=dropout,
+              cutoff_spatial=cutoff_spatial,
+              window=window,
+              positional_bias=positional_bias,
+              positional_bias_n_spatial=positional_bias_n_spatial
+          )  
+
+class TrackAsuraDecoderLayer(trackastra.trackastra.model.model.DecoderLayer):
+
+
+      def __init__(
+        self,
+        coord_dim: int = 2,
+        d_model=256,
+        num_heads=4,
+        dropout=0.1,
+        window: int = 16,
+        cutoff_spatial: int = 256,
+        positional_bias: Literal["bias", "rope", "none"] = "bias",
+        positional_bias_n_spatial: int = 32,
+    ):
+          
+          super().__init__(
+              coord_dim=coord_dim,
+              d_model=d_model,
+              num_heads=num_heads,
+              dropout=dropout,
+              cutoff_spatial=cutoff_spatial,
+              window=window,
+              positional_bias=positional_bias,
+              positional_bias_n_spatial=positional_bias_n_spatial
+          )
+
+
+class TrackAsuraAttention(trackastra.trackastra.model.model_parts.RelativePositionalAttention):
+
+       def __init__(self,
         coord_dim: int,
         embed_dim: int,
         n_head: int,
@@ -37,7 +131,7 @@ class TrackAsuraAttention(RelativePositionalAttention):
             mode=mode
         )
 
-class TrackAsuraBias(RelativePositionalBias):
+class TrackAsuraBias(trackastra.trackastra.model.model_parts.RelativePositionalBias):
     def __init__(
         self,
         n_head: int,
@@ -55,14 +149,51 @@ class TrackAsuraBias(RelativePositionalBias):
             n_temporal=n_temporal
         )
 
-class TrackAsuraRotaryPositionalEncoding(RotaryPositionalEncoding):
+class TrackAsuraRotaryPositionalEncoding(trackastra.trackastra.model.model_parts.RotaryPositionalEncoding):
       def __init__(self, cutoffs: tuple[float] = (256,), n_pos: tuple[int] = (32,)):
           
           super().__init__(cutoffs=cutoffs, n_pos=n_pos)
           
 
+class TrackAsuraBidirectionalRelativePositionalAttention(trackastra.trackastra.model.model.BidirectionalRelativePositionalAttention):
 
+    def __init__(self):
+        super().__init__()
+        
 
+    def forward(
+        self,
+        query1: torch.Tensor,
+        query2: torch.Tensor,
+        coords: torch.Tensor,
+        padding_mask: torch.Tensor = None,
+    ):
+        return super().forward(query1, query2, coords, padding_mask)
+          
+class TrackAsuraBidirectionalCrossAttention(trackastra.trackastra.model.model.BidirectionalCrossAttention):
+
+    def __init__(
+        self,
+        coord_dim: int = 2,
+        d_model=256,
+        num_heads=4,
+        dropout=0.1,
+        window: int = 16,
+        cutoff_spatial: int = 256,
+        positional_bias: Literal["bias", "rope", "none"] = "bias",
+        positional_bias_n_spatial: int = 32,
+    ):
+        
+        super().__init__(
+           coord_dim=coord_dim,
+           d_model=d_model,
+           num_heads=num_heads,
+           dropout=dropout,
+           window=window,
+           cutoff_spatial=cutoff_spatial,
+           positional_bias=positional_bias,
+           positional_bias_n_spatial=positional_bias_n_spatial
+        )
 
 class DenseLayer(nn.Module):
     """ """
@@ -778,7 +909,9 @@ class Flatten(nn.Module):
 
 
 __all__ = [
-    
+    "TrackAsuraAttention",
+    "TrackAsuraBias",
+    "TrackAsuraRotaryPositionalEncoding",
     "DenseNet",
     "MitosisNet",
     "CloudAutoEncoder",
