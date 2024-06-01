@@ -1,12 +1,67 @@
 import itertools
-
+from typing import Literal
 import numpy as np
 import torch
 import torch.nn as nn
+
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.utils.data import Dataset
 from .graph_functions import get_graph_feature, knn, local_cov, local_maxpool
+from trackastra.trackastra.model.model_parts import RelativePositionalAttention, RelativePositionalBias, RotaryPositionalEncoding
+
+
+
+class TrackAsuraAttention(RelativePositionalAttention):
+
+       def __ini__(self,
+        coord_dim: int,
+        embed_dim: int,
+        n_head: int,
+        cutoff_spatial: float = 256,
+        cutoff_temporal: float = 16,
+        n_spatial: int = 32,
+        n_temporal: int = 16,
+        dropout: float = 0.0,
+        mode: Literal["bias", "rope", "none"] = "bias",
+    ):
+        super().__init__(
+            coord_dim=coord_dim,
+            embed_dim=embed_dim,
+            n_head=n_head,
+            cutoff_spatial=cutoff_spatial,
+            cutoff_temporal=cutoff_temporal,
+            n_spatial=n_spatial,
+            n_temporal=n_temporal,
+            dropout=dropout,
+            mode=mode
+        )
+
+class TrackAsuraBias(RelativePositionalBias):
+    def __init__(
+        self,
+        n_head: int,
+        cutoff_spatial: float,
+        cutoff_temporal: float,
+        n_spatial: int = 32,
+        n_temporal: int = 16,
+    ):
+        
+        super().__init__(
+            n_head=n_head,
+            cutoff_spatial=cutoff_spatial,
+            cutoff_temporal=cutoff_temporal,
+            n_spatial=n_spatial,
+            n_temporal=n_temporal
+        )
+
+class TrackAsuraRotaryPositionalEncoding(RotaryPositionalEncoding):
+      def __init__(self, cutoffs: tuple[float] = (256,), n_pos: tuple[int] = (32,)):
+          
+          super().__init__(cutoffs=cutoffs, n_pos=n_pos)
+          
+
+
 
 
 class DenseLayer(nn.Module):
@@ -723,6 +778,7 @@ class Flatten(nn.Module):
 
 
 __all__ = [
+    
     "DenseNet",
     "MitosisNet",
     "CloudAutoEncoder",

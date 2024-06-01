@@ -48,6 +48,11 @@ from lightning.pytorch.trainer.connectors.accelerator_connector import (
 )
 
 
+
+
+
+
+
 class MitosisInception:
 
     LOSS_CHOICES = ["cross_entropy", "cosine", "bce", "mse"]
@@ -385,6 +390,173 @@ class LightningData(LightningDataModule):
             shuffle=False,
         )
 
+
+
+
+class Trackasura(LightningModule):
+    def __init__(
+            self,
+            network: torch.nn.Module,
+            loss_func: torch.nn.Module,
+            optim_func: optim,
+            scheduler: schedulers = None,
+            automatic_optimization: bool = True,
+            on_step: bool = True,
+            on_epoch: bool = True,
+            sync_dist: bool = True,
+            rank_zero_only: bool = False,
+    ):
+        
+        super().__init__()
+        self.save_hyperparameters(
+            logger=False,
+            ignore=["network", "loss_func", "optim_func", "scheduler"],
+        )
+
+        self.network = network
+        self.loss_func = loss_func
+        self.optim_func = optim_func
+        self.scheduler = scheduler
+        self.automatic_optimization = automatic_optimization
+        self.on_step = on_step
+        self.on_epoch = on_epoch
+        self.sync_dist = sync_dist
+        self.rank_zero_only = rank_zero_only
+
+
+
+    @classmethod
+    def extract_json(cls, checkpoint_model_json):
+        if checkpoint_model_json is not None:
+            assert isinstance(
+                checkpoint_model_json, (str, dict)
+            ), "checkpoint_model_json must be a json or dict"
+
+            if isinstance(checkpoint_model_json, str):
+                with open(checkpoint_model_json) as file:
+                    mitosis_data = json.load(file)
+            else:
+                mitosis_data = checkpoint_model_json
+            return mitosis_data
+
+    @classmethod
+    def extract_trackastra_model(
+        cls,
+        trackastra_model,
+        trackastra_model_json,
+        loss_func,
+        optim_func,
+        scheduler=None,
+        ckpt_model_path=None,
+        map_location="cuda",
+    ):
+        if trackastra_model_json is not None:
+            assert isinstance(
+                trackastra_model_json, (str, dict)
+            ), "checkpoint_model_json must be a json or dict"
+
+            if isinstance(trackastra_model_json, str):
+                with open(trackastra_model_json) as file:
+                    trackastra_data = json.load(file)
+            else:
+                trackastra_data = trackastra_model_json
+
+            coord_dim = trackastra_data["coord_dim"]
+            embed_dim = trackastra_data["embed_dim"]
+            n_head = trackastra_data["n_head"] 
+            cutoff_spatial = trackastra_data["cutoff_spatial"]
+            cutoff_temporal = trackastra_data["cutoff_temporal"]
+            n_spatial = trackastra_data["n_spatial"]
+            n_temporal = trackastra_data["n_temporal"]
+            dropout = trackastra_data['dropout']
+            mode = trackastra_data['mode']
+
+            if ckpt_model_path is None:
+                checkpoint_model_path = trackastra_data["model_path"]
+                most_recent_checkpoint_ckpt = get_most_recent_file(
+                    checkpoint_model_path, ".ckpt"
+                )
+            else:
+                most_recent_checkpoint_ckpt = ckpt_model_path
+            checkpoint = torch.load(
+                most_recent_checkpoint_ckpt, map_location=map_location
+            )
+            learning_rate = 1.0e-3
+            if isinstance(scheduler, CosineAnnealingScheduler):
+                t_max = checkpoint["lr_schedulers"][0]["T_max"]
+                eta_min = checkpoint["lr_schedulers"][0]["eta_min"]
+                scheduler = scheduler(t_max=t_max, eta_min=eta_min)
+                learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
+            if isinstance(scheduler, ExponentialLR):
+                gamma = checkpoint["lr_schedulers"][0]["gamma"]
+                scheduler = scheduler(gamma=gamma)
+                learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
+            if isinstance(scheduler, MultiStepLR):
+                milestones = checkpoint["lr_schedulers"][0]["milestones"]
+                gamma = checkpoint["lr_schedulers"][0]["gamma"]
+                scheduler = scheduler(milestones=milestones, gamma=gamma)
+                learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
+
+            optimizer = optim_func(lr=learning_rate)
+            network = trackastra_model(coord_dim=coord_dim, embed_dim= embed_dim,n_head=n_head,cutoff_spatial=cutoff_spatial,
+                                       cutoff_temporal=cutoff_temporal, n_spatial=n_spatial,n_temposral=n_temporal,
+                                       dropout=dropout,mode=mode)
+            
+
+            checkpoint_lightning_model = cls.load_from_checkpoint(
+                most_recent_checkpoint_ckpt,
+                network=network,
+                loss_func=loss_func,
+                optim_func=optimizer,
+                scheduler=scheduler,
+                map_location=map_location,
+            )
+
+            checkpoint_torch_model = checkpoint_lightning_model.network
+
+            return checkpoint_lightning_model, checkpoint_torch_model    
+
+
+    def load_pretrained(self, pretrained_file, strict=True, verbose=True):
+        if isinstance(pretrained_file, (list, tuple)):
+            pretrained_file = pretrained_file[0]
+
+        # Load the state dict
+        state_dict = torch.load(pretrained_file)["state_dict"]
+
+        # Make sure to have a weight dict
+        if not isinstance(state_dict, dict):
+            state_dict = dict(state_dict)
+
+        # Get parameter dict of current model
+        param_dict = dict(self.network.named_parameters())
+
+        layers = []
+        for layer in param_dict:
+            if strict and not "network." + layer in state_dict:
+                if verbose:
+                    print(f'Could not find weights for layer "{layer}"')
+                continue
+            try:
+                param_dict[layer].data.copy_(state_dict["network." + layer].data)
+                layers.append(layer)
+            except (RuntimeError, KeyError) as e:
+                print(f"Error at layer {layer}:\n{e}")
+
+        self.network.load_state_dict(param_dict)
+
+        if verbose:
+            print(f"Loaded weights for the following layers:\n{layers}")
+
+    def forward(self, z):
+        return self.network(z)
+
+    def loss(self, y_hat, y):
+
+        return self.loss_func(y_hat, y)
+    
+    
+    
 
 class LightningModel(LightningModule):
     def __init__(
