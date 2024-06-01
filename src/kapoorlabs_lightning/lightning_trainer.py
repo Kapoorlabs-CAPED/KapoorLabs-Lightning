@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 from torch.nn import CosineSimilarity, BCEWithLogitsLoss, MSELoss
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 from .utils import get_most_recent_file, load_checkpoint_model
 from . import optimizers, schedulers
 from .pytorch_models import (
@@ -21,6 +22,7 @@ from .pytorch_models import (
     DeepEmbeddedClustering,
     DenseNet,
     MitosisNet,
+    TrackAsuraTransformer
 )
 from .schedulers import (
     CosineAnnealingScheduler,
@@ -46,10 +48,9 @@ from lightning.pytorch.trainer.connectors.accelerator_connector import (
     _LITERAL_WARN,
     _PRECISION_INPUT,
 )
-
-
-
-
+from trackastra.data.wrfeat import get_features, build_windows
+from trackastra.utils import normalize
+from trackastra.model.predict import predict_windows
 
 
 
@@ -392,11 +393,11 @@ class LightningData(LightningDataModule):
 
 
 
-
+logger = logging.getLogger(__name__)
 class Trackasura(LightningModule):
     def __init__(
             self,
-            network: torch.nn.Module,
+            network: TrackAsuraTransformer,
             loss_func: torch.nn.Module,
             optim_func: optim,
             scheduler: schedulers = None,
@@ -408,6 +409,7 @@ class Trackasura(LightningModule):
     ):
         
         super().__init__()
+        
         self.save_hyperparameters(
             logger=False,
             ignore=["network", "loss_func", "optim_func", "scheduler"],
@@ -555,7 +557,48 @@ class Trackasura(LightningModule):
 
         return self.loss_func(y_hat, y)
     
-    
+    def predict_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int, edge_threshold: float = 0.05, n_workers: int = 0):
+        imgs, masks = batch  
+        
+        logger.info("Predicting weights for candidate graph")
+        
+        
+        imgs = normalize(imgs)
+        
+       
+        self.network.eval()
+
+      
+        features = get_features(
+            detections=masks,
+            imgs=imgs,
+            ndim=self.network.config["coord_dim"],
+            n_workers=n_workers,
+            progbar_class=tqdm,
+        )
+
+        logger.info("Building windows")
+        
+        
+        windows = build_windows(
+            features,
+            window_size=self.network.config["window"],
+            progbar_class=tqdm,
+        )
+
+        logger.info("Predicting windows")
+        
+        
+        predictions = predict_windows(
+            windows=windows,
+            features=features,
+            model=self.network,
+            edge_threshold=edge_threshold,
+            spatial_dim=masks.ndim - 1,
+            progbar_class=tqdm,
+        )
+
+        return predictions
     
 
 class LightningModel(LightningModule):
@@ -1983,3 +2026,9 @@ class _HandlersCompose:
                 signal_handler = signal.getsignal(signal_handler)
             if callable(signal_handler):
                 signal_handler(signum, frame)
+
+
+
+
+
+
