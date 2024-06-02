@@ -49,7 +49,7 @@ class TrackingDataset(Dataset):
                 dynamic_features = tracklets_dataframe[DYNAMIC_FEATURES]
                 print(coords, timepoints, shape_featues, dynamic_features)
         self._convert_to_ctc_dataframe()
-        self._ctc_lineages()
+        self.graph = self._ctc_lineages()
 
     def _convert_to_ctc_dataframe(self):
 
@@ -59,16 +59,13 @@ class TrackingDataset(Dataset):
         self.ctc_tracks_dataframe.rename(columns={"Track ID": "Label"}, inplace=True)
 
     def _ctc_lineages(self):
-
         graph = nx.DiGraph()
         for _, row in self.ctc_tracks_dataframe.iterrows():
             label = row["Label"]
-            graph.add_node(label)
-        for _, row in self.ctc_tracks_dataframe.iterrows():
-            track_id = row["Label"]
             parent_id = row["Parent"]
+            graph.add_node(label)
             if parent_id != 0:
-                graph.add_edge(parent_id, track_id)
+                graph.add_edge(parent_id, label)
 
         return graph
 
