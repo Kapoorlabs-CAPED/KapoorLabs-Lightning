@@ -6,7 +6,6 @@ import h5py
 import numpy as np
 import pandas as pd
 import torch
-from tqdm import tqdm
 from pyntcloud import PyntCloud
 from sklearn import preprocessing
 from sklearn.decomposition import PCA
@@ -18,7 +17,9 @@ import networkx as nx
 class TrackingDataset(Dataset):
     def __init__(self, tracks_dataframe: pd.DataFrame):
         self.tracks_dataframe = tracks_dataframe.copy()
-        self.unique_trackmate_track_ids = self.tracks_dataframe["TrackMate Track ID"].unique()
+        self.unique_trackmate_track_ids = self.tracks_dataframe[
+            "TrackMate Track ID"
+        ].unique()
         parent_dict = {}
         t_min_dict = {}
         t_max_dict = {}
@@ -27,7 +28,7 @@ class TrackingDataset(Dataset):
                 (self.tracks_dataframe["TrackMate Track ID"] == trackmate_track_id)
             ].sort_values(by="t")
             sorted_subset = sorted(subset["Track ID"].unique())
-             
+
             if len(sorted_subset) == 1:
                 for track_id in sorted_subset:
                     parent_dict[track_id] = 0
@@ -39,40 +40,37 @@ class TrackingDataset(Dataset):
                 tracklets_dataframe = tracks_dataframe[
                     (tracks_dataframe["Track ID"] == tracklet_id)
                 ].sort_values(by="t")
-                
+
                 t_min_dict[tracklet_id] = tracklets_dataframe["t"].min()
-                t_max_dict[tracklet_id] = tracklets_dataframe["t"].max() 
+                t_max_dict[tracklet_id] = tracklets_dataframe["t"].max()
                 coords = tracklets_dataframe[["z", "y", "x"]].values
                 timepoints = tracklets_dataframe[["t"]].values
                 shape_featues = tracklets_dataframe[SHAPE_FEATURES]
                 dynamic_features = tracklets_dataframe[DYNAMIC_FEATURES]
-
+                print(coords, timepoints, shape_featues, dynamic_features)
         self._convert_to_ctc_dataframe()
         self._ctc_lineages()
-    
 
     def _convert_to_ctc_dataframe(self):
-         
-        self.ctc_tracks_dataframe =   self.tracks_dataframe[['Track ID', 't1', 't2', 'Parent']].astype('int')
-        self.ctc_tracks_dataframe.rename(columns={'Track ID': 'Label'}, inplace=True)
-       
+
+        self.ctc_tracks_dataframe = self.tracks_dataframe[
+            ["Track ID", "t1", "t2", "Parent"]
+        ].astype("int")
+        self.ctc_tracks_dataframe.rename(columns={"Track ID": "Label"}, inplace=True)
 
     def _ctc_lineages(self):
-             
 
-            graph = nx.DiGraph()
-            for _, row in self.ctc_tracks_dataframe.iterrows():
-                label = row['Label']
-                graph.add_node(label)
-            for _, row in self.ctc_tracks_dataframe.iterrows():
-                track_id = row['Label']
-                parent_id = row['Parent']
-                if parent_id != 0: 
-                    graph.add_edge(parent_id, track_id)
+        graph = nx.DiGraph()
+        for _, row in self.ctc_tracks_dataframe.iterrows():
+            label = row["Label"]
+            graph.add_node(label)
+        for _, row in self.ctc_tracks_dataframe.iterrows():
+            track_id = row["Label"]
+            parent_id = row["Parent"]
+            if parent_id != 0:
+                graph.add_edge(parent_id, track_id)
 
-            return graph        
-
-
+        return graph
 
     def __len__(self):
         return len(self.unique_trackmate_track_ids)
