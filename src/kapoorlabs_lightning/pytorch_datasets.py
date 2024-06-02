@@ -16,118 +16,63 @@ import networkx as nx
 
 
 class TrackingDataset(Dataset):
-    def __init__(self, tracks_dataframe: pd.DataFrame, seg_image: np.ndarray):
-        self.tracks_dataframe = tracks_dataframe
-        self.seg_image = seg_image
-        assert seg_image is not None, "segmentation image needs to be supplied"
-        self.tracks = tracks_dataframe.copy()
-
-        self.unique_trackmate_track_ids = self.tracks["TrackMate Track ID"].unique()
-
+    def __init__(self, tracks_dataframe: pd.DataFrame):
+        self.tracks_dataframe = tracks_dataframe.copy()
+        self.unique_trackmate_track_ids = self.tracks_dataframe["TrackMate Track ID"].unique()
+        parent_dict = {}
+        t_min_dict = {}
+        t_max_dict = {}
         for trackmate_track_id in self.unique_trackmate_track_ids:
-            subset = self.tracks[
-                (self.tracks["TrackMate Track ID"] == trackmate_track_id)
+            subset = self.tracks_dataframe[
+                (self.tracks_dataframe["TrackMate Track ID"] == trackmate_track_id)
             ].sort_values(by="t")
             sorted_subset = sorted(subset["Track ID"].unique())
-            for tracklet_id in sorted_subset:
+             
+            if len(sorted_subset) == 1:
+                for track_id in sorted_subset:
+                    parent_dict[track_id] = 0
+            else:
+                for track_id in sorted_subset:
+                    parent_dict[track_id] = sorted_subset[0]
 
-                unique_tracklets = tracks_dataframe[
+            for tracklet_id in sorted_subset:
+                tracklets_dataframe = tracks_dataframe[
                     (tracks_dataframe["Track ID"] == tracklet_id)
                 ].sort_values(by="t")
+                
+                t_min_dict[tracklet_id] = tracklets_dataframe["t"].min()
+                t_max_dict[tracklet_id] = tracklets_dataframe["t"].max() 
+                coords = tracklets_dataframe[["z", "y", "x"]].values
+                timepoints = tracklets_dataframe[["t"]].values
+                shape_featues = tracklets_dataframe[SHAPE_FEATURES]
+                dynamic_features = tracklets_dataframe[DYNAMIC_FEATURES]
 
-                tracklet_shape_features = unique_tracklets[SHAPE_FEATURES].values
-                tracklet_dynamic_features = unique_tracklets[DYNAMIC_FEATURES].values
-                feat = torch.concat(
-                    (tracklet_shape_features, tracklet_dynamic_features), dim=1
-                )
-                (
-                    updated_unique_tracklets,
-                    labels,
-                    coords,
-                    timepoints,
-                ) = self._cell_labels_df(
-                    unique_tracklets, tracklet_id, trackmate_track_id
-                )
-                t_min = unique_tracklets["t"].min()
-                t_max = unique_tracklets["t"].max()
-                labels_array, ts, graph = self._ctc_lineages(
-                    updated_unique_tracklets, t_min, t_max
-                )
+        self._convert_to_ctc_dataframe()
+        self._ctc_lineages()
+    
 
-                print(feat.shape, labels_array.shape, ts, graph)
+    def _convert_to_ctc_dataframe(self):
+         
+        self.ctc_tracks_dataframe =   self.tracks_dataframe[['Track ID', 't1', 't2', 'Parent']].astype('int')
+        self.ctc_tracks_dataframe.rename(columns={'Track ID': 'Label'}, inplace=True)
+       
 
-    def _ctc_lineages(self, unique_tracklets: pd.DataFrame, t_min: int, t_max: int):
+    def _ctc_lineages(self):
+             
 
-        if t_min > 0:
-            assert t_max is not None
-            assert t_max - t_min == len(self.seg_image)
-        if t_max is None:
-            t_max = len(self.seg_image)
+            graph = nx.DiGraph()
+            for _, row in self.ctc_tracks_dataframe.iterrows():
+                label = row['Label']
+                graph.add_node(label)
+            for _, row in self.ctc_tracks_dataframe.iterrows():
+                track_id = row['Label']
+                parent_id = row['Parent']
+                if parent_id != 0: 
+                    graph.add_edge(parent_id, track_id)
 
-        graph = nx.DiGraph()
-        labels = []
-        ts = []
+            return graph        
 
-        all_labels = set()
-        for t in tqdm(
-            range(t_min, t_max),
-            desc="Building and checking lineage graph",
-            leave=False,
-        ):
 
-            current_dataframe = unique_tracklets[unique_tracklets["t"] == t]
-            in_t = current_dataframe["labels"]
-            all_labels.update(in_t)
-            for row in current_dataframe.itertuples():
-
-                label, parent = row.label, row.parent
-                if label not in in_t:
-                    continue
-
-                labels.append(label)
-                ts.append(t)
-
-                # add label as node if not already in graph
-                if not graph.has_node(label):
-                    graph.add_node(label)
-
-                # Parents have been added in previous timepoints
-                if parent in all_labels:
-                    if not graph.has_node(parent):
-                        graph.add_node(parent)
-                    graph.add_edge(parent, label)
-
-        labels_array = np.array(labels)
-        ts = np.array(ts)
-        return labels_array, ts, graph
-
-    def _cell_labels_df(
-        self, unique_tracklets: pd.DataFrame, tracklet_id: int, trackmate_track_id: int
-    ):
-        """
-        Adds a column 'labels' to the unique_tracklets DataFrame containing the labels
-        from the segmentation image based on the provided coordinates.
-
-        Args:
-            unique_tracklets (pd.DataFrame): DataFrame containing the coordinates (t, z, y, x).
-            tracklet_id (int): Tracklet ID.
-            trackmate_track_id (int): Trackmate track ID.
-
-        Returns:
-            pd.DataFrame: Updated DataFrame with an added 'labels' column.
-        """
-        four_vector = unique_tracklets[["t", "z", "y", "x"]].values
-        coords = unique_tracklets[["z", "y", "x"]].values
-        timepoints = unique_tracklets[["t"]].values
-        labels = self.seg_image[
-            four_vector[:, 0], four_vector[:, 1], four_vector[:, 2], four_vector[:, 3]
-        ]
-        unique_tracklets["label"] = labels
-        unique_tracklets["t1"] = unique_tracklets["t"].min()
-        unique_tracklets["t2"] = unique_tracklets["t"].max()
-        unique_tracklets["parent"] = trackmate_track_id
-
-        return unique_tracklets, labels, coords, timepoints
 
     def __len__(self):
         return len(self.unique_trackmate_track_ids)
