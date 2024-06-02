@@ -48,6 +48,11 @@ class TrackingDataset(Dataset):
                 shape_featues = tracklets_dataframe[SHAPE_FEATURES]
                 dynamic_features = tracklets_dataframe[DYNAMIC_FEATURES]
                 print(coords, timepoints, shape_featues, dynamic_features)
+        self.tracks_dataframe["Parent"] = self.tracks_dataframe["Track ID"].map(
+            parent_dict
+        )
+        self.tracks_dataframe["t1"] = self.tracks_dataframe["Track ID"].map(t_min_dict)
+        self.tracks_dataframe["t2"] = self.tracks_dataframe["Track ID"].map(t_max_dict)
         self._convert_to_ctc_dataframe()
         self.graph = self._ctc_lineages()
 
