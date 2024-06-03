@@ -11,6 +11,8 @@ from sklearn import preprocessing
 from sklearn.decomposition import PCA
 from torch.utils.data import Dataset
 import networkx as nx
+from skimage.segmentation import relabel_sequential
+
 
 SHAPE_FEATURES = [
     "Radius",
@@ -76,7 +78,7 @@ class TrackingDataset(Dataset):
         self.tracks_dataframe["t1"] = self.tracks_dataframe["Track ID"].map(t_min_dict)
         self.tracks_dataframe["t2"] = self.tracks_dataframe["Track ID"].map(t_max_dict)
         self._convert_to_ctc_dataframe()
-        self.graph = self._ctc_lineages()
+        self._ctc_lineages()
 
     def _convert_to_ctc_dataframe(self):
 
@@ -87,15 +89,40 @@ class TrackingDataset(Dataset):
         self.ctc_tracks_dataframe.drop_duplicates(inplace=True)
 
     def _ctc_lineages(self):
-        graph = nx.DiGraph()
+        self.graph = nx.DiGraph()
         for _, row in self.ctc_tracks_dataframe.iterrows():
             label = row["Label"]
             parent_id = row["Parent"]
-            graph.add_node(label)
+            self.graph.add_node(label)
             if parent_id != 0:
-                graph.add_edge(parent_id, label)
+                self.graph.add_edge(parent_id, label)
 
-        return graph
+    
+    def _ctc_assoc_matrix(self):
+
+        matched_gt = self.ctc_tracks_dataframe["Label"].unique()
+        num_labels = len(matched_gt)
+        relabeled_gt, fwd_map, _inv_map = relabel_sequential(matched_gt)
+        fwd_map = dict(zip(fwd_map.in_values, fwd_map.out_values))
+        self.association_matrix = np.zeros((num_labels, num_labels), dtype=bool)
+        label_to_index = {label: idx for idx, label in enumerate(matched_gt)}
+
+        for  _, row in self.ctc_tracks_dataframe.iterrows():
+            gt_tracklet_id = row['Label']
+            ancestors = []
+            descendants = []
+            for n in nx.descendants(self.graph, gt_tracklet_id):
+                if n in fwd_map:
+                        descendants.append(fwd_map[n])
+            for n in nx.ancestors(self.graph, gt_tracklet_id):
+                if n in fwd_map:
+                        ancestors.append(fwd_map[n])
+                        
+            self.association_matrix[
+                        label_to_index[gt_tracklet_id], np.array([fwd_map[gt_tracklet_id], *ancestors, *descendants])
+                    ] = True
+                    
+        
 
     def __len__(self):
         return len(self.unique_trackmate_track_ids)
