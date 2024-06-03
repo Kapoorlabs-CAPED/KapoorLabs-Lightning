@@ -10,8 +10,31 @@ from pyntcloud import PyntCloud
 from sklearn import preprocessing
 from sklearn.decomposition import PCA
 from torch.utils.data import Dataset
-from napatrackmater.Trackvector import DYNAMIC_FEATURES, SHAPE_FEATURES
 import networkx as nx
+
+SHAPE_FEATURES = [
+    "Radius",
+    "Eccentricity_Comp_First",
+    "Eccentricity_Comp_Second",
+    "Eccentricity_Comp_Third",
+    "Local_Cell_Density",
+    "Surface_Area",
+]
+
+DYNAMIC_FEATURES = [
+    "Speed",
+    "Motion_Angle_Z",
+    "Motion_Angle_Y",
+    "Motion_Angle_X",
+    "Acceleration",
+    "Distance_Cell_mask",
+    "Radial_Angle_Z",
+    "Radial_Angle_Y",
+    "Radial_Angle_X",
+    "Cell_Axis_Z",
+    "Cell_Axis_Y",
+    "Cell_Axis_X",
+]
 
 
 class TrackingDataset(Dataset):
@@ -29,17 +52,16 @@ class TrackingDataset(Dataset):
             ].sort_values(by="t")
             sorted_subset = sorted(subset["Track ID"].unique())
 
-            if len(sorted_subset) == 1:
-                for track_id in sorted_subset:
-                    parent_dict[track_id] = 0
-            else:
-                for track_id in sorted_subset:
-                    parent_dict[track_id] = sorted_subset[0]
-
             for tracklet_id in sorted_subset:
+
                 tracklets_dataframe = tracks_dataframe[
                     (tracks_dataframe["Track ID"] == tracklet_id)
                 ].sort_values(by="t")
+
+                if len(sorted_subset) == 1:
+                    parent_dict[tracklet_id] = 0
+                else:
+                    parent_dict[tracklet_id] = sorted_subset[0]
 
                 t_min_dict[tracklet_id] = tracklets_dataframe["t"].min()
                 t_max_dict[tracklet_id] = tracklets_dataframe["t"].max()
@@ -62,6 +84,7 @@ class TrackingDataset(Dataset):
             ["Track ID", "t1", "t2", "Parent"]
         ].astype("int")
         self.ctc_tracks_dataframe.rename(columns={"Track ID": "Label"}, inplace=True)
+        self.ctc_tracks_dataframe.drop_duplicates(inplace=True)
 
     def _ctc_lineages(self):
         graph = nx.DiGraph()
