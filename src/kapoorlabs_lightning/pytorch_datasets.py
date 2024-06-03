@@ -11,7 +11,6 @@ from sklearn import preprocessing
 from sklearn.decomposition import PCA
 from torch.utils.data import Dataset
 import networkx as nx
-from skimage.segmentation import relabel_sequential
 
 
 SHAPE_FEATURES = [
@@ -102,10 +101,8 @@ class TrackingDataset(Dataset):
 
         matched_gt = self.ctc_tracks_dataframe["Label"].unique()
         num_labels = len(matched_gt)
-        relabeled_gt, fwd_map, _inv_map = relabel_sequential(matched_gt)
-        fwd_map = dict(zip(fwd_map.in_values, fwd_map.out_values))
+        fwd_map = {label: idx for idx, label in enumerate(matched_gt)}
         self.association_matrix = np.zeros((num_labels, num_labels), dtype=bool)
-        label_to_index = {label: idx for idx, label in enumerate(matched_gt)}
 
         for  _, row in self.ctc_tracks_dataframe.iterrows():
             gt_tracklet_id = row['Label']
@@ -119,7 +116,7 @@ class TrackingDataset(Dataset):
                         ancestors.append(fwd_map[n])
                         
             self.association_matrix[
-                        label_to_index[gt_tracklet_id], np.array([fwd_map[gt_tracklet_id], *ancestors, *descendants])
+                        fwd_map[gt_tracklet_id], np.array([fwd_map[gt_tracklet_id], *ancestors, *descendants])
                     ] = True
                     
         
