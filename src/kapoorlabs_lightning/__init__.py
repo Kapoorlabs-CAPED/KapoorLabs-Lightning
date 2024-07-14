@@ -18,6 +18,7 @@ from .pytorch_datasets import (
     ShapeNetDataset,
     SingleCellDataset,
     MitosisDataset,
+    H5MitosisDataset,
 )
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_models import __all__ as all_pytorch_models
@@ -59,6 +60,7 @@ __all__ = [
     "CheckpointModel",
     "CustomVirtualMemory",
     "MitosisDataset",
+    "H5MitosisDataset",
     "Adam",
     "RMSprop",
     "Rprop",

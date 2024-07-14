@@ -96,7 +96,6 @@ class TrackingDataset(Dataset):
             if parent_id != 0:
                 self.graph.add_edge(parent_id, label)
 
-    
     def _ctc_assoc_matrix(self):
 
         matched_gt = self.ctc_tracks_dataframe["Label"].unique()
@@ -104,22 +103,21 @@ class TrackingDataset(Dataset):
         fwd_map = {label: idx for idx, label in enumerate(matched_gt)}
         self.association_matrix = np.zeros((num_labels, num_labels), dtype=bool)
 
-        for  _, row in self.ctc_tracks_dataframe.iterrows():
-            gt_tracklet_id = row['Label']
+        for _, row in self.ctc_tracks_dataframe.iterrows():
+            gt_tracklet_id = row["Label"]
             ancestors = []
             descendants = []
             for n in nx.descendants(self.graph, gt_tracklet_id):
                 if n in fwd_map:
-                        descendants.append(fwd_map[n])
+                    descendants.append(fwd_map[n])
             for n in nx.ancestors(self.graph, gt_tracklet_id):
                 if n in fwd_map:
-                        ancestors.append(fwd_map[n])
-                        
+                    ancestors.append(fwd_map[n])
+
             self.association_matrix[
-                        fwd_map[gt_tracklet_id], np.array([fwd_map[gt_tracklet_id], *ancestors, *descendants])
-                    ] = True
-                    
-        
+                fwd_map[gt_tracklet_id],
+                np.array([fwd_map[gt_tracklet_id], *ancestors, *descendants]),
+            ] = True
 
     def __len__(self):
         return len(self.unique_trackmate_track_ids)
@@ -138,6 +136,27 @@ class MitosisDataset(Dataset):
         array = self.arrays[idx]
         array = torch.tensor(array).permute(1, 0).float()
         label = torch.tensor(self.labels[idx])
+        return array, label
+
+
+class H5MitosisDataset(Dataset):
+    def __init__(self, h5_file, data_key, label_key):
+        self.h5_file = h5_file
+        self.data_key = data_key
+        self.label_key = label_key
+        with h5py.File(self.h5_file, "r") as f:
+            self.data_len = f[data_key].shape[0]
+            self.input_channels = f[data_key].shape[2]
+
+    def __len__(self):
+        return self.data_len
+
+    def __getitem__(self, idx):
+        with h5py.File(self.h5_file, "r") as f:
+            array = f[self.data_key][idx]
+            label = f[self.label_key][idx]
+            array = torch.tensor(array).permute(1, 0).float()
+            label = torch.tensor(label)
         return array, label
 
 
