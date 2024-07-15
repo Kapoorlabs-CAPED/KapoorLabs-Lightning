@@ -925,6 +925,7 @@ class LightningModel(LightningModule):
         mitosis_model_json,
         loss_func,
         optim_func,
+        local_model_path=None,
         scheduler=None,
         ckpt_model_path=None,
         map_location="cuda",
@@ -950,7 +951,10 @@ class LightningModel(LightningModule):
                 kernel_size = mitosis_data["kernel_size"]
 
             if ckpt_model_path is None:
-                checkpoint_model_path = mitosis_data["model_path"]
+                if local_model_path is None:
+                   checkpoint_model_path = mitosis_data["model_path"]
+                else:
+                    checkpoint_model_path = local_model_path   
                 most_recent_checkpoint_ckpt = get_most_recent_file(
                     checkpoint_model_path, ".ckpt"
                 )
