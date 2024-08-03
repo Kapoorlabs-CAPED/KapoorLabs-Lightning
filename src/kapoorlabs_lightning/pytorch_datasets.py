@@ -144,20 +144,19 @@ class H5MitosisDataset(Dataset):
         self.h5_file = h5_file
         self.data_key = data_key
         self.label_key = label_key
-        with h5py.File(self.h5_file, "r") as f:
-            self.data_len = f[data_key].shape[0]
-            self.input_channels = f[data_key].shape[2]
-
-    def __len__(self):
-        return self.data_len
+        self.data_label = h5py.File(self.h5_file, "r")
+        self.data = self.data_label[data_key]
+        self.targets = self.data_label[label_key]
+  
+    def __len__(self) -> int:
+        return len(self.targets)
 
     def __getitem__(self, idx):
-        with h5py.File(self.h5_file, "r") as f:
-            array = f[self.data_key][idx]
-            label = f[self.label_key][idx]
-            array = torch.tensor(array).permute(1, 0).float()
-            label = torch.tensor(label)
-        return array, label
+       
+            array = torch.tensor(self.data[idx]).permute(1, 0).float()
+            label = torch.tensor(self.targets[idx])
+        
+            return array, label
 
 
 class PointCloudDataset(Dataset):
