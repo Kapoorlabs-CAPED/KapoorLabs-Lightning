@@ -136,6 +136,8 @@ class MitosisDataset(Dataset):
         array = self.arrays[idx]
         array = torch.tensor(array).permute(1, 0).float()
         label = torch.tensor(self.labels[idx])
+
+        print(array.shape, label.shape, 'in training')
         return array, label
 
 
@@ -155,7 +157,7 @@ class H5MitosisDataset(Dataset):
        
             array = torch.tensor(self.data[idx]).permute(1, 0).float()
             label = torch.tensor(self.targets[idx])
-        
+            print(array.shape, label.shape, 'in training')
             return array, label
 
 
