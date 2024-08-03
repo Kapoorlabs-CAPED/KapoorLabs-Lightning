@@ -155,8 +155,8 @@ class H5MitosisDataset(Dataset):
 
     def __getitem__(self, idx):
        
-            array = torch.tensor(self.data[idx]).permute(1, 0).float()
-            label = torch.tensor(self.targets[idx])
+            array = torch.from_numpy(np.asarray(self.data[idx])).permute(1, 0).float()
+            label = torch.from_numpy(np.asarray(self.targets[idx]))
             print(array.shape, label.shape, 'in training')
             return array, label
 
