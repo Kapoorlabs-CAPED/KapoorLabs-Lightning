@@ -1007,7 +1007,8 @@ class LightningModel(LightningModule):
                     bottleneck_size=bottleneck_size,
                     kernel_size=kernel_size,
                 )
-
+            print(mitosis_model)
+            print(most_recent_checkpoint_ckpt)
             checkpoint_lightning_model = cls.load_from_checkpoint(
                 most_recent_checkpoint_ckpt,
                 network=network,
@@ -1016,6 +1017,7 @@ class LightningModel(LightningModule):
                 scheduler=scheduler,
                 map_location=map_location,
             )
+            
 
             checkpoint_torch_model = checkpoint_lightning_model.network
 
