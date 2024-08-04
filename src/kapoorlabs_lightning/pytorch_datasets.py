@@ -159,7 +159,6 @@ class H5MitosisDataset(Dataset):
 
             label = torch.from_numpy(np.asarray(self.targets[idx]))
 
-            print(array.shape)
             return array, label
 
 
