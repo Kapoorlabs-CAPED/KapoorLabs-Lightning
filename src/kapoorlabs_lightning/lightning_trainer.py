@@ -203,67 +203,28 @@ class MitosisInception:
 
     def setup_gbr_h5_datasets(self):
         if self.h5_file is not None:
-            train_goblet_arrays_key = "goblet_train_arrays"
-            train_goblet_labels_key = "goblet_train_labels"
-            train_basal_arrays_key = "basal_train_arrays"
-            train_basal_labels_key = "basal_train_labels"
-            train_radial_arrays_key = "radial_train_arrays"
-            train_radial_labels_key = "radial_train_labels"
+            train_arrays_key = "train_arrays"
+            train_labels_key = "train_labels"
 
-            val_goblet_arrays_key = "goblet_val_arrays"
-            val_goblet_labels_key = "goblet_val_labels"
-            val_basal_arrays_key = "basal_val_arrays"
-            val_basal_labels_key = "basal_val_labels"
-            val_radial_arrays_key = "radial_val_arrays"
-            val_radial_labels_key = "radial_val_labels"
+            val_arrays_key = "val_arrays"
+            val_labels_key = "val_labels"
 
          
-            dataset_train_goblet = H5MitosisDataset(
+            self.dataset_train = H5MitosisDataset(
                 self.h5_file,
-                train_goblet_arrays_key,
-                train_goblet_labels_key,
-            )
-            dataset_train_basal = H5MitosisDataset(
-                self.h5_file,
-                train_basal_arrays_key,
-                train_basal_labels_key,
-            )
-            dataset_train_radial = H5MitosisDataset(
-                self.h5_file,
-                train_radial_arrays_key,
-                train_radial_labels_key,
-            )
-
-            self.dataset_train = np.concatenate(
-                (dataset_train_basal, dataset_train_radial,dataset_train_goblet )
-            )
-
-            dataset_val_goblet = H5MitosisDataset(
-                self.h5_file,
-                val_goblet_arrays_key,
-                val_goblet_labels_key,
-            )
-            dataset_val_basal = H5MitosisDataset(
-                self.h5_file,
-                val_basal_arrays_key,
-                val_basal_labels_key,
-            )
-            dataset_val_radial = H5MitosisDataset(
-                self.h5_file,
-                val_radial_arrays_key,
-                val_radial_labels_key,
-            )
-
-            self.input_channels = dataset_val_goblet.input_channels
-
-            self.dataset_val = np.concatenate(
-                (dataset_val_basal, dataset_val_radial, dataset_val_goblet )
+                train_arrays_key,
+                train_labels_key,
             )
             
 
-            print(
-                f"Basal labels in training {len(dataset_train_basal)}, Radial labels in training {len(dataset_train_radial)}, Goblet labels in training {len(dataset_train_goblet)}"
+            self.dataset_val = H5MitosisDataset(
+                self.h5_file,
+                val_arrays_key,
+                val_labels_key,
             )
+            
+
+            self.input_channels = self.dataset_train.input_channels
 
             self.mitosis_data = LightningData(
                 data_train=self.dataset_train,
@@ -277,44 +238,23 @@ class MitosisInception:
 
     def setup_h5_datasets(self):
         if self.h5_file is not None:
-            train_dividing_arrays_key = "dividing_train_arrays"
-            train_dividing_labels_key = "dividing_train_labels"
-            train_non_dividing_arrays_key = "non_dividing_train_arrays"
-            train_non_dividing_labels_key = "non_dividing_train_labels"
-            val_dividing_arrays_key = "dividing_val_arrays"
-            val_dividing_labels_key = "dividing_val_labels"
-            val_non_dividing_arrays_key = "non_dividing_val_arrays"
-            val_non_dividing_labels_key = "non_dividing_val_labels"
+            train_arrays_key = "dividing_train_arrays"
+            train_labels_key = "dividing_train_labels"
+            val_arrays_key = "dividing_val_arrays"
+            val_labels_key = "dividing_val_labels"
 
-            dataset_train_dividing = H5MitosisDataset(
-                self.h5_file, train_dividing_arrays_key, train_dividing_labels_key
-            )
-            dataset_train_non_dividing = H5MitosisDataset(
-                self.h5_file,
-                train_non_dividing_arrays_key,
-                train_non_dividing_labels_key,
+            self.dataset_train = H5MitosisDataset(
+                self.h5_file, train_arrays_key, train_labels_key
             )
 
-            self.dataset_train = np.concatenate(
-                (dataset_train_dividing, dataset_train_non_dividing)
-            )
 
-            dataset_val_dividing = H5MitosisDataset(
-                self.h5_file, val_dividing_arrays_key, val_dividing_labels_key
+            self.dataset_val = H5MitosisDataset(
+                self.h5_file, val_arrays_key, val_labels_key
             )
-            dataset_val_non_dividing = H5MitosisDataset(
-                self.h5_file, val_non_dividing_arrays_key, val_non_dividing_labels_key
-            )
-
-            self.dataset_val = np.concatenate(
-                (dataset_val_dividing, dataset_val_non_dividing)
-            )
+            
 
             
-            self.input_channels = dataset_train_dividing.input_channels
-            print(
-                f"Dividing labels in training {len(dataset_train_dividing)}, Non Dividing labels in training {len(dataset_train_non_dividing)}"
-            )
+            self.input_channels = self.dataset_train.input_channels
 
             self.mitosis_data = LightningData(
                 data_train=self.dataset_train,
