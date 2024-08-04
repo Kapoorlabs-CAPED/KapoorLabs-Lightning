@@ -148,6 +148,7 @@ class H5MitosisDataset(Dataset):
         self.data_label = h5py.File(self.h5_file, "r")
         self.data = self.data_label[data_key]
         self.targets = self.data_label[label_key]
+        self.input_channels = np.asarray(self.data[0]).shape[1]
   
     def __len__(self) -> int:
         return len(self.targets)
@@ -155,6 +156,7 @@ class H5MitosisDataset(Dataset):
     def __getitem__(self, idx):
        
             array = torch.from_numpy(np.asarray(self.data[idx])).permute(1, 0).float()
+
             label = torch.from_numpy(np.asarray(self.targets[idx]))
             return array, label
 
