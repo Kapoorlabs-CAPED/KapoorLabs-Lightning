@@ -440,7 +440,7 @@ class LightningData(LightningDataModule):
         num_workers=0,
     ):
         super().__init__()
-        self.save_hyperparameters()
+      
         self.data_train = data_train
         self.data_val = data_val
         self.batch_size = batch_size
