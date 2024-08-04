@@ -254,6 +254,8 @@ class MitosisInception:
                 val_radial_labels_key,
             )
 
+            self.input_channels = self.dataset_val_goblet.input_channels
+
             self.dataset_val = np.concatenate(
                 (dataset_val_basal, dataset_val_radial, dataset_val_goblet )
             )
@@ -308,6 +310,8 @@ class MitosisInception:
                 (dataset_val_dividing, dataset_val_non_dividing)
             )
 
+            
+            self.input_channels = self.dataset_train_dividing.input_channels
             print(
                 f"Dividing labels in training {len(dataset_train_dividing)}, Non Dividing labels in training {len(dataset_train_non_dividing)}"
             )
