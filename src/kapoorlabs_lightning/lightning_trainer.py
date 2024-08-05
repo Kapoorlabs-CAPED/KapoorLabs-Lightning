@@ -209,20 +209,17 @@ class MitosisInception:
             val_arrays_key = "val_arrays"
             val_labels_key = "val_labels"
 
-         
             self.dataset_train = H5MitosisDataset(
                 self.h5_file,
                 train_arrays_key,
                 train_labels_key,
             )
-            
 
             self.dataset_val = H5MitosisDataset(
                 self.h5_file,
                 val_arrays_key,
                 val_labels_key,
             )
-            
 
             self.input_channels = self.dataset_train.input_channels
 
@@ -234,7 +231,7 @@ class MitosisInception:
             )
 
             self.train_loader = self.mitosis_data.train_dataloader()
-            self.val_loader = self.mitosis_data.val_dataloader()        
+            self.val_loader = self.mitosis_data.val_dataloader()
 
     def setup_h5_datasets(self):
         if self.h5_file is not None:
@@ -247,13 +244,10 @@ class MitosisInception:
                 self.h5_file, train_arrays_key, train_labels_key
             )
 
-
             self.dataset_val = H5MitosisDataset(
                 self.h5_file, val_arrays_key, val_labels_key
             )
-            
 
-            
             self.input_channels = self.dataset_train.input_channels
 
             self.mitosis_data = LightningData(
@@ -440,7 +434,7 @@ class LightningData(LightningDataModule):
         num_workers=0,
     ):
         super().__init__()
-      
+
         self.data_train = data_train
         self.data_val = data_val
         self.batch_size = batch_size
@@ -968,9 +962,9 @@ class LightningModel(LightningModule):
 
             if ckpt_model_path is None:
                 if local_model_path is None:
-                   checkpoint_model_path = mitosis_data["model_path"]
+                    checkpoint_model_path = mitosis_data["model_path"]
                 else:
-                    checkpoint_model_path = local_model_path   
+                    checkpoint_model_path = local_model_path
                 most_recent_checkpoint_ckpt = get_most_recent_file(
                     checkpoint_model_path, ".ckpt"
                 )
@@ -1007,8 +1001,6 @@ class LightningModel(LightningModule):
                     bottleneck_size=bottleneck_size,
                     kernel_size=kernel_size,
                 )
-            print(mitosis_model)
-            print(most_recent_checkpoint_ckpt)
             checkpoint_lightning_model = cls.load_from_checkpoint(
                 most_recent_checkpoint_ckpt,
                 network=network,
@@ -1017,7 +1009,6 @@ class LightningModel(LightningModule):
                 scheduler=scheduler,
                 map_location=map_location,
             )
-            
 
             checkpoint_torch_model = checkpoint_lightning_model.network
 
