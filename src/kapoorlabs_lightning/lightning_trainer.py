@@ -235,10 +235,10 @@ class MitosisInception:
 
     def setup_h5_datasets(self):
         if self.h5_file is not None:
-            train_arrays_key = "dividing_train_arrays"
-            train_labels_key = "dividing_train_labels"
-            val_arrays_key = "dividing_val_arrays"
-            val_labels_key = "dividing_val_labels"
+            train_arrays_key = "train_arrays"
+            train_labels_key = "train_labels"
+            val_arrays_key = "val_arrays"
+            val_labels_key = "val_labels"
 
             self.dataset_train = H5MitosisDataset(
                 self.h5_file, train_arrays_key, train_labels_key
