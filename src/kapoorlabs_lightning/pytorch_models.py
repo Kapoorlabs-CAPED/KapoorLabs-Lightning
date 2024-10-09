@@ -1585,6 +1585,8 @@ __all__ = [
     "TrackAsuraRotaryPositionalEncoding",
     "DenseNet",
     "MitosisNet",
+    "Attention",
+    "HybridAttentionDenseNet",
     "CloudAutoEncoder",
     "DGCNNEncoder",
     "FoldNetEncoder",
