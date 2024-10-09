@@ -102,7 +102,7 @@ class MitosisInception:
         t_max: int = None,
         weight_decay: float = 1e-5,
         eps: float = 1e-1,
-        attention_dim: int =64,
+        attention_dim: int = 64,
         strategy: str = "auto",
     ):
         self.npz_file = npz_file
@@ -316,30 +316,29 @@ class MitosisInception:
             kernel_size=self.kernel_size,
         )
         print(f"Training Mitosis Inception Model {self.model}")
-    
+
     def setup_attention_model(self):
 
         self.model = AttentionNet(
             input_channels=self.input_channels,
             num_classes=self.num_classes,
-            attention_dim=self.attention_dim  # Add this as a parameter in your class
+            attention_dim=self.attention_dim,  # Add this as a parameter in your class
         )
         print(f"Training Attention Model {self.model}")
 
     def setup_hybrid_attention_model(self):
-            self.model = HybridAttentionDenseNet(
-                input_channels=self.input_channels,
-                num_classes=self.num_classes,
-                growth_rate=self.growth_rate,
-                block_config=self.block_config,
-                num_init_features=self.num_init_features,
-                bottleneck_size=self.bottleneck_size,
-                kernel_size=self.kernel_size,
-                attention_dim=self.attention_dim  # Add this as a parameter in your class
-            )
-            print(f"Training Hybrid DenseNet with Attention Model {self.model}")
+        self.model = HybridAttentionDenseNet(
+            input_channels=self.input_channels,
+            num_classes=self.num_classes,
+            growth_rate=self.growth_rate,
+            block_config=self.block_config,
+            num_init_features=self.num_init_features,
+            bottleneck_size=self.bottleneck_size,
+            kernel_size=self.kernel_size,
+            attention_dim=self.attention_dim,  # Add this as a parameter in your class
+        )
+        print(f"Training Hybrid DenseNet with Attention Model {self.model}")
 
-            
     def setup_mitosisnet_model(self):
         self.model = MitosisNet(
             self.input_channels,
@@ -986,6 +985,8 @@ class LightningModel(LightningModule):
                 num_init_features = mitosis_data["num_init_features"]
                 bottleneck_size = mitosis_data["bottleneck_size"]
                 kernel_size = mitosis_data["kernel_size"]
+            if "attention_dim" in mitosis_data.keys():
+                attention_dim = mitosis_data["attention_dim"]
 
             if ckpt_model_path is None:
                 if local_model_path is None:
@@ -1028,6 +1029,29 @@ class LightningModel(LightningModule):
                     bottleneck_size=bottleneck_size,
                     kernel_size=kernel_size,
                 )
+            if (
+                "attention_dim" in mitosis_data.keys()
+                and "growth_rate" in mitosis_data.keys()
+            ):
+                network = mitosis_model(
+                    input_channels,
+                    num_classes,
+                    growth_rate=growth_rate,
+                    block_config=block_config,
+                    num_init_features=num_init_features,
+                    bottleneck_size=bottleneck_size,
+                    kernel_size=kernel_size,
+                    attention_dim=attention_dim,
+                )
+            if (
+                "attention_dim" in mitosis_data.keys()
+                and "growth_rate" not in mitosis_data.keys()
+            ):
+
+                network = mitosis_model(
+                    input_channels, num_classes, attention_dim=attention_dim
+                )
+
             checkpoint_lightning_model = cls.load_from_checkpoint(
                 most_recent_checkpoint_ckpt,
                 network=network,
