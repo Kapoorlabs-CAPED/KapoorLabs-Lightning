@@ -27,6 +27,8 @@ from .pytorch_models import (
     DeepEmbeddedClustering,
     DenseNet,
     MitosisNet,
+    AttentionNet,
+    HybridAttentionDenseNet,
     TrackAsuraTransformer,
 )
 from .schedulers import (
@@ -100,6 +102,7 @@ class MitosisInception:
         t_max: int = None,
         weight_decay: float = 1e-5,
         eps: float = 1e-1,
+        attention_dim: int =64,
         strategy: str = "auto",
     ):
         self.npz_file = npz_file
@@ -140,6 +143,7 @@ class MitosisInception:
         self.strategy = strategy
         self.weight_decay = weight_decay
         self.eps = eps
+        self.attention_dim = attention_dim
         self.scheduler = None
         if self.loss_function not in self.LOSS_CHOICES:
             raise ValueError(
@@ -312,7 +316,30 @@ class MitosisInception:
             kernel_size=self.kernel_size,
         )
         print(f"Training Mitosis Inception Model {self.model}")
+    
+    def setup_attention_model(self):
 
+        self.model = AttentionNet(
+            input_channels=self.input_channels,
+            num_classes=self.num_classes,
+            attention_dim=self.attention_dim  # Add this as a parameter in your class
+        )
+        print(f"Training Attention Model {self.model}")
+
+    def setup_hybrid_attention_model(self):
+            self.model = HybridAttentionDenseNet(
+                input_channels=self.input_channels,
+                num_classes=self.num_classes,
+                growth_rate=self.growth_rate,
+                block_config=self.block_config,
+                num_init_features=self.num_init_features,
+                bottleneck_size=self.bottleneck_size,
+                kernel_size=self.kernel_size,
+                attention_dim=self.attention_dim  # Add this as a parameter in your class
+            )
+            print(f"Training Hybrid DenseNet with Attention Model {self.model}")
+
+            
     def setup_mitosisnet_model(self):
         self.model = MitosisNet(
             self.input_channels,
