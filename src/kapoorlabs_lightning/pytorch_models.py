@@ -3,8 +3,8 @@ from typing import Literal
 import numpy as np
 import torch
 import torch.nn as nn
-import logging 
-import math 
+import logging
+import math
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.utils.data import Dataset
@@ -13,7 +13,6 @@ from .graph_functions import get_graph_feature, knn, local_cov, local_maxpool
 from trackastra.model import TrackingTransformer
 
 logger = logging.getLogger(__name__)
-
 
 
 class FeedForward(nn.Module):
@@ -27,7 +26,6 @@ class FeedForward(nn.Module):
         return self.fc2(self.act(self.fc1(x)))
 
 
-
 def _pos_embed_fourier1d_init(
     cutoff: float = 256, n: int = 32, cutoff_start: float = 1
 ):
@@ -36,7 +34,6 @@ def _pos_embed_fourier1d_init(
         .unsqueeze(0)
         .unsqueeze(0)
     )
-
 
 
 class PositionalEncoding(nn.Module):
@@ -108,58 +105,7 @@ def _bin_init_linear(cutoff: float, n: int):
     return torch.linspace(-cutoff, cutoff, n)
 
 
-class RelativePositionalBias(nn.Module):
-    def __init__(
-        self,
-        n_head: int,
-        cutoff_spatial: float,
-        cutoff_temporal: float,
-        n_spatial: int = 32,
-        n_temporal: int = 16,
-    ):
-        """Learnt relative positional bias to add to self-attention matrix.
-
-        Spatial bins are exponentially spaced, temporal bins are linearly spaced.
-
-        Args:
-            n_head (int): Number of pos bias heads. Equal to number of attention heads
-            cutoff_spatial (float): Maximum distance in space.
-            cutoff_temporal (float): Maxium distance in time. Equal to window size of transformer.
-            n_spatial (int, optional): Number of spatial bins.
-            n_temporal (int, optional): Number of temporal bins in each direction. Should be equal to window size. Total = 2 * n_temporal + 1. Defaults to 16.
-        """
-        super().__init__()
-        self._spatial_bins = _bin_init_exp(cutoff_spatial, n_spatial)
-        self._temporal_bins = _bin_init_linear(cutoff_temporal, 2 * n_temporal + 1)
-        self.register_buffer("spatial_bins", self._spatial_bins)
-        self.register_buffer("temporal_bins", self._temporal_bins)
-        self.n_spatial = n_spatial
-        self.n_head = n_head
-        self.bias = nn.Parameter(
-            -0.5 + torch.rand((2 * n_temporal + 1) * n_spatial, n_head)
-        )
-
-    def forward(self, coords: torch.Tensor):
-        _B, _N, _D = coords.shape
-        t = coords[..., 0]
-        yx = coords[..., 1:]
-        temporal_dist = t.unsqueeze(-1) - t.unsqueeze(-2)
-        spatial_dist = torch.cdist(yx, yx)
-
-        spatial_idx = torch.bucketize(spatial_dist, self.spatial_bins)
-        torch.clamp_(spatial_idx, max=len(self.spatial_bins) - 1)
-        temporal_idx = torch.bucketize(temporal_dist, self.temporal_bins)
-        torch.clamp_(temporal_idx, max=len(self.temporal_bins) - 1)
-
-        # do some index gymnastics such that backward is not super slow
-        # https://discuss.pytorch.org/t/how-to-select-multiple-indexes-over-multiple-dimensions-at-the-same-time/98532/2
-        idx = spatial_idx.flatten() + temporal_idx.flatten() * self.n_spatial
-        bias = self.bias.index_select(0, idx).view((*spatial_idx.shape, self.n_head))
-        # -> B, nH, N, N
-        bias = bias.transpose(-1, 1)
-        return bias
-
-def _pos_embed_fourier1d_init(cutoff: float = 128, n: int = 32):
+def _pos_rot_embed_fourier1d_init(cutoff: float = 128, n: int = 32):
     # Maximum initial frequency is 1
     return torch.exp(torch.linspace(0, -math.log(cutoff), n)).unsqueeze(0).unsqueeze(0)
 
@@ -191,7 +137,7 @@ class RotaryPositionalEncoding(nn.Module):
         # theta in RoFormer https://arxiv.org/pdf/2104.09864.pdf
         self.freqs = nn.ParameterList(
             [
-                nn.Parameter(_pos_embed_fourier1d_init(cutoff, n // 2))
+                nn.Parameter(_pos_rot_embed_fourier1d_init(cutoff, n // 2))
                 for cutoff, n in zip(cutoffs, n_pos)
             ]
         )
@@ -231,7 +177,6 @@ class RotaryPositionalEncoding(nn.Module):
         k2 = k * co + _rotate_half(k) * si
 
         return q2, k2
-    
 
 
 class RelativePositionalBias(nn.Module):
@@ -284,7 +229,8 @@ class RelativePositionalBias(nn.Module):
         # -> B, nH, N, N
         bias = bias.transpose(-1, 1)
         return bias
-    
+
+
 class RelativePositionalAttention(nn.Module):
     def __init__(
         self,
@@ -341,7 +287,6 @@ class RelativePositionalAttention(nn.Module):
             logger.warning(
                 "attn_positional_bias is not set (None or False), no positional bias."
             )
-            pass
         else:
             raise ValueError(f"Unknown mode {mode}")
 
@@ -406,6 +351,7 @@ class RelativePositionalAttention(nn.Module):
         # output projection
         y = self.proj(y)
         return y
+
 
 class BidirectionalRelativePositionalAttention(RelativePositionalAttention):
     def forward(
@@ -539,8 +485,8 @@ class BidirectionalCrossAttention(nn.Module):
 
         return x, y
 
-class TrackAsuraTransformer(TrackingTransformer):
 
+class TrackAsuraTransformer(TrackingTransformer):
     def __init__(
         self,
         coord_dim: int = 3,
@@ -560,7 +506,7 @@ class TrackAsuraTransformer(TrackingTransformer):
             "none", "linear", "softmax", "quiet_softmax"
         ] = "quiet_softmax",
     ):
-        
+
         super().__init__(
             coord_dim=coord_dim,
             feat_dim=feat_dim,
@@ -576,7 +522,6 @@ class TrackAsuraTransformer(TrackingTransformer):
             attn_positional_bias=attn_positional_bias,
             attn_positional_bias_n_spatial=attn_positional_bias_n_spatial,
             causal_norm=causal_norm,
-
         )
 
 
@@ -631,9 +576,8 @@ class TrackAsuraEncoderLayer(nn.Module):
 
         return x
 
+
 class TrackAsuraDecoderLayer(nn.Module):
-
-
     def __init__(
         self,
         coord_dim: int = 2,
@@ -690,8 +634,8 @@ class TrackAsuraDecoderLayer(nn.Module):
 
 
 class TrackAsuraAttention(RelativePositionalAttention):
-
-       def __init__(self,
+    def __init__(
+        self,
         coord_dim: int,
         embed_dim: int,
         n_head: int,
@@ -711,8 +655,9 @@ class TrackAsuraAttention(RelativePositionalAttention):
             n_spatial=n_spatial,
             n_temporal=n_temporal,
             dropout=dropout,
-            mode=mode
+            mode=mode,
         )
+
 
 class TrackAsuraBias(RelativePositionalBias):
     def __init__(
@@ -723,26 +668,27 @@ class TrackAsuraBias(RelativePositionalBias):
         n_spatial: int = 32,
         n_temporal: int = 16,
     ):
-        
+
         super().__init__(
             n_head=n_head,
             cutoff_spatial=cutoff_spatial,
             cutoff_temporal=cutoff_temporal,
             n_spatial=n_spatial,
-            n_temporal=n_temporal
+            n_temporal=n_temporal,
         )
 
+
 class TrackAsuraRotaryPositionalEncoding(RotaryPositionalEncoding):
-      def __init__(self, cutoffs: tuple[float] = (256,), n_pos: tuple[int] = (32,)):
-          
-          super().__init__(cutoffs=cutoffs, n_pos=n_pos)
-          
+    def __init__(self, cutoffs: tuple[float] = (256,), n_pos: tuple[int] = (32,)):
 
-class TrackAsuraBidirectionalRelativePositionalAttention(BidirectionalRelativePositionalAttention):
+        super().__init__(cutoffs=cutoffs, n_pos=n_pos)
 
+
+class TrackAsuraBidirectionalRelativePositionalAttention(
+    BidirectionalRelativePositionalAttention
+):
     def __init__(self):
         super().__init__()
-        
 
     def forward(
         self,
@@ -752,9 +698,9 @@ class TrackAsuraBidirectionalRelativePositionalAttention(BidirectionalRelativePo
         padding_mask: torch.Tensor = None,
     ):
         return super().forward(query1, query2, coords, padding_mask)
-          
-class TrackAsuraBidirectionalCrossAttention(BidirectionalCrossAttention):
 
+
+class TrackAsuraBidirectionalCrossAttention(BidirectionalCrossAttention):
     def __init__(
         self,
         coord_dim: int = 2,
@@ -766,22 +712,17 @@ class TrackAsuraBidirectionalCrossAttention(BidirectionalCrossAttention):
         positional_bias: Literal["bias", "rope", "none"] = "bias",
         positional_bias_n_spatial: int = 32,
     ):
-        
+
         super().__init__(
-           coord_dim=coord_dim,
-           d_model=d_model,
-           num_heads=num_heads,
-           dropout=dropout,
-           window=window,
-           cutoff_spatial=cutoff_spatial,
-           positional_bias=positional_bias,
-           positional_bias_n_spatial=positional_bias_n_spatial
+            coord_dim=coord_dim,
+            d_model=d_model,
+            num_heads=num_heads,
+            dropout=dropout,
+            window=window,
+            cutoff_spatial=cutoff_spatial,
+            positional_bias=positional_bias,
+            positional_bias_n_spatial=positional_bias_n_spatial,
         )
-
-
-
-
-
 
 
 class DenseLayer(nn.Module):
@@ -869,27 +810,54 @@ class TransitionBlock(nn.Module):
         x = self.pool(x)
         return x
 
+
 class HybridAttentionDenseNet(nn.Module):
-    def __init__(self, input_channels, num_classes, growth_rate=32, block_config=(6, 12, 24, 16), 
-                 num_init_features=32, bottleneck_size=4, kernel_size=3, attention_dim=64):
+    def __init__(
+        self,
+        input_channels,
+        num_classes,
+        growth_rate=32,
+        block_config=(6, 12, 24, 16),
+        num_init_features=32,
+        bottleneck_size=4,
+        kernel_size=3,
+        attention_dim=64,
+        cutoffs=(25,),
+        n_pos=(8,),
+    ):
         super().__init__()
 
+        self.positional_encoding = PositionalEncoding(cutoffs=cutoffs, n_pos=n_pos)
         # DenseNet feature extraction
         self.features = nn.Sequential(
-            nn.Conv1d(input_channels, num_init_features, kernel_size=7, stride=2, padding=3, dilation=1),
+            nn.Conv1d(
+                input_channels,
+                num_init_features,
+                kernel_size=7,
+                stride=2,
+                padding=3,
+                dilation=1,
+            ),
             nn.BatchNorm1d(num_init_features),
             nn.ReLU(inplace=True),
             nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
         )
-        
+
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            block = DenseBlock(num_layers=num_layers, input_channels=num_features,
-                               growth_rate=growth_rate, kernel_size=kernel_size, bottleneck_size=bottleneck_size)
+            block = DenseBlock(
+                num_layers=num_layers,
+                input_channels=num_features,
+                growth_rate=growth_rate,
+                kernel_size=kernel_size,
+                bottleneck_size=bottleneck_size,
+            )
             self.features.add_module(f"denseblock{i}", block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
-                trans = TransitionBlock(input_channels=num_features, out_channels=num_features // 2)
+                trans = TransitionBlock(
+                    input_channels=num_features, out_channels=num_features // 2
+                )
                 self.features.add_module(f"transition{i}", trans)
                 num_features = num_features // 2
 
@@ -902,7 +870,7 @@ class HybridAttentionDenseNet(nn.Module):
 
         # Classifier
         self.fc = nn.Linear(num_features, num_classes)
-        
+
     def forward_features(self, x):
         x = self.features(x)
         x = self.final_bn(x)
@@ -911,8 +879,9 @@ class HybridAttentionDenseNet(nn.Module):
 
     def forward(self, x):
         # Pass through DenseNet layers
-        x = self.forward_features(x)
+        x = self.forward_features(x)  # (N, F, T)
         x = x.permute(0, 2, 1)  # Reshape to (N, T, F) for attention over time dimension
+        x = self.positional_encoding(x)  # Apply positional encoding
 
         # Compute attention scores
         attention_scores = torch.tanh(self.attention(x))  # (N, T, attention_dim)
@@ -928,27 +897,29 @@ class HybridAttentionDenseNet(nn.Module):
 
 
 class AttentionNet(nn.Module):
-    def __init__(self, input_channels, num_classes, attention_dim=64):
+    def __init__(
+        self, input_channels, num_classes, attention_dim=64, cutoffs=(25,), n_pos=(8,)
+    ):
         super().__init__()
+        self.positional_encoding = PositionalEncoding(cutoffs=cutoffs, n_pos=n_pos)
         self.attention = nn.Linear(input_channels, attention_dim)
         self.context_vector = nn.Linear(attention_dim, 1, bias=False)
         self.fc = nn.Linear(input_channels, num_classes)
 
     def forward(self, x):
         x = x.permute(0, 2, 1)  # Reshape to (N, T, F) for attention over time dimension
-
+        x = self.positional_encoding(x)
         # Compute attention scores
-        attention_scores = torch.tanh(self.attention(x))  
-        attention_weights = self.context_vector(attention_scores)  
-        attention_weights = torch.softmax(attention_weights, dim=1)  
+        attention_scores = torch.tanh(self.attention(x))
+        attention_weights = self.context_vector(attention_scores)
+        attention_weights = torch.softmax(attention_weights, dim=1)
 
-      
-        attended_out = torch.sum(x * attention_weights, dim=1)  
+        attended_out = torch.sum(x * attention_weights, dim=1)
 
-       
         out = self.fc(attended_out)
         return out
-    
+
+
 class DenseNet(nn.Module):
     def __init__(
         self,
@@ -963,16 +934,20 @@ class DenseNet(nn.Module):
 
         super().__init__()
         self._initialize_weights()
-        
+
         self.features = nn.Sequential(
             nn.Conv1d(
-                input_channels, num_init_features, 
-                kernel_size=7, stride=2, padding=3, dilation=1),
+                input_channels,
+                num_init_features,
+                kernel_size=7,
+                stride=2,
+                padding=3,
+                dilation=1,
+            ),
             nn.BatchNorm1d(num_init_features),
             nn.ReLU(inplace=True),
             nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
         )
-     
 
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
@@ -1585,7 +1560,7 @@ __all__ = [
     "TrackAsuraRotaryPositionalEncoding",
     "DenseNet",
     "MitosisNet",
-    "Attention",
+    "AttentionNet",
     "HybridAttentionDenseNet",
     "CloudAutoEncoder",
     "DGCNNEncoder",
