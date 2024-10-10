@@ -60,7 +60,8 @@ class TemporalEncoding(nn.Module):
             cutoff_start: Starting cutoff value for the frequencies.
         """
         super().__init__()
-        
+        if isinstance(n_pos, tuple):
+            n_pos = n_pos[0]
         assert len(cutoffs) == 1, "Only a single cutoff range is allowed for all feature dimensions in this version."
 
         self.feature_dim = feature_dim
