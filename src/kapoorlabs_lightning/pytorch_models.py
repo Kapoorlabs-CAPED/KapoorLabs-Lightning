@@ -957,8 +957,11 @@ class HybridAttentionDenseNet(nn.Module):
                 # Handle attention block specifically
                 x = x.permute(0, 2, 1)  # Reshape to (N, T, F) for attention over time dimension
                 
-                self.temporal_encoding(batch_size, feature_dim) 
-                x = self.temporal_encoding(x)
+                temporal_encoding = self.temporal_encoding(batch_size, feature_dim)  # Shape: (batch_size, sequence_length, feature_dim, 2 * num_frequencies)
+
+                # Combine positional encoding with input
+                x = x.unsqueeze(-1) * temporal_encoding  # Broadcasting to combine features and positional encodings
+                x = x.view(batch_size, x.size(1), -1) 
                 attention_scores = torch.tanh(layer(x)) 
                 
                 attention_weights = torch.softmax(attention_scores, dim=1)  
