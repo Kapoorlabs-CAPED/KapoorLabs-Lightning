@@ -47,55 +47,52 @@ def _time_embed_fourier1d_init(
 class TemporalEncoding(nn.Module):
     def __init__(
         self,
-        feature_dim: int,
-        cutoffs: tuple[float] = (25,),  # Adjust to match your track length
-        n_pos: int = 16,  # Number of frequencies for each feature dimension
-        
+        num_frequencies: int = 16  # Number of sine/cosine frequencies to use
     ):
-        """Positional encoding with given cutoff and number of frequencies for each dimension.
+        """Simple temporal positional encoding for time series data.
+        
         Args:
-            feature_dim: The number of feature dimensions (i.e., input features).
-            cutoffs: Tuple specifying the range of cutoff frequencies. Should be of length 1 for simplicity.
-            n_pos: Number of frequencies to encode for each feature dimension.
-            cutoff_start: Starting cutoff value for the frequencies.
+            num_frequencies: The number of different sine/cosine frequencies used for encoding.
         """
         super().__init__()
-        if isinstance(n_pos, tuple):
-            n_pos = n_pos[0]
-        assert len(cutoffs) == 1, "Only a single cutoff range is allowed for all feature dimensions in this version."
-
-        self.feature_dim = feature_dim
-        cutoff_value = cutoffs[0]
-        base_freqs = _time_embed_fourier1d_init(cutoff_value, n_pos)  # Shape: (n_pos,)
-        self.freqs = nn.Parameter(base_freqs.repeat(feature_dim, 1))  # Shape: (feature_dim, n_pos)
         
+        self.num_frequencies = num_frequencies
+
+        # Create frequencies as linearly spaced values between 1 and a chosen maximum value
+        self.freqs = torch.linspace(1.0, 10.0, steps=num_frequencies)  # Shape: (num_frequencies,)
+
     def forward(self, coords: torch.Tensor):
-        """Forward method to apply positional encoding.
+        """Apply positional encoding.
         
         Args:
             coords: Input tensor of shape (batch_size, sequence_length, feature_dim).
         Returns:
-            Tensor of shape (batch_size, sequence_length, feature_dim * 2 * n_pos) with positional encoding.
+            Tensor of shape (batch_size, sequence_length, feature_dim * 2 * num_frequencies) with positional encoding.
         """
-        _B, _N, D = coords.shape  # _B = batch size, _N = sequence length, D = feature dimension
-        assert D == self.feature_dim, f"Feature dimension mismatch: expected {self.feature_dim}, got {D}"
+        batch_size, seq_length, feature_dim = coords.shape
 
-        # Expand `self.freqs` to have the appropriate dimensions for multiplication
-        # Expand from (feature_dim, n_pos) to (1, 1, feature_dim, n_pos) for broadcasting
-        expanded_freqs = self.freqs.view(1, 1, D, -1)  # Resulting shape: (1, 1, D, n_pos)
+        # Generate time indices for the sequence (0, 1, 2, ..., seq_length - 1)
+        time_indices = torch.arange(seq_length).float().to(coords.device)  # Shape: (seq_length,)
 
-        # Apply positional encoding to each feature dimension
-        sin_features = torch.sin(0.5 * math.pi * coords.unsqueeze(-1) * expanded_freqs)  # (_B, _N, D, n_pos)
-        cos_features = torch.cos(0.5 * math.pi * coords.unsqueeze(-1) * expanded_freqs)  # (_B, _N, D, n_pos)
-        
-        # Concatenate sine and cosine components along the last dimension
-        encoded = torch.cat((sin_features, cos_features), axis=-1)  # (_B, _N, D, 2 * n_pos)
+        # Create sine and cosine positional encodings using the frequencies
+        # Shape after unsqueeze: (seq_length, num_frequencies)
+        sin_encodings = torch.sin(time_indices.unsqueeze(1) * self.freqs)  # Shape: (seq_length, num_frequencies)
+        cos_encodings = torch.cos(time_indices.unsqueeze(1) * self.freqs)  # Shape: (seq_length, num_frequencies)
 
-        # Reshape to flatten the frequency dimension
-        encoded = encoded.view(_B, _N, -1)  # (_B, _N, D * 2 * n_pos)
+        # Concatenate sine and cosine encodings along the frequency dimension
+        # Resulting shape: (seq_length, 2 * num_frequencies)
+        temporal_encoding = torch.cat((sin_encodings, cos_encodings), dim=-1)  # Shape: (seq_length, 2 * num_frequencies)
 
-        return encoded
-    
+        # Expand temporal encoding to match the feature dimension for each sample in the batch
+        # Shape: (batch_size, seq_length, 2 * num_frequencies), then repeat for feature_dim
+        temporal_encoding = temporal_encoding.unsqueeze(0).expand(batch_size, -1, -1).repeat(1, 1, feature_dim)
+
+        # Combine positional encodings with original input
+        # Shape after multiplication: (batch_size, seq_length, feature_dim * 2 * num_frequencies)
+        encoded = coords.unsqueeze(-1) * temporal_encoding  # Broadcasting to combine feature and time encodings
+
+        return encoded.view(batch_size, seq_length, -1)  # Flatten the last two dimensions
+
     
 
 class PositionalEncoding(nn.Module):
@@ -890,12 +887,17 @@ class HybridAttentionDenseNet(nn.Module):
         super().__init__()
 
         # Positional encoding
-        self.positional_encoding = None
         self.cutoffs = cutoffs 
         self.n_pos = n_pos
         # Initial feature extraction layer
         self.features = nn.Sequential()
+        if isinstance(n_pos, tuple):
+            num_frequencies = n_pos[0]
+        else:
+            num_frequencies = n_pos
 
+        self.num_frequencies = num_frequencies
+        self.temporal_encoding = TemporalEncoding(num_frequencies=num_frequencies)    
         # Add initial Conv1d, BatchNorm, ReLU, and MaxPool layers
         self.features.add_module(
             "conv_init",
@@ -955,15 +957,9 @@ class HybridAttentionDenseNet(nn.Module):
             if "attentionblock" in name:
                 # Handle attention block specifically
                 x = x.permute(0, 2, 1)  # Reshape to (N, T, F) for attention over time dimension
-                if self.positional_encoding is None:
-                    feature_dim = x.size(2)  # Get the feature dimension dynamically
-                    self.positional_encoding = TemporalEncoding(
-                        feature_dim=feature_dim,
-                        cutoffs=self.cutoffs,
-                        n_pos=self.n_pos
-                    )
                 
-                x = self.positional_encoding(x)
+                
+                x = self.temporal_encoding(x)
                 attention_scores = torch.tanh(layer(x)) 
                 
                 attention_weights = torch.softmax(attention_scores, dim=1)  
