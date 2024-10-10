@@ -827,12 +827,12 @@ class HybridAttentionDenseNet(nn.Module):
     ):
         super().__init__()
 
-       # Positional encoding
+        # Positional encoding
         self.positional_encoding = PositionalEncoding(cutoffs=cutoffs, n_pos=n_pos)
 
         # Initial feature extraction layer
         self.features = nn.Sequential()
-        
+
         # Add initial Conv1d, BatchNorm, ReLU, and MaxPool layers
         self.features.add_module(
             "conv_init",
@@ -888,24 +888,21 @@ class HybridAttentionDenseNet(nn.Module):
 
     def forward(self, x):
         # Pass through initial feature extraction layers
+        print(x.shape, type(x))
         for name, layer in self.features.named_children():
             if "attentionblock" in name:
                 # Handle attention block specifically
                 x = x.permute(0, 2, 1)  # Reshape to (N, T, F) for attention over time dimension
                 attention_scores = torch.tanh(layer(x))  # (N, T, 1)
                 attention_weights = torch.softmax(attention_scores, dim=1)  # (N, T, 1)
-                x = torch.sum(x * attention_weights, dim=1)  # (N, F)
-                x = x.unsqueeze(-1).permute(0, 2, 1)  # Reshape back to (N, F, T) to match expected input
+                x = torch.sum(x * attention_weights, dim=1)  # (N, F) -> Reduce time dimension
             else:
                 # Standard layer handling
                 x = layer(x)
 
         # Final batch normalization and activation
-        x = self.final_bn(x)
+        x = self.final_bn(x)  # Input should be of shape (N, F) for BatchNorm1d
         x = self.final_act(x)
-
-        # Flatten before fully connected layer
-        x = torch.flatten(x, start_dim=1)
 
         # Classify the attended output
         out = self.fc(x)  # (N, num_classes)
