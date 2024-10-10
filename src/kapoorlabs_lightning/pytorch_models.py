@@ -50,7 +50,7 @@ class TemporalEncoding(nn.Module):
             n_pos: Number of frequencies to encode for each feature dimension.
             cutoff_start: Starting cutoff value for the frequencies.
         """
-        super(PositionalEncoding, self).__init__()
+        super().__init__()
         
         assert len(cutoffs) == 1, "Only a single cutoff range is allowed for all feature dimensions in this version."
 
