@@ -875,8 +875,7 @@ class HybridAttentionDenseNet(nn.Module):
         super().__init__()
 
         # Positional encoding
-        self.positional_encoding = TemporalEncoding(cutoffs=cutoffs, n_pos=n_pos)
-
+        self.positional_encoding = None
         # Initial feature extraction layer
         self.features = nn.Sequential()
 
@@ -939,6 +938,14 @@ class HybridAttentionDenseNet(nn.Module):
             if "attentionblock" in name:
                 # Handle attention block specifically
                 x = x.permute(0, 2, 1)  # Reshape to (N, T, F) for attention over time dimension
+                if self.positional_encoding is None:
+                    feature_dim = x.size(2)  # Get the feature dimension dynamically
+                    self.positional_encoding = TemporalEncoding(
+                        feature_dim=feature_dim,
+                        cutoffs=self.cutoffs,
+                        n_pos=self.n_pos
+                    )
+                
                 x = self.positional_encoding(x)
                 attention_scores = torch.tanh(layer(x)) 
                 
