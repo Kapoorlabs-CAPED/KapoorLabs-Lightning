@@ -76,8 +76,8 @@ class TemporalEncoding(nn.Module):
 
         # Create sine and cosine positional encodings using the frequencies
         # Shape after unsqueeze: (seq_length, num_frequencies)
-        sin_encodings = torch.sin(time_indices.unsqueeze(1) * self.freqs)  # Shape: (seq_length, num_frequencies)
-        cos_encodings = torch.cos(time_indices.unsqueeze(1) * self.freqs)  # Shape: (seq_length, num_frequencies)
+        sin_encodings = torch.sin(time_indices.unsqueeze(1) * self.freqs.to(coords.device))  # Shape: (seq_length, num_frequencies)
+        cos_encodings = torch.cos(time_indices.unsqueeze(1) * self.freqs.to(coords.device))  # Shape: (seq_length, num_frequencies)
 
         # Concatenate sine and cosine encodings along the frequency dimension
         # Resulting shape: (seq_length, 2 * num_frequencies)
