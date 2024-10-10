@@ -879,6 +879,7 @@ class HybridAttentionDenseNet(nn.Module):
             self.num_frequencies = n_pos
 
         self.sequence_length = sequence_length
+        self.temporal_encoding = TemporalEncoding(sequence_length=self.sequence_length, num_frequencies=self.num_frequencies)
 
         # Initial feature extraction layer
         self.features = nn.Sequential()
@@ -900,7 +901,6 @@ class HybridAttentionDenseNet(nn.Module):
         self.features.add_module("maxpool_init", nn.MaxPool1d(kernel_size=3, stride=2, padding=1))
 
         num_features = num_init_features
-
         for i, num_layers in enumerate(block_config):
             # Create and append DenseBlock
             block = DenseBlock(
@@ -946,8 +946,8 @@ class HybridAttentionDenseNet(nn.Module):
                 x = x.permute(0, 2, 1)  # Reshape to (batch_size, sequence_length, feature_dim)
 
                 # Dynamically generate and apply temporal positional encoding
-                temporal_encoding = TemporalEncoding(sequence_length=self.sequence_length, num_frequencies=self.num_frequencies)
-                x = temporal_encoding(x)  # Add positional encoding to time-series data
+                
+                x = self.temporal_encoding(x)  # Add positional encoding to time-series data
                 
                 # Apply the attention mechanism
                 attention_scores = torch.tanh(layer(x))  # (batch_size, sequence_length, 1)
