@@ -27,7 +27,7 @@ class FeedForward(nn.Module):
 
 
 def _pos_embed_fourier1d_init(
-    cutoff: float = 256, n: int = 32, cutoff_start: float = 1
+    cutoff: float = 256, n: int = 32, cutoff_start = 1
 ):
     return (
         torch.exp(torch.linspace(-math.log(cutoff_start), -math.log(cutoff), n))
@@ -35,13 +35,22 @@ def _pos_embed_fourier1d_init(
         .unsqueeze(0)
     )
 
+def _time_embed_fourier1d_init(
+    cutoff: float = 256, n: int = 32
+):
+    return (
+            torch.linspace(1, cutoff, steps=n)
+            .unsqueeze(0)
+            .unsqueeze(0)
+        )
+
 class TemporalEncoding(nn.Module):
     def __init__(
         self,
         feature_dim: int,
         cutoffs: tuple[float] = (25,),  # Adjust to match your track length
         n_pos: int = 16,  # Number of frequencies for each feature dimension
-        cutoff_start: float = 1,
+        
     ):
         """Positional encoding with given cutoff and number of frequencies for each dimension.
         Args:
@@ -56,7 +65,7 @@ class TemporalEncoding(nn.Module):
 
         self.feature_dim = feature_dim
         self.freqs = nn.Parameter(
-            _pos_embed_fourier1d_init(cutoffs[0], n_pos, cutoff_start).repeat(feature_dim, 1)
+            _time_embed_fourier1d_init(cutoffs[0], n_pos).repeat(feature_dim, 1)
         )  # Repeat to match feature dimensions
 
     def forward(self, coords: torch.Tensor):
