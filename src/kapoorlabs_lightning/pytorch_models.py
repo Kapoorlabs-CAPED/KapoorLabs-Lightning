@@ -827,7 +827,7 @@ class HybridAttentionDenseNet(nn.Module):
     ):
         super().__init__()
 
-        # Positional encoding
+       # Positional encoding
         self.positional_encoding = PositionalEncoding(cutoffs=cutoffs, n_pos=n_pos)
 
         # DenseNet feature extraction with attention after each block
@@ -860,20 +860,20 @@ class HybridAttentionDenseNet(nn.Module):
             self.blocks.append(block)
             num_features = num_features + num_layers * growth_rate
 
-            # Attention mechanism after each DenseBlock
-            attention_layer = nn.Sequential(
-                nn.Linear(num_features, attention_dim),
-                nn.Tanh(),
-                nn.Linear(attention_dim, 1, bias=False),
-            )
-            self.attention_blocks.append(attention_layer)
-
             if i != len(block_config) - 1:
                 trans = TransitionBlock(
                     input_channels=num_features, out_channels=num_features // 2
                 )
                 self.blocks.append(trans)
                 num_features = num_features // 2
+
+            # Attention mechanism after each DenseBlock and TransitionBlock
+            attention_layer = nn.Sequential(
+                nn.Linear(num_features, attention_dim),
+                nn.Tanh(),
+                nn.Linear(attention_dim, 1, bias=False),
+            )
+            self.attention_blocks.append(attention_layer)
 
         self.final_bn = nn.BatchNorm1d(num_features)
         self.final_act = nn.ReLU(inplace=True)
@@ -884,11 +884,9 @@ class HybridAttentionDenseNet(nn.Module):
     def forward_features(self, x):
         for i, block in enumerate(self.blocks):
             x = block(x)
-            if isinstance(block, DenseBlock):
-                # Apply attention after each DenseBlock
-                x = x.permute(
-                    0, 2, 1
-                )  # Reshape to (N, T, F) for attention over time dimension
+            if isinstance(block, (DenseBlock, TransitionBlock)):
+                # Apply attention after each DenseBlock and TransitionBlock
+                x = x.permute(0, 2, 1)  # Reshape to (N, T, F) for attention over time dimension
                 attention_scores = torch.tanh(self.attention_blocks[i](x))  # (N, T, 1)
                 attention_weights = torch.softmax(attention_scores, dim=1)  # (N, T, 1)
                 x = torch.sum(x * attention_weights, dim=1)  # (N, F)
@@ -904,7 +902,7 @@ class HybridAttentionDenseNet(nn.Module):
         # Classify the attended output
         out = self.fc(x)  # (N, num_classes)
         return out
-
+    
 
 class AttentionNet(nn.Module):
     def __init__(
