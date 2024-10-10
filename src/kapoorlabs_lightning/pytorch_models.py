@@ -65,14 +65,18 @@ class TemporalEncoding(nn.Module):
         Args:
             coords: Input tensor of shape (batch_size, sequence_length, feature_dim).
         Returns:
-            Tensor of shape (batch_size, sequence_length, feature_dim * 2) with positional encoding.
+            Tensor of shape (batch_size, sequence_length, feature_dim * 2 * n_pos) with positional encoding.
         """
         _B, _N, D = coords.shape  # _B = batch size, _N = sequence length, D = feature dimension
         assert D == self.feature_dim, f"Feature dimension mismatch: expected {self.feature_dim}, got {D}"
 
+        # Expand `self.freqs` to have the appropriate dimensions for multiplication
+        # Expand from (feature_dim, n_pos) to (1, 1, feature_dim, n_pos) for broadcasting
+        expanded_freqs = self.freqs.view(1, 1, D, -1)  # Resulting shape: (1, 1, D, n_pos)
+
         # Apply positional encoding to each feature dimension
-        sin_features = torch.sin(0.5 * math.pi * coords.unsqueeze(-1) * self.freqs)  # (_B, _N, D, n_pos)
-        cos_features = torch.cos(0.5 * math.pi * coords.unsqueeze(-1) * self.freqs)  # (_B, _N, D, n_pos)
+        sin_features = torch.sin(0.5 * math.pi * coords.unsqueeze(-1) * expanded_freqs)  # (_B, _N, D, n_pos)
+        cos_features = torch.cos(0.5 * math.pi * coords.unsqueeze(-1) * expanded_freqs)  # (_B, _N, D, n_pos)
         
         # Concatenate sine and cosine components along the last dimension
         encoded = torch.cat((sin_features, cos_features), axis=-1)  # (_B, _N, D, 2 * n_pos)
@@ -81,6 +85,7 @@ class TemporalEncoding(nn.Module):
         encoded = encoded.view(_B, _N, -1)  # (_B, _N, D * 2 * n_pos)
 
         return encoded
+    
     
 
 class PositionalEncoding(nn.Module):
