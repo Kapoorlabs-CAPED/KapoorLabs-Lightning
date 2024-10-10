@@ -47,52 +47,48 @@ def _time_embed_fourier1d_init(
 class TemporalEncoding(nn.Module):
     def __init__(
         self,
+        sequence_length: int,  # Length of the temporal sequence
         num_frequencies: int = 16  # Number of sine/cosine frequencies to use
     ):
         """Simple temporal positional encoding for time series data.
         
         Args:
+            sequence_length: Length of the temporal sequence.
             num_frequencies: The number of different sine/cosine frequencies used for encoding.
         """
         super().__init__()
         
+        self.sequence_length = sequence_length
         self.num_frequencies = num_frequencies
 
         # Create frequencies as linearly spaced values between 1 and a chosen maximum value
         self.freqs = torch.linspace(1.0, 10.0, steps=num_frequencies)  # Shape: (num_frequencies,)
 
-    def forward(self, coords: torch.Tensor):
-        """Apply positional encoding.
-        
-        Args:
-            coords: Input tensor of shape (batch_size, sequence_length, feature_dim).
-        Returns:
-            Tensor of shape (batch_size, sequence_length, feature_dim * 2 * num_frequencies) with positional encoding.
-        """
-        batch_size, seq_length, feature_dim = coords.shape
+        # Generate time indices for the sequence length
+        time_indices = torch.arange(sequence_length).float()  # Shape: (sequence_length,)
 
-        # Generate time indices for the sequence (0, 1, 2, ..., seq_length - 1)
-        time_indices = torch.arange(seq_length).float().to(coords.device)  # Shape: (seq_length,)
-
-        # Create sine and cosine positional encodings using the frequencies
-        # Shape after unsqueeze: (seq_length, num_frequencies)
-        sin_encodings = torch.sin(time_indices.unsqueeze(1) * self.freqs.to(coords.device))  # Shape: (seq_length, num_frequencies)
-        cos_encodings = torch.cos(time_indices.unsqueeze(1) * self.freqs.to(coords.device))  # Shape: (seq_length, num_frequencies)
+        # Calculate sine and cosine encodings for each time index
+        sin_encodings = torch.sin(time_indices.unsqueeze(1) * self.freqs)  # Shape: (sequence_length, num_frequencies)
+        cos_encodings = torch.cos(time_indices.unsqueeze(1) * self.freqs)  # Shape: (sequence_length, num_frequencies)
 
         # Concatenate sine and cosine encodings along the frequency dimension
-        # Resulting shape: (seq_length, 2 * num_frequencies)
-        temporal_encoding = torch.cat((sin_encodings, cos_encodings), dim=-1)  # Shape: (seq_length, 2 * num_frequencies)
+        self.temporal_encoding = torch.cat((sin_encodings, cos_encodings), dim=-1)  # Shape: (sequence_length, 2 * num_frequencies)
 
-        # Expand temporal encoding to match the feature dimension for each sample in the batch
-        # Shape: (batch_size, seq_length, 2 * num_frequencies), then repeat for feature_dim
-        temporal_encoding = temporal_encoding.unsqueeze(0).expand(batch_size, -1, -1).repeat(1, 1, feature_dim)
-
-        # Combine positional encodings with original input
-        # Shape after multiplication: (batch_size, seq_length, feature_dim * 2 * num_frequencies)
-        encoded = coords.unsqueeze(-1) * temporal_encoding  # Broadcasting to combine feature and time encodings
-
-        return encoded.view(batch_size, seq_length, -1)  # Flatten the last two dimensions
-
+    def forward(self, batch_size: int, feature_dim: int):
+        """Create a temporal encoding tensor that can be broadcasted with the input features.
+        
+        Args:
+            batch_size: The batch size of the input tensor.
+            feature_dim: The feature dimension of the input tensor.
+            
+        Returns:
+            Temporal encoding tensor of shape (batch_size, sequence_length, feature_dim, 2 * num_frequencies).
+        """
+        # Expand temporal encoding to match the batch size and feature dimension
+        temporal_encoding = self.temporal_encoding.unsqueeze(0).unsqueeze(2)  # Shape: (1, sequence_length, 1, 2 * num_frequencies)
+        temporal_encoding = temporal_encoding.expand(batch_size, self.sequence_length, feature_dim, -1)  # Shape: (batch_size, sequence_length, feature_dim, 2 * num_frequencies)
+        
+        return temporal_encoding
     
 
 class PositionalEncoding(nn.Module):
@@ -881,6 +877,7 @@ class HybridAttentionDenseNet(nn.Module):
         bottleneck_size=4,
         kernel_size=3,
         attention_dim=64,
+        sequence_length=25,
         cutoffs=(25,),
         n_pos=(8,),
     ):
@@ -897,7 +894,7 @@ class HybridAttentionDenseNet(nn.Module):
             num_frequencies = n_pos
 
         self.num_frequencies = num_frequencies
-        self.temporal_encoding = TemporalEncoding(num_frequencies=num_frequencies)    
+        self.temporal_encoding = TemporalEncoding(sequence_length=sequence_length,num_frequencies=num_frequencies)    
         # Add initial Conv1d, BatchNorm, ReLU, and MaxPool layers
         self.features.add_module(
             "conv_init",
@@ -953,12 +950,14 @@ class HybridAttentionDenseNet(nn.Module):
 
     def forward(self, x):
         # Pass through initial feature extraction layers
+        batch_size = x.size(0)
+        feature_dim = x.size(1)
         for name, layer in self.features.named_children():
             if "attentionblock" in name:
                 # Handle attention block specifically
                 x = x.permute(0, 2, 1)  # Reshape to (N, T, F) for attention over time dimension
                 
-                
+                self.temporal_encoding(batch_size, feature_dim) 
                 x = self.temporal_encoding(x)
                 attention_scores = torch.tanh(layer(x)) 
                 
