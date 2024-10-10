@@ -876,6 +876,8 @@ class HybridAttentionDenseNet(nn.Module):
 
         # Positional encoding
         self.positional_encoding = None
+        self.cutoffs = cutoffs 
+        self.n_pos = n_pos
         # Initial feature extraction layer
         self.features = nn.Sequential()
 
