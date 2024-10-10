@@ -892,19 +892,21 @@ class HybridAttentionDenseNet(nn.Module):
             if "attentionblock" in name:
                 # Handle attention block specifically
                 x = x.permute(0, 2, 1)  # Reshape to (N, T, F) for attention over time dimension
-                attention_scores = torch.tanh(layer(x))  # (N, T, 1)
-                attention_weights = torch.softmax(attention_scores, dim=1)  # (N, T, 1)
+                x = self.positional_encoding(x)
+                attention_scores = torch.tanh(layer(x)) 
+                
+                attention_weights = torch.softmax(attention_scores, dim=1)  
                 x = torch.sum(x * attention_weights, dim=1)  # (N, F) -> Reduce time dimension
             else:
-                # Standard layer handling
+               
                 x = layer(x)
 
-        # Final batch normalization and activation
-        x = self.final_bn(x)  # Input should be of shape (N, F) for BatchNorm1d
+       
+        x = self.final_bn(x)  
         x = self.final_act(x)
 
-        # Classify the attended output
-        out = self.fc(x)  # (N, num_classes)
+       
+        out = self.fc(x)  
         return out
     
 
