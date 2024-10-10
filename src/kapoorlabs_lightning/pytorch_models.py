@@ -44,17 +44,14 @@ def _time_embed_fourier1d_init(
             .unsqueeze(0)
         )
 
-
 class TemporalEncoding(nn.Module):
-    def __init__(self, sequence_length: int, num_frequencies: int = 16):
-        """Simplified positional encoding for temporal data.
+    def __init__(self, num_frequencies: int = 16):
+        """Simplified temporal positional encoding for temporal data.
         
         Args:
-            sequence_length: Length of the temporal sequence.
-            num_frequencies: The number of different sine/cosine frequencies used for encoding.
+            num_frequencies: Number of different sine/cosine frequencies used for encoding.
         """
-        super(TemporalEncoding, self).__init__()
-        self.sequence_length = sequence_length
+        super().__init__()
         self.num_frequencies = num_frequencies
 
     def forward(self, x):
@@ -68,16 +65,19 @@ class TemporalEncoding(nn.Module):
         """
         batch_size, sequence_length, feature_dim = x.shape
 
-        # Generate positional encoding matrix on the fly
+        # Generate positional encoding matrix on-the-fly
         position = torch.arange(0, sequence_length, dtype=torch.float32, device=x.device).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, feature_dim, 2, dtype=torch.float32, device=x.device) * -(math.log(10000.0) / feature_dim))
+        div_term = torch.exp(
+            torch.arange(0, feature_dim, 2, dtype=torch.float32, device=x.device) * -(math.log(10000.0) / feature_dim)
+        )
 
         P = torch.zeros((sequence_length, feature_dim), device=x.device)
         P[:, 0::2] = torch.sin(position * div_term)
         P[:, 1::2] = torch.cos(position * div_term)
 
-        # Add positional encoding to input tensor
-        return x + P.unsqueeze(0)
+        # Add positional encoding to x
+        return x + P.unsqueeze(0)  # Shape: (1, sequence_length, feature_dim) -> Broadcast to batch size
+
 
     
 
@@ -867,7 +867,6 @@ class HybridAttentionDenseNet(nn.Module):
         bottleneck_size=4,
         kernel_size=3,
         attention_dim=64,
-        sequence_length=25,  # Length of temporal sequence
         n_pos=(8,),  # Number of frequencies for temporal encoding
     ):
         super().__init__()
@@ -878,8 +877,7 @@ class HybridAttentionDenseNet(nn.Module):
         else:
             self.num_frequencies = n_pos
 
-        self.sequence_length = sequence_length
-        self.temporal_encoding = TemporalEncoding(sequence_length=self.sequence_length, num_frequencies=self.num_frequencies)
+        self.temporal_encoding = TemporalEncoding( num_frequencies=self.num_frequencies)
 
         # Initial feature extraction layer
         self.features = nn.Sequential()
