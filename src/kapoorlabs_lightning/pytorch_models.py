@@ -888,7 +888,6 @@ class HybridAttentionDenseNet(nn.Module):
 
     def forward(self, x):
         # Pass through initial feature extraction layers
-        print(x.shape, type(x))
         for name, layer in self.features.named_children():
             if "attentionblock" in name:
                 # Handle attention block specifically
