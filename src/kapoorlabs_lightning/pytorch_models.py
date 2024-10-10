@@ -64,10 +64,10 @@ class TemporalEncoding(nn.Module):
         assert len(cutoffs) == 1, "Only a single cutoff range is allowed for all feature dimensions in this version."
 
         self.feature_dim = feature_dim
-        self.freqs = nn.Parameter(
-            _time_embed_fourier1d_init(cutoffs[0], n_pos).repeat(feature_dim, 1)
-        )  # Repeat to match feature dimensions
-
+        cutoff_value = cutoffs[0]
+        base_freqs = _time_embed_fourier1d_init(cutoff_value, n_pos)  # Shape: (n_pos,)
+        self.freqs = nn.Parameter(base_freqs.repeat(feature_dim, 1))  # Shape: (feature_dim, n_pos)
+        
     def forward(self, coords: torch.Tensor):
         """Forward method to apply positional encoding.
         
