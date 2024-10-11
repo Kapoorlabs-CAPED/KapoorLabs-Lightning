@@ -867,11 +867,10 @@ class HybridAttentionDenseNet(nn.Module):
         bottleneck_size=4,
         kernel_size=3,
         attention_dim=64,
-        n_pos=(8,),  # Number of frequencies for temporal encoding
+        n_pos=(8,),  
     ):
         super().__init__()
 
-        # Temporal encoding configuration
         if isinstance(n_pos, tuple):
             self.num_frequencies = n_pos[0]
         else:
@@ -879,10 +878,8 @@ class HybridAttentionDenseNet(nn.Module):
 
         self.temporal_encoding = TemporalEncoding( num_frequencies=self.num_frequencies)
 
-        # Initial feature extraction layer
         self.features = nn.Sequential()
 
-        # Add initial Conv1d, BatchNorm, ReLU, and MaxPool layers
         self.features.add_module(
             "conv_init",
             nn.Conv1d(
@@ -900,7 +897,6 @@ class HybridAttentionDenseNet(nn.Module):
 
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            # Create and append DenseBlock
             block = DenseBlock(
                 num_layers=num_layers,
                 input_channels=num_features,
@@ -911,7 +907,6 @@ class HybridAttentionDenseNet(nn.Module):
             self.features.add_module(f"denseblock{i}", block)
             num_features = num_features + num_layers * growth_rate
 
-            # Add TransitionBlock if needed, except the last one
             if i != len(block_config) - 1:
                 trans = TransitionBlock(
                     input_channels=num_features, out_channels=num_features // 2
@@ -919,7 +914,6 @@ class HybridAttentionDenseNet(nn.Module):
                 self.features.add_module(f"transitionblock{i}", trans)
                 num_features = num_features // 2
 
-            # Add Attention mechanism after each DenseBlock and TransitionBlock
             attention_layer = nn.Sequential(
                 nn.Linear(num_features, attention_dim),
                 nn.Tanh(),
@@ -927,44 +921,40 @@ class HybridAttentionDenseNet(nn.Module):
             )
             self.features.add_module(f"attentionblock{i}", attention_layer)
 
-        # Final layers
         self.final_bn = nn.BatchNorm1d(num_features)
         self.final_act = nn.ReLU(inplace=True)
 
-        # Classifier
         self.fc = nn.Linear(num_features, num_classes)
 
     def forward(self, x):
-        batch_size = x.size(0)
 
-        # Pass through initial feature extraction layers
         for name, layer in self.features.named_children():
             if "attentionblock" in name:
-                # Handle attention block specifically
-                x = x.permute(0, 2, 1)  # Reshape to (batch_size, sequence_length, feature_dim)
+                # Reshape for attention
+                x = x.permute(0, 2, 1)  # (batch_size, sequence_length, feature_dim)
+                x = self.temporal_encoding(x)  # Add temporal encoding
 
-                # Dynamically generate and apply temporal positional encoding
-                
-                x = self.temporal_encoding(x)  # Add positional encoding to time-series data
-                
                 # Apply the attention mechanism
                 attention_scores = torch.tanh(layer(x))  # (batch_size, sequence_length, 1)
                 attention_weights = torch.softmax(attention_scores, dim=1)  # (batch_size, sequence_length, 1)
                 
-                # Apply attention to get weighted sum over the time dimension
-                x = torch.sum(x * attention_weights, dim=1)  # (batch_size, feature_dim)
-
+                # Reweight without collapsing the sequence length
+                x = x * attention_weights  # (batch_size, sequence_length, feature_dim)
+                x = x.permute(0, 2, 1)  # (batch_size, feature_dim, sequence_length)
             else:
-                # Pass through the layer as usual
                 x = layer(x)
-
-        # Apply final batch normalization and activation
+        
         x = self.final_bn(x)
         x = self.final_act(x)
 
+        x = torch.flatten(x, start_dim=1)  
+        
         # Classify the attended output
         out = self.fc(x)  # (batch_size, num_classes)
         return out
+    
+
+        
 
 
     
