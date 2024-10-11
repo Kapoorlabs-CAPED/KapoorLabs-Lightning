@@ -943,11 +943,11 @@ class HybridAttentionDenseNet(nn.Module):
                 x = x.permute(0, 2, 1)  # (batch_size, feature_dim, sequence_length)
             else:
                 x = layer(x)
-        
+
+        x = torch.mean(x, dim=2)
         x = self.final_bn(x)
         x = self.final_act(x)
 
-        x = torch.flatten(x, start_dim=1)  
         
         # Classify the attended output
         out = self.fc(x)  # (batch_size, num_classes)
