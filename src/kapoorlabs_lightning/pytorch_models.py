@@ -964,7 +964,7 @@ def get_attention_importance(model, inputs):
             attention_weights = torch.softmax(attention_scores, dim=1)  
             
             weighted_features = x * attention_weights  
-            
+            print(weighted_features.shape)
             avg_feature_importance = weighted_features.mean(dim=1).squeeze(0).detach().cpu().numpy()
             feature_importance.append(avg_feature_importance)
             
@@ -976,7 +976,7 @@ def get_attention_importance(model, inputs):
     return avg_importance
 
 
-def plot_feature_importance_heatmap(model, inputs_list, save_dir, save_name, feature_names=None, track_labels=None):
+def plot_feature_importance_heatmap(model, inputs_list, save_dir, save_name):
     """
     Saves a heatmap of feature importance across multiple tracks.
 
@@ -985,8 +985,7 @@ def plot_feature_importance_heatmap(model, inputs_list, save_dir, save_name, fea
         inputs_list (list of torch.Tensor): List of input tensors, each with shape (1, T, F) for each track.
         save_dir (str): Directory to save the plot.
         save_name (str): Filename to save the plot as.
-        feature_names (list of str, optional): Names of the features. Defaults to generic names if not provided.
-        track_labels (list of str, optional): Labels for each track on the y-axis. Defaults to generic labels if not provided.
+       
     """
     
     # Ensure the save directory exists
