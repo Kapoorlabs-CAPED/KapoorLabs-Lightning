@@ -955,7 +955,6 @@ def get_attention_importance(model, inputs):
     model.eval()
     
     # Baseline output
-    print(inputs.shape)
     baseline_output = model(inputs).detach()
 
     importance_scores = []
@@ -973,13 +972,13 @@ def get_attention_importance(model, inputs):
     return importance_scores
 
 
-def plot_feature_importance_heatmap(model, inputs_list, save_dir, save_name):
+def plot_feature_importance_heatmap(model, inputs, save_dir, save_name):
     """
     Saves a heatmap of feature importance across multiple tracks.
 
     Parameters:
         model (nn.Module): The trained model with attention layers.
-        inputs_list (list of torch.Tensor): List of input tensors, each with shape (1, T, F) for each track.
+        inputs (list of torch.Tensor): input tensors, each with shape (N, T, F) for each track.
         save_dir (str): Directory to save the plot.
         save_name (str): Filename to save the plot as.
        
@@ -990,9 +989,8 @@ def plot_feature_importance_heatmap(model, inputs_list, save_dir, save_name):
     
     # Collect feature importance for each track
     all_importances = []
-    for inputs in inputs_list:
-        avg_importance = get_attention_importance(model, inputs)
-        all_importances.append(avg_importance)
+    avg_importance = get_attention_importance(model, inputs)
+    all_importances.append(avg_importance)
 
     # Convert to a 2D array where each row is a track and each column is a feature
     importance_matrix = np.array(all_importances)
