@@ -973,7 +973,6 @@ def get_attention_importance(model, inputs):
             importance = (baseline_predicted_class[b] != masked_predicted_class[b]).float().item()
             feature_importances.append(importance)
         
-        # Append the importance scores for this batch element
         importance_scores.append(feature_importances)
 
     return np.array(importance_scores)
