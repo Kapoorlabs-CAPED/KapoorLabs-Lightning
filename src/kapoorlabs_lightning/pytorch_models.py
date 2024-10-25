@@ -950,7 +950,6 @@ class HybridAttentionDenseNet(nn.Module):
         out = self.fc(x)  
         return out
     
-
 def get_attention_importance(model, inputs):
     feature_importance = []
 
@@ -958,20 +957,22 @@ def get_attention_importance(model, inputs):
     for name, layer in model.features.named_children():
         if "attentionblock" in name:
             x = x.permute(0, 2, 1)  
-            x = model.temporal_encoding(x)  
+            x = model.temporal_encoding(x) 
             
-            attention_scores = torch.tanh(layer(x))
+            attention_scores = torch.tanh(layer(x))  
             attention_weights = torch.softmax(attention_scores, dim=1)  
             
-            feature_importance.append(attention_weights.squeeze(-1).mean(dim=1).detach().cpu().numpy())
+            weighted_features = x * attention_weights  
             
-            x = x * attention_weights  
+            avg_feature_importance = weighted_features.mean(dim=1).squeeze(0).detach().cpu().numpy()
+            feature_importance.append(avg_feature_importance)
+            
             x = x.permute(0, 2, 1)  
         else:
             x = layer(x)
-    
-    avg_importance = sum(feature_importance) / len(feature_importance)
-    return avg_importance        
+
+    avg_importance = np.mean(feature_importance, axis=0)
+    return avg_importance
 
 
 def plot_feature_importance_heatmap(model, inputs_list, feature_names=None, track_labels=None):
