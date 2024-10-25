@@ -952,29 +952,24 @@ class HybridAttentionDenseNet(nn.Module):
         return out
     
 def get_attention_importance(model, inputs):
-    feature_importance = []
+    model.eval()
+    
+    # Baseline output
+    baseline_output = model(inputs).detach()
 
-    x = inputs
-    for name, layer in model.features.named_children():
-        print(name, x.shape)
-        if "attentionblock" in name:
-            x = x.permute(0, 2, 1)  
-            x = model.temporal_encoding(x) 
-            
-            attention_scores = torch.tanh(layer(x))  
-            attention_weights = torch.softmax(attention_scores, dim=1)  
-            
-            weighted_features = x * attention_weights  
-            print(weighted_features.shape)
-            avg_feature_importance = weighted_features.mean(dim=1).squeeze(0).detach().cpu().numpy()
-            feature_importance.append(avg_feature_importance)
-            
-            x = x.permute(0, 2, 1)  
-        else:
-            x = layer(x)
+    importance_scores = []
+    for i in range(inputs.shape[1]):  
+        input_masked = inputs.clone()
+        input_masked[:, i, :] = 0
+        
+        # Get the model output with the feature masked
+        masked_output = model(input_masked).detach()
+        
+        # Calculate importance as the difference in output norm
+        importance = (baseline_output - masked_output).abs().mean().item()
+        importance_scores.append(importance)
 
-    avg_importance = np.mean(feature_importance, axis=0)
-    return avg_importance
+    return importance_scores
 
 
 def plot_feature_importance_heatmap(model, inputs_list, save_dir, save_name):
