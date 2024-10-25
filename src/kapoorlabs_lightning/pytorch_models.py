@@ -956,6 +956,7 @@ def get_attention_importance(model, inputs):
 
     x = inputs
     for name, layer in model.features.named_children():
+        print(name, x.shape)
         if "attentionblock" in name:
             x = x.permute(0, 2, 1)  
             x = model.temporal_encoding(x) 
