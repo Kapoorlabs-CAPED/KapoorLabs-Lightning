@@ -1,6 +1,7 @@
 import itertools
 from typing import Literal
 import numpy as np
+import os
 import torch
 import torch.nn as nn
 import logging
@@ -975,30 +976,40 @@ def get_attention_importance(model, inputs):
     return avg_importance
 
 
-def plot_feature_importance_heatmap(model, inputs_list, feature_names=None, track_labels=None):
+def plot_feature_importance_heatmap(model, inputs_list, save_dir, save_name, feature_names=None, track_labels=None):
     """
-    Plots a heatmap of feature importance across multiple tracks.
+    Saves a heatmap of feature importance across multiple tracks.
 
     Parameters:
         model (nn.Module): The trained model with attention layers.
         inputs_list (list of torch.Tensor): List of input tensors, each with shape (1, T, F) for each track.
+        save_dir (str): Directory to save the plot.
+        save_name (str): Filename to save the plot as.
         feature_names (list of str, optional): Names of the features. Defaults to generic names if not provided.
         track_labels (list of str, optional): Labels for each track on the y-axis. Defaults to generic labels if not provided.
     """
     
+    # Ensure the save directory exists
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Collect feature importance for each track
     all_importances = []
     for inputs in inputs_list:
         avg_importance = get_attention_importance(model, inputs)
         all_importances.append(avg_importance)
 
+    # Convert to a 2D array where each row is a track and each column is a feature
     importance_matrix = np.array(all_importances)
 
+    # Create generic feature names if not provided
     if feature_names is None:
         feature_names = [f'Feature {i+1}' for i in range(importance_matrix.shape[1])]
 
+    # Create generic track labels if not provided
     if track_labels is None:
         track_labels = [f'Track {i+1}' for i in range(importance_matrix.shape[0])]
 
+    # Plot the heatmap
     plt.figure(figsize=(12, 8))
     plt.imshow(importance_matrix, aspect='auto', cmap='viridis')
     plt.colorbar(label='Average Attention Weight')
@@ -1006,11 +1017,17 @@ def plot_feature_importance_heatmap(model, inputs_list, feature_names=None, trac
     plt.ylabel('Track IDs')
     plt.title('Feature Importance Heatmap Across Tracks')
 
+    # Set the x-ticks to feature names and y-ticks to track labels
     plt.xticks(ticks=np.arange(len(feature_names)), labels=feature_names, rotation=45, ha="right")
     plt.yticks(ticks=np.arange(len(track_labels)), labels=track_labels)
 
     plt.tight_layout()
-    plt.show()    
+    
+    # Save the plot instead of displaying it
+    save_path = os.path.join(save_dir, save_name)
+    plt.savefig(save_path)
+    plt.close()
+
 
 class AttentionNet(nn.Module):
     def __init__(
