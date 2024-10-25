@@ -8,7 +8,7 @@ import math
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.utils.data import Dataset
-
+import matplotlib.pyplot as plt
 from .graph_functions import get_graph_feature, knn, local_cov, local_maxpool
 from trackastra.model import TrackingTransformer
 
@@ -930,17 +930,15 @@ class HybridAttentionDenseNet(nn.Module):
 
         for name, layer in self.features.named_children():
             if "attentionblock" in name:
-                # Reshape for attention
-                x = x.permute(0, 2, 1)  # (batch_size, sequence_length, feature_dim)
-                x = self.temporal_encoding(x)  # Add temporal encoding
+                x = x.permute(0, 2, 1)  
+                x = self.temporal_encoding(x)  
 
-                # Apply the attention mechanism
-                attention_scores = torch.tanh(layer(x))  # (batch_size, sequence_length, 1)
-                attention_weights = torch.softmax(attention_scores, dim=1)  # (batch_size, sequence_length, 1)
+                attention_scores = torch.tanh(layer(x))  
+                attention_weights = torch.softmax(attention_scores, dim=1)  
                 
-                # Reweight without collapsing the sequence length
-                x = x * attention_weights  # (batch_size, sequence_length, feature_dim)
-                x = x.permute(0, 2, 1)  # (batch_size, feature_dim, sequence_length)
+                
+                x = x * attention_weights  
+                x = x.permute(0, 2, 1)  
             else:
                 x = layer(x)
 
@@ -949,15 +947,69 @@ class HybridAttentionDenseNet(nn.Module):
         x = self.final_act(x)
 
         
-        # Classify the attended output
-        out = self.fc(x)  # (batch_size, num_classes)
+        out = self.fc(x)  
         return out
     
 
-        
+def get_attention_importance(model, inputs):
+    feature_importance = []
 
-
+    x = inputs
+    for name, layer in model.features.named_children():
+        if "attentionblock" in name:
+            x = x.permute(0, 2, 1)  
+            x = model.temporal_encoding(x)  
+            
+            attention_scores = torch.tanh(layer(x))
+            attention_weights = torch.softmax(attention_scores, dim=1)  
+            
+            feature_importance.append(attention_weights.squeeze(-1).mean(dim=1).detach().cpu().numpy())
+            
+            x = x * attention_weights  
+            x = x.permute(0, 2, 1)  
+        else:
+            x = layer(x)
     
+    avg_importance = sum(feature_importance) / len(feature_importance)
+    return avg_importance        
+
+
+def plot_feature_importance_heatmap(model, inputs_list, feature_names=None, track_labels=None):
+    """
+    Plots a heatmap of feature importance across multiple tracks.
+
+    Parameters:
+        model (nn.Module): The trained model with attention layers.
+        inputs_list (list of torch.Tensor): List of input tensors, each with shape (1, T, F) for each track.
+        feature_names (list of str, optional): Names of the features. Defaults to generic names if not provided.
+        track_labels (list of str, optional): Labels for each track on the y-axis. Defaults to generic labels if not provided.
+    """
+    
+    all_importances = []
+    for inputs in inputs_list:
+        avg_importance = get_attention_importance(model, inputs)
+        all_importances.append(avg_importance)
+
+    importance_matrix = np.array(all_importances)
+
+    if feature_names is None:
+        feature_names = [f'Feature {i+1}' for i in range(importance_matrix.shape[1])]
+
+    if track_labels is None:
+        track_labels = [f'Track {i+1}' for i in range(importance_matrix.shape[0])]
+
+    plt.figure(figsize=(12, 8))
+    plt.imshow(importance_matrix, aspect='auto', cmap='viridis')
+    plt.colorbar(label='Average Attention Weight')
+    plt.xlabel('Features')
+    plt.ylabel('Track IDs')
+    plt.title('Feature Importance Heatmap Across Tracks')
+
+    plt.xticks(ticks=np.arange(len(feature_names)), labels=feature_names, rotation=45, ha="right")
+    plt.yticks(ticks=np.arange(len(track_labels)), labels=track_labels)
+
+    plt.tight_layout()
+    plt.show()    
 
 class AttentionNet(nn.Module):
     def __init__(
