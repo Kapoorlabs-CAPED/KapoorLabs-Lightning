@@ -955,6 +955,7 @@ def get_attention_importance(model, inputs):
     model.eval()
     
     # Baseline output
+    print(inputs.shape)
     baseline_output = model(inputs).detach()
 
     importance_scores = []
