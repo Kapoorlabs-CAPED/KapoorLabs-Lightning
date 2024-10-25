@@ -957,12 +957,11 @@ def get_attention_importance(model, inputs):
     baseline_output = model(inputs).detach()  
     batch_size = inputs.shape[0]
     num_features = inputs.shape[1]
-    
+    print(baseline_output)
     importance_scores = []
     
     for b in range(batch_size):
         feature_importances = []
-        print(inputs.shape)
         for i in range(num_features):
             input_masked = inputs.clone()
             input_masked[b, i, :] = 0  
@@ -984,7 +983,7 @@ def plot_feature_importance_heatmap(model, inputs, save_dir, save_name):
 
     Parameters:
         model (nn.Module): The trained model with attention layers.
-        inputs (list of torch.Tensor): input tensors, each with shape (N, T, F) for each track.
+        inputs (list of torch.Tensor): input tensors, each with shape (N, F, T) for each track.
         save_dir (str): Directory to save the plot.
         save_name (str): Filename to save the plot as.
        
