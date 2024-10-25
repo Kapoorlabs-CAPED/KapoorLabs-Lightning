@@ -956,10 +956,9 @@ def get_attention_importance(model, inputs):
     
     baseline_output = model(inputs).detach()  
     baseline_probabilities = torch.softmax(baseline_output, dim=1)
-
+    _, baseline_predicted_class = torch.max(baseline_probabilities, 0)
     batch_size = inputs.shape[0]
     num_features = inputs.shape[1]
-    print(baseline_output)
     importance_scores = []
     
     for b in range(batch_size):
@@ -970,8 +969,8 @@ def get_attention_importance(model, inputs):
             
             masked_output = model(input_masked).detach()
             masked_probabilities = torch.softmax(masked_output, dim=1)
-            
-            importance = (baseline_probabilities[b] - masked_probabilities[b]).abs().mean().item()
+            _, masked_predicted_class = torch.max(masked_probabilities, 0)
+            importance = abs(masked_predicted_class - baseline_predicted_class)
             feature_importances.append(importance)
         
         # Append the importance scores for this batch element
