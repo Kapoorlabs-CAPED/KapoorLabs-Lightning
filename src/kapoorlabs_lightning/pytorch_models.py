@@ -9,7 +9,7 @@ import math
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.utils.data import Dataset
-import matplotlib.pyplot as plt
+from tifffile import imwrite
 from .graph_functions import get_graph_feature, knn, local_cov, local_maxpool
 from trackastra.model import TrackingTransformer
 
@@ -1000,33 +1000,9 @@ def plot_feature_importance_heatmap(model, inputs_list, save_dir, save_name, fea
 
     # Convert to a 2D array where each row is a track and each column is a feature
     importance_matrix = np.array(all_importances)
-
-    # Create generic feature names if not provided
-    if feature_names is None:
-        feature_names = [f'Feature {i+1}' for i in range(importance_matrix.shape[1])]
-
-    # Create generic track labels if not provided
-    if track_labels is None:
-        track_labels = [f'Track {i+1}' for i in range(importance_matrix.shape[0])]
-
-    # Plot the heatmap
-    plt.figure(figsize=(12, 8))
-    plt.imshow(importance_matrix, aspect='auto', cmap='viridis')
-    plt.colorbar(label='Average Attention Weight')
-    plt.xlabel('Features')
-    plt.ylabel('Track IDs')
-    plt.title('Feature Importance Heatmap Across Tracks')
-
-    # Set the x-ticks to feature names and y-ticks to track labels
-    plt.xticks(ticks=np.arange(len(feature_names)), labels=feature_names, rotation=45, ha="right")
-    plt.yticks(ticks=np.arange(len(track_labels)), labels=track_labels)
-
-    plt.tight_layout()
-    
-    # Save the plot instead of displaying it
     save_path = os.path.join(save_dir, save_name)
-    plt.savefig(save_path)
-    plt.close()
+    imwrite(save_path, importance_matrix.astype(np.float32))
+    
 
 
 class AttentionNet(nn.Module):
