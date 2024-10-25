@@ -954,22 +954,33 @@ class HybridAttentionDenseNet(nn.Module):
 def get_attention_importance(model, inputs):
     model.eval()
     
-    # Baseline output
-    baseline_output = model(inputs).detach()
-
+    # Baseline output for each batch element
+    baseline_output = model(inputs).detach()  # Shape (B, C)
+    batch_size = inputs.shape[0]
+    num_features = inputs.shape[1]
+    
+    # Initialize a list to hold importance scores for each batch element
     importance_scores = []
-    for i in range(inputs.shape[1]):  
-        input_masked = inputs.clone()
-        input_masked[:, i, :] = 0
+    
+    for b in range(batch_size):
+        # Store importance for each feature in the current batch element
+        feature_importances = []
         
-        # Get the model output with the feature masked
-        masked_output = model(input_masked).detach()
+        for i in range(num_features):
+            input_masked = inputs.clone()
+            input_masked[b, i, :] = 0  # Mask feature i for the b-th element
+            
+            # Get the model output with the feature masked
+            masked_output = model(input_masked).detach()
+            
+            # Calculate importance as the difference in output norm for the batch element
+            importance = (baseline_output[b] - masked_output[b]).abs().mean().item()
+            feature_importances.append(importance)
         
-        # Calculate importance as the difference in output norm
-        importance = (baseline_output - masked_output).abs().mean().item()
-        importance_scores.append(importance)
+        # Append the importance scores for this batch element
+        importance_scores.append(feature_importances)
 
-    return importance_scores
+    return np.array(importance_scores)
 
 
 def plot_feature_importance_heatmap(model, inputs, save_dir, save_name):
