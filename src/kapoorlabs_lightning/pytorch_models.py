@@ -994,6 +994,7 @@ def plot_feature_importance_heatmap(model, inputs, save_dir, save_name):
 
     # Convert to a 2D array where each row is a track and each column is a feature
     importance_matrix = np.array(all_importances)
+    print(importance_matrix.shape)
     save_path = os.path.join(save_dir, save_name)
     imwrite(save_path, importance_matrix.astype(np.float32))
     
