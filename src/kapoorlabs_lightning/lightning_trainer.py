@@ -30,6 +30,7 @@ from .pytorch_models import (
     AttentionNet,
     HybridAttentionDenseNet,
     TrackAsuraTransformer,
+    DenseVollNet
 )
 from .schedulers import (
     CosineAnnealingScheduler,
@@ -317,6 +318,34 @@ class MitosisInception:
             kernel_size=self.kernel_size,
         )
         print(f"Training Mitosis Inception Model {self.model}")
+
+    def setup_densenet_vision_model(self, config):
+        input_shape = config['input_shape']
+        categories = config['categories']
+        box_vector = config['box_vector']
+        start_kernel = config['start_kernel']
+        mid_kernel = config['mid_kernel']
+        startfilter = config['startfilter']
+        stage_number = config['stage_number']
+        depth = config['depth']
+        reduction = config['reduction']
+
+        self.model = DenseVollNet(
+            input_shape,
+            categories,
+            box_vector,
+            start_kernel=start_kernel,
+            mid_kernel=mid_kernel,
+            startfilter=startfilter,
+            stage_number=stage_number,
+            depth=depth,
+            reduction=reduction
+        )
+
+        print(f"Training Vision Inception Model {self.model}")
+
+
+
 
     def setup_attention_model(self):
 
