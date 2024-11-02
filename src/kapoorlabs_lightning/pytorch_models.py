@@ -1284,11 +1284,6 @@ class DenseNet3D(nn.Module):
         return x
 
 
-
-
-
-
-
 class VollBottom(nn.Module):
     """
     Final layer of DenseVollNet to produce category and box predictions.
@@ -1298,7 +1293,7 @@ class VollBottom(nn.Module):
         
         # Initial convolution to prepare combined output
         self.conv3d_main = nn.Conv3d(
-            in_channels=input_shape[1],
+            in_channels=input_shape[3],
             out_channels=categories + box_vector,
             kernel_size=mid_kernel,
             padding=mid_kernel // 2
@@ -1365,7 +1360,7 @@ class DenseVollNet(nn.Module):
         self.last_conv_factor = 2 ** (stage_number - 1)
         # DenseNet 3D
         self.densenet = DenseNet3D(
-            in_channels=input_shape[1],
+            in_channels=input_shape[3],
             start_filters=startfilter,
             stage_number=stage_number,
             start_kernel=start_kernel,

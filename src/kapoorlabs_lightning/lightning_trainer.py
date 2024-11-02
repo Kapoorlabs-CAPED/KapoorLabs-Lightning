@@ -32,6 +32,7 @@ from .pytorch_models import (
     TrackAsuraTransformer,
     DenseVollNet
 )
+from .pytorch_losses import VolumeYoloLoss
 from .schedulers import (
     CosineAnnealingScheduler,
     ExponentialLR,
@@ -63,7 +64,7 @@ from trackastra.model.predict import predict_windows
 
 class MitosisInception:
 
-    LOSS_CHOICES = ["cross_entropy", "cosine", "bce", "mse"]
+    LOSS_CHOICES = ["cross_entropy", "cosine", "bce", "mse", "oneat"]
     SCHEDULER_CHOICES = ["cosine", "exponential", "multistep", "plateau", "warmup"]
 
     def __init__(
@@ -319,16 +320,9 @@ class MitosisInception:
         )
         print(f"Training Mitosis Inception Model {self.model}")
 
-    def setup_densenet_vision_model(self, config):
-        input_shape = config['input_shape']
-        categories = config['categories']
-        box_vector = config['box_vector']
-        start_kernel = config['start_kernel']
-        mid_kernel = config['mid_kernel']
-        startfilter = config['startfilter']
-        stage_number = config['stage_number']
-        depth = config['depth']
-        reduction = config['reduction']
+    def setup_densenet_vision_model(self,input_shape,categories,box_vector,
+                                    start_kernel,mid_kernel,startfilter,stage_number,depth,reduction):
+       
 
         self.model = DenseVollNet(
             input_shape,
@@ -341,6 +335,8 @@ class MitosisInception:
             depth=depth,
             reduction=reduction
         )
+        self.categories = categories 
+        self.box_vector = box_vector
 
         print(f"Training Vision Inception Model {self.model}")
 
@@ -431,6 +427,8 @@ class MitosisInception:
             self.loss = BCEWithLogitsLoss()
         if self.loss_function == "mse":
             self.loss = MSELoss()
+        if self.loss_function == "oneat":
+           self.loss = VolumeYoloLoss(categories=self.categories, box_vector=self.box_vector)    
 
         self.progress = CustomProgressBar()
         self.lightning_model = LightningModel(
