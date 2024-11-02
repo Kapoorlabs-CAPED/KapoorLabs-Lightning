@@ -112,7 +112,7 @@ def calc_loss_class(true_box_class, pred_box_class):
 # Combined loss function
 class VolumeYoloLoss(nn.Module):
     def __init__(self, categories, box_vector):
-        super(VolumeYoloLoss, self).__init__()
+        super().__init__()
         self.categories = categories
         self.box_vector = box_vector
         self.event_grid = get_event_grid()
