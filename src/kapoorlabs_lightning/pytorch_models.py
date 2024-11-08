@@ -1289,25 +1289,23 @@ class VollBottom(nn.Module):
     Final layer of DenseVollNet to produce category and box predictions.
     """
     def __init__(self, input_shape, categories, mid_kernel, last_conv_factor, box_vector):
-        super(VollBottom, self).__init__()
+        super().__init__()
         
-        # Initial convolution to prepare combined output
         self.conv3d_main = nn.Conv3d(
-            in_channels=input_shape[3],
+            in_channels=input_shape[0],
             out_channels=categories + box_vector,
             kernel_size=mid_kernel,
             padding=mid_kernel // 2
         )
         self.batch_norm1 = nn.BatchNorm3d(categories + box_vector)
 
-        # Separate convolutions for category and box outputs
         self.conv3d_cat = nn.Conv3d(
             in_channels=categories,
             out_channels=categories,
             kernel_size=(
-                input_shape[0] // last_conv_factor,
                 input_shape[1] // last_conv_factor,
                 input_shape[2] // last_conv_factor,
+                input_shape[3] // last_conv_factor,
             ),
             padding=0
         )
@@ -1315,9 +1313,9 @@ class VollBottom(nn.Module):
             in_channels=box_vector,
             out_channels=box_vector,
             kernel_size=(
-                input_shape[0] // last_conv_factor,
                 input_shape[1] // last_conv_factor,
                 input_shape[2] // last_conv_factor,
+                input_shape[3] // last_conv_factor,
             ),
             padding=0
         )
@@ -1351,16 +1349,16 @@ class DenseVollNet(nn.Module):
         start_kernel=7,
         mid_kernel=3,
         startfilter=64,
-        stage_number=3,
+        stage_number=4,
         depth={'depth_0': 6, 'depth_1': 12, 'depth_2': 24, 'depth_3': 16},
         reduction=0.5,
     ):
-        super(DenseVollNet, self).__init__()
+        super().__init__()
 
         self.last_conv_factor = 2 ** (stage_number - 1)
         # DenseNet 3D
         self.densenet = DenseNet3D(
-            in_channels=input_shape[3],
+            input_channels=input_shape[0],
             start_filters=startfilter,
             stage_number=stage_number,
             start_kernel=start_kernel,
