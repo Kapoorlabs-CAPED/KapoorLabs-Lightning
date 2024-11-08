@@ -1354,7 +1354,7 @@ class _voll_dense_conv(nn.Module):
         self.batch_norm1 = nn.BatchNorm3d(num_features=num_filters)
         self.activation = self.get_activation_function(activation)
         self.conv1 = nn.Conv3d(in_channels=num_filters, out_channels=num_filters * 4, kernel_size=1, bias=False, padding='same')
-        self.batch_norm2 = nn.BatchNorm3d(num_features=num_filters)
+        self.batch_norm2 = nn.BatchNorm3d(num_features=num_filters * 4)
         self.conv2 = nn.Conv3d(in_channels=num_filters * 4, out_channels=num_filters, kernel_size=kernel_size, bias=False, padding='same')
 
     def forward(self, x):
