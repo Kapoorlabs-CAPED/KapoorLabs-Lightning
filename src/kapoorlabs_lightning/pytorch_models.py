@@ -9,6 +9,7 @@ import math
 import torch.nn.functional as F
 from torch import Tensor
 from tqdm import tqdm
+from collections import OrderedDict
 from typing import List, Tuple
 import torch.nn.init as init
 from torch.utils.data import Dataset
@@ -1198,14 +1199,13 @@ class DenseVollNet(nn.Module):
         start_kernel: int = 7,
         mid_kernel: int = 3,
         startfilter: int = 64,
-        stage_number: int = 3,
         depth: dict = {'depth_0': 6, 'depth_1': 12, 'depth_2': 24, 'depth_3': 16},
-        reduction: float = 0.5,
         last_activation: str = "softmax",
     ):
         super(DenseVollNet, self).__init__()
         
         # Top module
+        stage_number = len(depth)
         last_conv_factor = 2 ** (stage_number - 1)
         self.input_channels = input_shape[0]
 
@@ -1213,12 +1213,10 @@ class DenseVollNet(nn.Module):
         print('Densenet 3D initialization')
         self.densenet = DenseNet3D(
             input_channels = self.input_channels,
-            depth=depth,
+            block_config=depth,
             startfilter=startfilter,
-            stage_number=stage_number,
             start_kernel=start_kernel,
-            mid_kernel=mid_kernel,
-            reduction=reduction,
+            mid_kernel=mid_kernel
         )
 
         # Bottom Part
@@ -1282,173 +1280,116 @@ class DenseVollNet(nn.Module):
 
         return outputs
 
+class _DenseLayer(nn.Sequential):
+
+    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, mid_kernel = 3):
+        super().__init__()
+        self.add_module('norm1', nn.BatchNorm3d(num_input_features))
+        self.add_module('relu1', nn.Relu())
+        self.add_module(
+            'conv1',
+            nn.Conv3d(num_input_features,
+                      bn_size * growth_rate,
+                      kernel_size=1,
+                      stride=1,
+                      bias=False))
+        self.add_module('norm2', nn.BatchNorm3d(bn_size * growth_rate))
+        self.add_module('relu2', nn.Relu())
+        self.add_module(
+            'conv2',
+            nn.Conv3d(bn_size * growth_rate,
+                      growth_rate,
+                      kernel_size=mid_kernel,
+                      stride=1,
+                      padding=1,
+                      bias=False))
+        self.drop_rate = drop_rate
+
+    def forward(self, x):
+        new_features = super().forward(x)
+        if self.drop_rate > 0:
+            new_features = F.dropout(new_features,
+                                     p=self.drop_rate,
+                                     training=self.training)
+        return torch.cat([x, new_features], 1)
+
+
+class _DenseBlock(nn.Sequential):
+
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate,
+                 drop_rate, mid_kernel = 3):
+        super().__init__()
+        for i in range(num_layers):
+            layer = _DenseLayer(num_input_features + i * growth_rate,
+                                growth_rate, bn_size, drop_rate, mid_kernel=mid_kernel)
+            self.add_module('denselayer{}'.format(i + 1), layer)
+
+
+class _Transition(nn.Sequential):
+
+    def __init__(self, num_input_features, num_output_features):
+        super().__init__()
+        self.add_module('norm', nn.BatchNorm3d(num_input_features))
+        self.add_module('relu', nn.ReLU())
+        self.add_module(
+            'conv',
+            nn.Conv3d(num_input_features,
+                      num_output_features,
+                      kernel_size=1,
+                      stride=1,
+                      bias=False))
+        self.add_module('pool', nn.AvgPool3d(kernel_size=2, stride=2))
+
 
 class DenseNet3D(nn.Module):
-    def __init__(self,input_channels, depth, startfilter, stage_number, start_kernel, mid_kernel, reduction):
+    def __init__(self,input_channels, block_config, startfilter,  start_kernel, mid_kernel, growth_rate=32, bn_size=4,
+                 drop_rate=0):
         super(DenseNet3D, self).__init__()
         
-        self.nb_layers = [v for _, v in depth.items()]
-        if len(self.nb_layers) != stage_number:
-            raise ValueError('If `stage_number` is specified, its length must match the depth.')
+        self.features = [('conv1',
+                          nn.Conv3d(input_channels,
+                                    startfilter,
+                                    kernel_size=(start_kernel, start_kernel, start_kernel),
+                                    padding='same')),
+                         ('norm1', nn.BatchNorm3d(startfilter)),
+                         ('relu1', nn.Relu())]
+        
 
-        self.start_conv = _voll_conv(
-            in_channels=input_channels,  
-            out_channels=startfilter,
-            kernel_size=start_kernel,
-        )
+        self.features = nn.Sequential(OrderedDict(self.features))
+        for i, num_layers in enumerate(block_config):
+            block = _DenseBlock(num_layers=num_layers,
+                                num_input_features=num_features,
+                                bn_size=bn_size,
+                                growth_rate=growth_rate,
+                                drop_rate=drop_rate,
+                                mid_kernel = mid_kernel)
+            self.features.add_module('denseblock{}'.format(i + 1), block)
+            num_features = num_features + num_layers * growth_rate
+            if i != len(block_config) - 1:
+                trans = _Transition(num_input_features=num_features,
+                                    num_output_features=num_features // 2)
+                self.features.add_module('transition{}'.format(i + 1), trans)
+                num_features = num_features // 2
 
-        self.dense_blocks = nn.ModuleList()
-        self.transition_blocks = nn.ModuleList()
-        self.batch_norm_layers = nn.ModuleList()
-        num_filters = startfilter
-        for stage in tqdm(range(stage_number)):
+        # Final batch norm
+        self.features.add_module('norm5', nn.BatchNorm3d(num_features))
 
-            # Add Dense Block
-            self.dense_blocks.append(
-                _voll_dense_block(self.nb_layers[stage], num_filters, mid_kernel)
-            )
-            self.batch_norm_layers.append(nn.BatchNorm3d(num_filters))
-            # Add Transition Block (if not the last stage)
-            if stage < stage_number - 1:
-                self.transition_blocks.append(
-                    _voll_transition_block(num_filters, reduction)
-                )
-                num_filters = int(num_filters * reduction)
-
-        self.final_batch_norm = nn.BatchNorm3d(num_filters)
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out')
+            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+        
         self.final_activation = nn.ReLU() 
 
     def forward(self, x):
-        x = self.start_conv(x)
-        for i in range(len(self.dense_blocks)):
-            x = self.dense_blocks[i](x)
-            if i < len(self.transition_blocks):
-                x = self.transition_blocks[i](x)
-        x = self.final_batch_norm(x)
+        features = self.features(x)
         x = self.final_activation(x)
         return x
 
 
 
-
-class _voll_dense_block(nn.Module):
-    def __init__(self, nb_layers, num_filters, kernel_size, activation='relu'):
-        super(_voll_dense_block, self).__init__()
-        self.nb_layers = nb_layers
-        self.num_filters = num_filters
-        self.kernel_size = kernel_size
-        self.activation = activation
-        self.layers = nn.ModuleList([
-            _voll_dense_conv(num_filters, kernel_size, activation)
-            for _ in range(nb_layers)
-        ])
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
-
-
-class _voll_dense_conv(nn.Module):
-    def __init__(self, num_filters, kernel_size=3, activation='relu'):
-        super(_voll_dense_conv, self).__init__()
-        self.batch_norm1 = nn.BatchNorm3d(num_features=num_filters * 2)
-        self.activation = self.get_activation_function(activation)
-        self.conv1 = nn.Conv3d(in_channels=num_filters, out_channels=num_filters * 4, kernel_size=1, bias=False, padding='same')
-        self.batch_norm2 = nn.BatchNorm3d(num_features=num_filters * 4)
-        self.conv2 = nn.Conv3d(in_channels=num_filters * 4, out_channels=num_filters, kernel_size=kernel_size, bias=False, padding='same')
-
-    def forward(self, x):
-        y = self.batch_norm1(x)
-        y = self.activation(y)
-        y = self.conv1(y)
-        y = self.batch_norm2(y)
-        y = self.activation(y)
-        y = self.conv2(y)
-        return torch.cat([y, x], dim=1)
-
-    def get_activation_function(self, activation):
-        if activation == 'relu':
-            return F.relu
-        elif activation == 'leaky_relu':
-            return F.leaky_relu
-        elif activation == 'sigmoid':
-            return torch.sigmoid
-        elif activation == 'tanh':
-            return torch.tanh
-        else:
-            raise ValueError(f"Unsupported activation: {activation}")
-
-
-class _voll_transition_block(nn.Module):
-    def __init__(self, in_channels, reduction, activation='relu'):
-        super(_voll_transition_block, self).__init__()
-        self.batch_norm = nn.BatchNorm3d(num_features=in_channels)
-        self.activation = self.get_activation_function(activation)
-        self.conv = nn.Conv3d(in_channels=in_channels, out_channels=int(in_channels * reduction), kernel_size=1, bias=False)
-        self.pool = nn.MaxPool3d(kernel_size=2, stride=2)
-
-    def forward(self, x):
-        x = self.batch_norm(x)
-        x = self.activation(x)
-        x = self.conv(x)
-        x = self.pool(x)
-        return x
-
-    def get_activation_function(self, activation):
-        if activation == 'relu':
-            return F.relu
-        elif activation == 'leaky_relu':
-            return F.leaky_relu
-        elif activation == 'sigmoid':
-            return torch.sigmoid
-        elif activation == 'tanh':
-            return torch.tanh
-        else:
-            raise ValueError(f"Unsupported activation: {activation}")
-
-
-class _voll_conv(nn.Module):
-    def __init__(self, in_channels, out_channels=64, kernel_size=3, strides=1, activation='relu', batch_normalization=True, conv_first=True):
-        super(_voll_conv, self).__init__()
-        self.conv = nn.Conv3d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=strides,
-            padding='same',
-            bias=False
-        )
-        self.batch_norm = nn.BatchNorm3d(num_features=out_channels) if batch_normalization else None
-        self.activation = self.get_activation_function(activation) if activation is not None else None
-        self.conv_first = conv_first
-
-    def forward(self, x):
-        if self.conv_first:
-            x = self.conv(x)
-            if self.batch_norm:
-                x = self.batch_norm(x)
-            if self.activation:
-                x = self.activation(x)
-        else:
-            if self.batch_norm:
-                x = self.batch_norm(x)
-            if self.activation:
-                x = self.activation(x)
-            x = self.conv(x)
-        return x
-
-    def get_activation_function(self, activation):
-        if activation == 'relu':
-            return F.relu
-        elif activation == 'leaky_relu':
-            return F.leaky_relu
-        elif activation == 'sigmoid':
-            return torch.sigmoid
-        elif activation == 'tanh':
-            return torch.tanh
-        else:
-            raise ValueError(f"Unsupported activation: {activation}")
 
 
 

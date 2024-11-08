@@ -323,7 +323,7 @@ class MitosisInception:
         print(f"Training Mitosis Inception Model {self.model}")
 
     def setup_densenet_vision_model(self,input_shape,categories,box_vector,
-                                    start_kernel,mid_kernel,startfilter,stage_number,depth,reduction):
+                                    start_kernel,mid_kernel,startfilter,depth):
        
         print('Setting up model')
         self.model = DenseVollNet(
@@ -333,9 +333,9 @@ class MitosisInception:
             start_kernel=start_kernel,
             mid_kernel=mid_kernel,
             startfilter=startfilter,
-            stage_number=stage_number,
+          
             depth=depth,
-            reduction=reduction
+           
         )
         self.categories = categories 
         self.box_vector = box_vector
