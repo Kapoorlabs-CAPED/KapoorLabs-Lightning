@@ -1273,6 +1273,8 @@ class DenseNet3D(nn.Module):
         self.bn = nn.BatchNorm3d(num_filters)
         self.final_activation = getattr(F, activation)
 
+        print(f'input_channels {input_channels}, start_filters {start_filters}, stage_number {stage_number}, start_kernel {start_kernel}, mid_kernel {mid_kernel}')
+
     def forward(self, x):
         x = self.conv1(x)
         for i in range(self.stage_number):
