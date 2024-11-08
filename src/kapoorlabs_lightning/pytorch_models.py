@@ -1372,11 +1372,9 @@ class _dense_conv_3d(nn.Module):
         self.activation = nn.ReLU() 
 
     def forward(self, x):
-        if self.activation:
-            y = self.activation(y)
+        y = self.activation(x)
         y = self.conv1(y)
-        if self.activation:
-            y = self.activation(y)
+        y = self.activation(y)
         y = self.conv2(y)
         return torch.cat([x, y], dim=1)
 
