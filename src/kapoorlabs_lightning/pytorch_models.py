@@ -1342,7 +1342,7 @@ class _Transition(nn.Sequential):
 
 
 class DenseNet3D(nn.Module):
-    def __init__(self,input_channels, block_config, startfilter,  start_kernel, mid_kernel, growth_rate=32, bn_size=4,
+    def __init__(self,input_channels, block_config: dict, startfilter,  start_kernel, mid_kernel, growth_rate=32, bn_size=4,
                  drop_rate=0):
         super(DenseNet3D, self).__init__()
         
@@ -1357,7 +1357,7 @@ class DenseNet3D(nn.Module):
 
         self.features = nn.Sequential(OrderedDict(self.features))
         num_features = startfilter
-        for i, num_layers in enumerate(block_config):
+        for i, num_layers in enumerate(block_config.values()):
             block = _DenseBlock(num_layers=num_layers,
                                 num_input_features=num_features,
                                 bn_size=bn_size,
