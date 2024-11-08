@@ -1285,7 +1285,7 @@ class _DenseLayer(nn.Sequential):
     def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, mid_kernel = 3):
         super().__init__()
         self.add_module('norm1', nn.BatchNorm3d(num_input_features))
-        self.add_module('relu1', nn.Relu())
+        self.add_module('relu1', nn.ReLU())
         self.add_module(
             'conv1',
             nn.Conv3d(num_input_features,
@@ -1294,7 +1294,7 @@ class _DenseLayer(nn.Sequential):
                       stride=1,
                       bias=False))
         self.add_module('norm2', nn.BatchNorm3d(bn_size * growth_rate))
-        self.add_module('relu2', nn.Relu())
+        self.add_module('relu2', nn.ReLU())
         self.add_module(
             'conv2',
             nn.Conv3d(bn_size * growth_rate,
@@ -1352,7 +1352,7 @@ class DenseNet3D(nn.Module):
                                     kernel_size=(start_kernel, start_kernel, start_kernel),
                                     padding='same')),
                          ('norm1', nn.BatchNorm3d(startfilter)),
-                         ('relu1', nn.Relu())]
+                         ('relu1', nn.ReLU())]
         
 
         self.features = nn.Sequential(OrderedDict(self.features))
