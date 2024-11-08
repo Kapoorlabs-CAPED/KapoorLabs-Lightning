@@ -1305,9 +1305,8 @@ class DenseNet3D(nn.Module):
         num_filters = startfilter
         for stage in tqdm(range(stage_number)):
             # Add Dense Block
-            num_filters = int(num_filters * reduction)
             self.dense_blocks.append(
-                _dense_block_3d(self.nb_layers[stage], num_filters, mid_kernel)
+                _dense_block_3d(self.nb_layers[stage], num_filters * reduction, mid_kernel)
             )
             self.batch_norm_layers.append(nn.BatchNorm3d(num_filters))
             # Add Transition Block (if not the last stage)
