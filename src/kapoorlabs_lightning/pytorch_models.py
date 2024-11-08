@@ -1367,18 +1367,14 @@ class _dense_block_3d(nn.Module):
 class _dense_conv_3d(nn.Module):
     def __init__(self, num_filters, kernel_size):
         super(_dense_conv_3d, self).__init__()
-        self.bn1 = nn.BatchNorm3d(num_filters)
         self.conv1 = nn.Conv3d(num_filters, 4 * num_filters, kernel_size=1, padding='same', bias=False)
-        self.bn2 = nn.BatchNorm3d(4 * num_filters)
         self.conv2 = nn.Conv3d(4 * num_filters, num_filters, kernel_size=kernel_size, padding='same', bias=False)
         self.activation = nn.ReLU() 
 
     def forward(self, x):
-        y = self.bn1(x)
         if self.activation:
             y = self.activation(y)
         y = self.conv1(y)
-        y = self.bn2(y)
         if self.activation:
             y = self.activation(y)
         y = self.conv2(y)
