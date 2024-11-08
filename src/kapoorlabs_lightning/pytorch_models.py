@@ -8,6 +8,7 @@ import logging
 import math
 import torch.nn.functional as F
 from torch import Tensor
+from tqdm import tqdm
 from typing import List, Tuple
 import torch.nn.init as init
 from torch.utils.data import Dataset
@@ -1209,6 +1210,7 @@ class DenseVollNet(nn.Module):
         self.input_channels = input_shape[0]
 
         # DenseNet initialization
+        print('Densenet 3D initialization')
         self.densenet = DenseNet3D(
             depth=depth,
             startfilter=startfilter,
@@ -1219,6 +1221,7 @@ class DenseVollNet(nn.Module):
         )
 
         # Bottom Part
+        print('Model bottom initialization')
         self.conv3d_main = nn.Conv3d(
             in_channels=startfilter,
             out_channels=categories + nboxes * box_vector,
@@ -1280,7 +1283,7 @@ class DenseVollNet(nn.Module):
 
 
 class DenseNet3D(nn.Module):
-    def __init__(self, depth, startfilter, stage_number, start_kernel, mid_kernel, reduction, activation='relu'):
+    def __init__(self, depth, startfilter, stage_number, start_kernel, mid_kernel, reduction):
         super(DenseNet3D, self).__init__()
         
         self.nb_layers = [v for _, v in depth.items()]
@@ -1291,7 +1294,7 @@ class DenseNet3D(nn.Module):
             in_channels=1,  # Input channel will depend on actual data
             out_channels=startfilter,
             kernel_size=start_kernel,
-            activation=activation,
+           
             padding='same',
         )
 
@@ -1299,20 +1302,20 @@ class DenseNet3D(nn.Module):
         self.transition_blocks = nn.ModuleList()
 
         num_filters = startfilter
-        for stage in range(stage_number):
+        for stage in tqdm(range(stage_number)):
             # Add Dense Block
             self.dense_blocks.append(
-                _dense_block_3d(self.nb_layers[stage], num_filters, mid_kernel, activation)
+                _dense_block_3d(self.nb_layers[stage], num_filters, mid_kernel)
             )
             # Add Transition Block (if not the last stage)
             if stage < stage_number - 1:
                 self.transition_blocks.append(
-                    _transition_block_3d(num_filters + self.nb_layers[stage] * num_filters, reduction, activation)
+                    _transition_block_3d(num_filters + self.nb_layers[stage] * num_filters, reduction)
                 )
             num_filters = int(num_filters * reduction) + self.nb_layers[stage] * num_filters
 
         self.final_batch_norm = nn.BatchNorm3d(num_filters)
-        self.final_activation = getattr(F, activation)
+        self.final_activation = nn.ReLU() 
 
     def forward(self, x):
         x = self.start_conv(x)
@@ -1326,7 +1329,7 @@ class DenseNet3D(nn.Module):
 
 
 class _conv_3d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, activation="relu", padding="same"):
+    def __init__(self, in_channels, out_channels, kernel_size,  padding="same"):
         super(_conv_3d, self).__init__()
         self.conv = nn.Conv3d(
             in_channels=in_channels,
@@ -1335,7 +1338,7 @@ class _conv_3d(nn.Module):
             padding=padding,
             bias=False
         )
-        self.activation = nn.ReLU() if activation == "relu" else None
+        self.activation = nn.ReLU() 
 
     def forward(self, x):
         x = self.conv(x)
@@ -1345,10 +1348,10 @@ class _conv_3d(nn.Module):
 
 
 class _dense_block_3d(nn.Module):
-    def __init__(self, num_layers, num_filters, kernel_size, activation):
+    def __init__(self, num_layers, num_filters, kernel_size):
         super(_dense_block_3d, self).__init__()
         self.layers = nn.ModuleList([
-            _dense_conv_3d(num_filters, kernel_size, activation) for _ in range(num_layers)
+            _dense_conv_3d(num_filters, kernel_size) for _ in range(num_layers)
         ])
 
     def forward(self, x):
@@ -1359,13 +1362,13 @@ class _dense_block_3d(nn.Module):
 
 
 class _dense_conv_3d(nn.Module):
-    def __init__(self, num_filters, kernel_size, activation='relu'):
+    def __init__(self, num_filters, kernel_size):
         super(_dense_conv_3d, self).__init__()
         self.bn1 = nn.BatchNorm3d(num_filters)
         self.conv1 = nn.Conv3d(num_filters, 4 * num_filters, kernel_size=1, padding='same', bias=False)
         self.bn2 = nn.BatchNorm3d(4 * num_filters)
         self.conv2 = nn.Conv3d(4 * num_filters, num_filters, kernel_size=kernel_size, padding='same', bias=False)
-        self.activation = nn.ReLU() if activation == 'relu' else None
+        self.activation = nn.ReLU() 
 
     def forward(self, x):
         y = self.bn1(x)
@@ -1379,13 +1382,13 @@ class _dense_conv_3d(nn.Module):
         return torch.cat([x, y], dim=1)
 
 class _transition_block_3d(nn.Module):
-    def __init__(self, in_channels, reduction, activation="relu"):
+    def __init__(self, in_channels, reduction):
         super(_transition_block_3d, self).__init__()
         out_channels = int(in_channels * reduction)
         self.bn = nn.BatchNorm3d(in_channels)
         self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=1, padding='same', bias=False)
         self.pool = nn.MaxPool3d(2)
-        self.activation = nn.ReLU() if activation == 'relu' else None
+        self.activation = nn.ReLU() 
 
     def forward(self, x):
         x = self.bn(x)
