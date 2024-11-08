@@ -1187,119 +1187,46 @@ class Concat(nn.Module):
     def forward(self, inputs: List[Tensor]) -> Tensor:
         return torch.cat(inputs, dim=1)
 
-class _dense_conv_3d(nn.Module):
-    def __init__(self, num_filters, kernel_size=3, activation='relu'):
-        super().__init__()
-        self.bn1 = nn.BatchNorm3d(num_filters)
-        self.conv1 = nn.Conv3d(num_filters, 4 * num_filters, kernel_size=1, padding='same', bias=False)
-        self.bn2 = nn.BatchNorm3d(4 * num_filters)
-        self.conv2 = nn.Conv3d(4 * num_filters, num_filters, kernel_size=kernel_size, padding='same', bias=False)
-        self.activation = getattr(F, activation)
+class DenseVollNet(nn.Module):
+    def __init__(
+        self,
+        input_shape,
+        categories: int,
+        box_vector: int,
+        nboxes: int = 1,
+        start_kernel: int = 7,
+        mid_kernel: int = 3,
+        startfilter: int = 64,
+        stage_number: int = 3,
+        depth: dict = {'depth_0': 6, 'depth_1': 12, 'depth_2': 24, 'depth_3': 16},
+        reduction: float = 0.5,
+        last_activation: str = "softmax",
+    ):
+        super(DenseVollNet, self).__init__()
         
-    def forward(self, x):
-        y = self.bn1(x)
-        y = self.activation(y)
-        y = self.conv1(y)
-        y = self.bn2(y)
-        y = self.activation(y)
-        y = self.conv2(y)
-        return torch.cat([x, y], dim=1)
+        # Top module
+        last_conv_factor = 2 ** (stage_number - 1)
+        self.input_channels = input_shape[0]
 
-class _dense_block_3d(nn.Module):
-    def __init__(self, num_layers, num_filters, kernel_size, activation):
-        super().__init__()
-        self.layers = nn.ModuleList([
-            _dense_conv_3d(num_filters, kernel_size, activation) for _ in range(num_layers)
-        ])
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
-
-class _transition_block_3d(nn.Module):
-    def __init__(self, in_channels, reduction, activation="relu"):
-        super().__init__()
-        out_channels = int(in_channels * reduction)
-        self.bn = nn.BatchNorm3d(in_channels)
-        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=1, bias=False)
-        self.pool = nn.MaxPool3d((2, 2, 2))
-        self.activation = getattr(F, activation)
-
-    def forward(self, x):
-        x = self.bn(x)
-        x = self.activation(x)
-        x = self.conv(x)
-        x = self.pool(x)
-        return x
-
-class _conv_3d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, strides=1, activation="relu", batch_norm=True):
-        super().__init__()
-        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, stride=strides, padding='same', bias=False)
-        self.batch_norm = nn.BatchNorm3d(out_channels) if batch_norm else None
-        self.activation = getattr(F, activation) if activation else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.batch_norm:
-            x = self.batch_norm(x)
-        if self.activation:
-            x = self.activation(x)
-        return x
-
-class DenseNet3D(nn.Module):
-    def __init__(self, input_channels, start_filters, stage_number, start_kernel, mid_kernel, reduction, depth, activation='relu'):
-        super().__init__()
-        self.nb_layers = [depth[i] for i in range(stage_number)]
-        self.stage_number = stage_number
-        self.input_channels = input_channels
-        self.start_kernel = start_kernel
-        self.mid_kernel = mid_kernel
-        self.reduction = reduction
-        self.activation = activation
-
-        self.conv1 = _conv_3d(input_channels, start_filters, kernel_size=start_kernel, activation=activation)
-        self.dense_blocks = nn.ModuleList()
-        self.transition_blocks = nn.ModuleList()
-
-        num_filters = start_filters
-        for stage in range(stage_number):
-            self.dense_blocks.append(_dense_block_3d(self.nb_layers[stage], num_filters, self.mid_kernel, self.activation))
-            if stage < stage_number - 1:
-                self.transition_blocks.append(_transition_block_3d(num_filters + self.nb_layers[stage] * num_filters, self.reduction, self.activation))
-            num_filters = int(num_filters * reduction) + self.nb_layers[stage] * num_filters
-
-        self.bn = nn.BatchNorm3d(num_filters)
-        self.final_activation = getattr(F, activation)
-
-        print(f'input_channels {input_channels}, start_filters {start_filters}, stage_number {stage_number}, start_kernel {start_kernel}, mid_kernel {mid_kernel}')
-
-    def forward(self, x):
-        x = self.conv1(x)
-        for i in range(self.stage_number):
-            x = self.dense_blocks[i](x)
-            if i < self.stage_number - 1:
-                x = self.transition_blocks[i](x)
-        x = self.bn(x)
-        x = self.final_activation(x)
-        return x
-
-
-class VollBottom(nn.Module):
-    """
-    Final layer of DenseVollNet to produce category and box predictions.
-    """
-    def __init__(self, input_shape, categories, mid_kernel, last_conv_factor, box_vector):
-        super().__init__()
-        
-        self.conv3d_main = nn.Conv3d(
-            in_channels=input_shape[0],
-            out_channels=categories + box_vector,
-            kernel_size=mid_kernel,
-            padding=mid_kernel // 2
+        # DenseNet initialization
+        self.densenet = DenseNet3D(
+            depth=depth,
+            startfilter=startfilter,
+            stage_number=stage_number,
+            start_kernel=start_kernel,
+            mid_kernel=mid_kernel,
+            reduction=reduction,
         )
-        self.batch_norm1 = nn.BatchNorm3d(categories + box_vector)
+
+        # Bottom Part
+        self.conv3d_main = nn.Conv3d(
+            in_channels=startfilter,
+            out_channels=categories + nboxes * box_vector,
+            kernel_size=mid_kernel,
+            padding="same"
+        )
+        self.batch_norm_main = nn.BatchNorm3d(categories + nboxes * box_vector)
+        self.relu_main = nn.ReLU()
 
         self.conv3d_cat = nn.Conv3d(
             in_channels=categories,
@@ -1322,69 +1249,151 @@ class VollBottom(nn.Module):
             padding=0
         )
 
-    def forward(self, x):
-        # Initial combined convolution and batch normalization
-        x = self.conv3d_main(x)
-        x = self.batch_norm1(x)
-        x = F.relu(x)
+        self.last_activation = last_activation
 
-        # Split the output into category and box channels
+    def forward(self, x):
+        # Top DenseNet-like Block
+        x = self.densenet(x)
+
+        # Bottom Part - First convolution
+        x = self.conv3d_main(x)
+        x = self.batch_norm_main(x)
+        x = self.relu_main(x)
+
+        # Split into categories and boxes
         input_cat = x[:, :self.conv3d_cat.in_channels, :, :, :]
         input_box = x[:, self.conv3d_cat.in_channels:, :, :, :]
 
-        # Apply category-specific and box-specific convolutions
-        output_cat = F.softmax(self.conv3d_cat(input_cat), dim=1)
-        output_box = torch.sigmoid(self.conv3d_box(input_box))
+        # Apply convolutions
+        output_cat = self.conv3d_cat(input_cat)
+        output_box = self.conv3d_box(input_box)
+
+        # Apply activations
+        if self.last_activation == "softmax":
+            output_cat = F.softmax(output_cat, dim=1)
+        output_box = torch.sigmoid(output_box)
 
         # Concatenate along the channel dimension
         outputs = torch.cat([output_cat, output_box], dim=1)
-        
+
         return outputs
 
-    
-class DenseVollNet(nn.Module):
-    def __init__(
-        self,
-        input_shape,
-        categories,
-        box_vector,
-        start_kernel=7,
-        mid_kernel=3,
-        startfilter=64,
-        stage_number=4,
-        depth={'depth_0': 6, 'depth_1': 12, 'depth_2': 24, 'depth_3': 16},
-        reduction=0.5,
-    ):
-        super().__init__()
 
-        self.last_conv_factor = 2 ** (stage_number - 1)
-        # DenseNet 3D
-        self.densenet = DenseNet3D(
-            input_channels=input_shape[0],
-            start_filters=startfilter,
-            stage_number=stage_number,
-            start_kernel=start_kernel,
-            mid_kernel=mid_kernel,
-            reduction=reduction,
-            depth=[depth[f'depth_{i}'] for i in range(stage_number)]
+class DenseNet3D(nn.Module):
+    def __init__(self, depth, startfilter, stage_number, start_kernel, mid_kernel, reduction, activation='relu'):
+        super(DenseNet3D, self).__init__()
+        
+        self.nb_layers = [v for _, v in depth.items()]
+        if len(self.nb_layers) != stage_number:
+            raise ValueError('If `stage_number` is specified, its length must match the depth.')
+
+        self.start_conv = _conv_3d(
+            in_channels=1,  # Input channel will depend on actual data
+            out_channels=startfilter,
+            kernel_size=start_kernel,
+            activation=activation,
+            padding='same',
         )
 
-        # Bottom part
-        print('Setting up VollBottom')
-        self.bottom = VollBottom(
-            input_shape=input_shape,
-            categories=categories,
-            mid_kernel=mid_kernel,
-            last_conv_factor=self.last_conv_factor,
-            box_vector=box_vector
-        )
+        self.dense_blocks = nn.ModuleList()
+        self.transition_blocks = nn.ModuleList()
+
+        num_filters = startfilter
+        for stage in range(stage_number):
+            # Add Dense Block
+            self.dense_blocks.append(
+                _dense_block_3d(self.nb_layers[stage], num_filters, mid_kernel, activation)
+            )
+            # Add Transition Block (if not the last stage)
+            if stage < stage_number - 1:
+                self.transition_blocks.append(
+                    _transition_block_3d(num_filters + self.nb_layers[stage] * num_filters, reduction, activation)
+                )
+            num_filters = int(num_filters * reduction) + self.nb_layers[stage] * num_filters
+
+        self.final_batch_norm = nn.BatchNorm3d(num_filters)
+        self.final_activation = getattr(F, activation)
 
     def forward(self, x):
-        x = self.densenet(x)
-        x = self.bottom(x)
-        return x  
+        x = self.start_conv(x)
+        for i in range(len(self.dense_blocks)):
+            x = self.dense_blocks[i](x)
+            if i < len(self.transition_blocks):
+                x = self.transition_blocks[i](x)
+        x = self.final_batch_norm(x)
+        x = self.final_activation(x)
+        return x
 
 
+class _conv_3d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, activation="relu", padding="same"):
+        super(_conv_3d, self).__init__()
+        self.conv = nn.Conv3d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            padding=padding,
+            bias=False
+        )
+        self.activation = nn.ReLU() if activation == "relu" else None
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
+
+
+class _dense_block_3d(nn.Module):
+    def __init__(self, num_layers, num_filters, kernel_size, activation):
+        super(_dense_block_3d, self).__init__()
+        self.layers = nn.ModuleList([
+            _dense_conv_3d(num_filters, kernel_size, activation) for _ in range(num_layers)
+        ])
+
+    def forward(self, x):
+        for layer in self.layers:
+            out = layer(x)
+            x = torch.cat([x, out], dim=1)
+        return x
+
+
+class _dense_conv_3d(nn.Module):
+    def __init__(self, num_filters, kernel_size, activation='relu'):
+        super(_dense_conv_3d, self).__init__()
+        self.bn1 = nn.BatchNorm3d(num_filters)
+        self.conv1 = nn.Conv3d(num_filters, 4 * num_filters, kernel_size=1, padding='same', bias=False)
+        self.bn2 = nn.BatchNorm3d(4 * num_filters)
+        self.conv2 = nn.Conv3d(4 * num_filters, num_filters, kernel_size=kernel_size, padding='same', bias=False)
+        self.activation = nn.ReLU() if activation == 'relu' else None
+
+    def forward(self, x):
+        y = self.bn1(x)
+        if self.activation:
+            y = self.activation(y)
+        y = self.conv1(y)
+        y = self.bn2(y)
+        if self.activation:
+            y = self.activation(y)
+        y = self.conv2(y)
+        return torch.cat([x, y], dim=1)
+
+class _transition_block_3d(nn.Module):
+    def __init__(self, in_channels, reduction, activation="relu"):
+        super(_transition_block_3d, self).__init__()
+        out_channels = int(in_channels * reduction)
+        self.bn = nn.BatchNorm3d(in_channels)
+        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=1, padding='same', bias=False)
+        self.pool = nn.MaxPool3d(2)
+        self.activation = nn.ReLU() if activation == 'relu' else None
+
+    def forward(self, x):
+        x = self.bn(x)
+        if self.activation:
+            x = self.activation(x)
+        x = self.conv(x)
+        x = self.pool(x)
+        return x
 
 
 class CloudAutoEncoder(nn.Module):
