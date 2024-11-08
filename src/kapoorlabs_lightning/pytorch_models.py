@@ -1314,7 +1314,7 @@ class DenseNet3D(nn.Module):
                     _transition_block_3d(num_filters, reduction)
                 )
 
-        self.final_batch_norm = nn.BatchNorm3d(num_filters)
+        self.final_batch_norm = nn.BatchNorm3d(startfilter)
         self.final_activation = nn.ReLU() 
 
     def forward(self, x):
