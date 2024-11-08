@@ -1212,6 +1212,7 @@ class DenseVollNet(nn.Module):
         # DenseNet initialization
         print('Densenet 3D initialization')
         self.densenet = DenseNet3D(
+            input_channels = input_channels,
             depth=depth,
             startfilter=startfilter,
             stage_number=stage_number,
@@ -1283,7 +1284,7 @@ class DenseVollNet(nn.Module):
 
 
 class DenseNet3D(nn.Module):
-    def __init__(self, depth, startfilter, stage_number, start_kernel, mid_kernel, reduction):
+    def __init__(self,input_channels, depth, startfilter, stage_number, start_kernel, mid_kernel, reduction):
         super(DenseNet3D, self).__init__()
         
         self.nb_layers = [v for _, v in depth.items()]
@@ -1291,7 +1292,7 @@ class DenseNet3D(nn.Module):
             raise ValueError('If `stage_number` is specified, its length must match the depth.')
 
         self.start_conv = _conv_3d(
-            in_channels=1,  # Input channel will depend on actual data
+            in_channels=input_channels,  
             out_channels=startfilter,
             kernel_size=start_kernel,
            
