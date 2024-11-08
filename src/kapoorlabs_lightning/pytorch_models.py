@@ -1304,7 +1304,7 @@ class DenseNet3D(nn.Module):
         for stage in tqdm(range(stage_number)):
             # Add Dense Block
             self.dense_blocks.append(
-                _voll_dense_block(self.nb_layers[stage], num_filters//4, mid_kernel)
+                _voll_dense_block(self.nb_layers[stage], num_filters, mid_kernel)
             )
             self.batch_norm_layers.append(nn.BatchNorm3d(num_filters))
             # Add Transition Block (if not the last stage)
@@ -1351,7 +1351,7 @@ class _voll_dense_block(nn.Module):
 class _voll_dense_conv(nn.Module):
     def __init__(self, num_filters, kernel_size=3, activation='relu'):
         super(_voll_dense_conv, self).__init__()
-        self.batch_norm1 = nn.BatchNorm3d(num_features=num_filters * 4)
+        self.batch_norm1 = nn.BatchNorm3d(num_features=num_filters)
         self.activation = self.get_activation_function(activation)
         self.conv1 = nn.Conv3d(in_channels=num_filters, out_channels=num_filters * 4, kernel_size=1, bias=False, padding='same')
         self.batch_norm2 = nn.BatchNorm3d(num_features=num_filters)
