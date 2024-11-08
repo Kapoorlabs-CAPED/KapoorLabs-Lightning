@@ -48,7 +48,7 @@ from lightning.pytorch.accelerators import Accelerator
 from lightning.pytorch.loggers.logger import Logger
 from lightning.pytorch.profilers import Profiler
 from lightning.pytorch.strategies import Strategy
-from .pytorch_datasets import MitosisDataset, H5MitosisDataset
+from .pytorch_datasets import MitosisDataset, H5MitosisDataset, H5VisionDataset
 import json
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_callbacks import CheckpointModel, CustomProgressBar
@@ -216,13 +216,13 @@ class MitosisInception:
             val_arrays_key = "val_arrays"
             val_labels_key = "val_labels"
 
-            self.dataset_train = H5MitosisDataset(
+            self.dataset_train = H5VisionDataset(
                 self.h5_file,
                 train_arrays_key,
                 train_labels_key,
             )
 
-            self.dataset_val = H5MitosisDataset(
+            self.dataset_val = H5VisionDataset(
                 self.h5_file,
                 val_arrays_key,
                 val_labels_key,

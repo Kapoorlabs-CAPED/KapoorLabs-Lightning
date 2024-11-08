@@ -160,6 +160,27 @@ class H5MitosisDataset(Dataset):
             label = torch.from_numpy(np.asarray(self.targets[idx]))
 
             return array, label
+    
+class H5VisionDataset(Dataset):
+    def __init__(self, h5_file, data_key, label_key):
+        self.h5_file = h5_file
+        self.data_key = data_key
+        self.label_key = label_key
+        self.data_label = h5py.File(self.h5_file, "r")
+        self.data = self.data_label[data_key]
+        self.targets = self.data_label[label_key]
+        self.input_channels = np.asarray(self.data[0]).shape[1]
+  
+    def __len__(self) -> int:
+        return len(self.targets)
+
+    def __getitem__(self, idx):
+       
+            array = torch.from_numpy(np.asarray(self.data[idx])).float()
+            print(array.shape)
+            label = torch.from_numpy(np.asarray(self.targets[idx]))
+
+            return array, label    
 
 
 class PointCloudDataset(Dataset):
