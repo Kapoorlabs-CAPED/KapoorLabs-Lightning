@@ -1303,7 +1303,7 @@ class DenseNet3D(nn.Module):
 
         num_filters = startfilter
         for stage in tqdm(range(stage_number)):
-            print(stage)
+            print(stage, self.nb_layers[stage])
             # Add Dense Block
             self.dense_blocks.append(
                 _dense_block_3d(self.nb_layers[stage], num_filters, mid_kernel)
