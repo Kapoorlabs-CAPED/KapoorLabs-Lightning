@@ -1409,17 +1409,17 @@ class _voll_transition_block(nn.Module):
 
 
 class _voll_conv(nn.Module):
-    def __init__(self, in_channels, num_filters=64, kernel_size=3, strides=1, activation='relu', batch_normalization=True, conv_first=True):
+    def __init__(self, in_channels, out_channels=64, kernel_size=3, strides=1, activation='relu', batch_normalization=True, conv_first=True):
         super(_voll_conv, self).__init__()
         self.conv = nn.Conv3d(
             in_channels=in_channels,
-            out_channels=num_filters,
+            out_channels=out_channels,
             kernel_size=kernel_size,
             stride=strides,
             padding='same',
             bias=False
         )
-        self.batch_norm = nn.BatchNorm3d(num_features=num_filters) if batch_normalization else None
+        self.batch_norm = nn.BatchNorm3d(num_features=out_channels) if batch_normalization else None
         self.activation = self.get_activation_function(activation) if activation is not None else None
         self.conv_first = conv_first
 
