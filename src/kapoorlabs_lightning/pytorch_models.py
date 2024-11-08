@@ -1321,7 +1321,6 @@ class DenseNet3D(nn.Module):
     def forward(self, x):
         x = self.start_conv(x)
         for i in range(len(self.dense_blocks)):
-            print(i)
             x = self.dense_blocks[i](x)
             if i < len(self.transition_blocks):
                 x = self.transition_blocks[i](x)
@@ -1353,7 +1352,7 @@ class _voll_dense_block(nn.Module):
 class _voll_dense_conv(nn.Module):
     def __init__(self, num_filters, kernel_size=3, activation='relu'):
         super(_voll_dense_conv, self).__init__()
-        self.batch_norm1 = nn.BatchNorm3d(num_features=num_filters)
+        self.batch_norm1 = nn.BatchNorm3d(num_features=num_filters * 2)
         self.activation = self.get_activation_function(activation)
         self.conv1 = nn.Conv3d(in_channels=num_filters, out_channels=num_filters * 4, kernel_size=1, bias=False, padding='same')
         self.batch_norm2 = nn.BatchNorm3d(num_features=num_filters * 4)
