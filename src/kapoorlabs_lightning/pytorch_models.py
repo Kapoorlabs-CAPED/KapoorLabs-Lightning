@@ -1212,7 +1212,7 @@ class DenseVollNet(nn.Module):
         # DenseNet initialization
         print('Densenet 3D initialization')
         self.densenet = DenseNet3D(
-            input_channels = input_channels,
+            input_channels = self.input_channels,
             depth=depth,
             startfilter=startfilter,
             stage_number=stage_number,
