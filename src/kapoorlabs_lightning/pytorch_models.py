@@ -1322,6 +1322,7 @@ class DenseNet3D(nn.Module):
     def forward(self, x):
         x = self.start_conv(x)
         for i in range(len(self.dense_blocks)):
+            print('dense block', i)
             x = self.dense_blocks[i](x)
             if i < len(self.transition_blocks):
                 x = self.transition_blocks[i](x)
