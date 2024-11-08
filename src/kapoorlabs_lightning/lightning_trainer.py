@@ -239,7 +239,7 @@ class MitosisInception:
 
             self.train_loader = self.mitosis_data.train_dataloader()
             self.val_loader = self.mitosis_data.val_dataloader()
-
+            print('Data loaded')
     def setup_h5_datasets(self):
         if self.h5_file is not None:
             train_arrays_key = "train_arrays"
