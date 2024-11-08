@@ -240,6 +240,8 @@ class MitosisInception:
             self.train_loader = self.mitosis_data.train_dataloader()
             self.val_loader = self.mitosis_data.val_dataloader()
             print('Data loaded')
+
+
     def setup_h5_datasets(self):
         if self.h5_file is not None:
             train_arrays_key = "train_arrays"
@@ -323,7 +325,7 @@ class MitosisInception:
     def setup_densenet_vision_model(self,input_shape,categories,box_vector,
                                     start_kernel,mid_kernel,startfilter,stage_number,depth,reduction):
        
-
+        print('Setting up model')
         self.model = DenseVollNet(
             input_shape,
             categories,
