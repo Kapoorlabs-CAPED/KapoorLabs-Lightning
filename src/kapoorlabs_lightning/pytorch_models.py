@@ -1291,11 +1291,10 @@ class DenseNet3D(nn.Module):
         if len(self.nb_layers) != stage_number:
             raise ValueError('If `stage_number` is specified, its length must match the depth.')
 
-        self.start_conv = _conv_3d(
+        self.start_conv = _voll_conv(
             in_channels=input_channels,  
             out_channels=startfilter,
             kernel_size=start_kernel,
-           
             padding='same',
         )
 
@@ -1306,15 +1305,15 @@ class DenseNet3D(nn.Module):
         for stage in tqdm(range(stage_number)):
             # Add Dense Block
             self.dense_blocks.append(
-                _dense_block_3d(self.nb_layers[stage], num_filters // 2, mid_kernel)
+                _voll_dense_block(self.nb_layers[stage], num_filters//2, mid_kernel)
             )
             self.batch_norm_layers.append(nn.BatchNorm3d(num_filters))
             # Add Transition Block (if not the last stage)
             if stage < stage_number - 1:
                 self.transition_blocks.append(
-                    _transition_block_3d(num_filters, reduction)
+                    _voll_transition_block(num_filters, reduction)
                 )
-                
+                num_filters = int(num_filters * reduction)
 
         self.final_batch_norm = nn.BatchNorm3d(num_filters)
         self.final_activation = nn.ReLU() 
@@ -1322,7 +1321,6 @@ class DenseNet3D(nn.Module):
     def forward(self, x):
         x = self.start_conv(x)
         for i in range(len(self.dense_blocks)):
-           
             x = self.dense_blocks[i](x)
             if i < len(self.transition_blocks):
                 x = self.transition_blocks[i](x)
@@ -1331,69 +1329,127 @@ class DenseNet3D(nn.Module):
         return x
 
 
-class _conv_3d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size,  padding="same"):
-        super(_conv_3d, self).__init__()
-        self.conv = nn.Conv3d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            padding=padding,
-            bias=False
-        )
-        self.activation = nn.ReLU() 
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.activation:
-            x = self.activation(x)
-        return x
 
 
-class _dense_block_3d(nn.Module):
-    def __init__(self, num_layers, num_filters, kernel_size):
-        super(_dense_block_3d, self).__init__()
+class _voll_dense_block(nn.Module):
+    def __init__(self, nb_layers, num_filters, kernel_size, activation='relu'):
+        super(_voll_dense_block, self).__init__()
+        self.nb_layers = nb_layers
+        self.num_filters = num_filters
+        self.kernel_size = kernel_size
+        self.activation = activation
         self.layers = nn.ModuleList([
-            _dense_conv_3d(num_filters, kernel_size) for _ in range(num_layers)
+            _voll_dense_conv(num_filters, kernel_size, activation)
+            for _ in range(nb_layers)
         ])
 
     def forward(self, x):
         for layer in self.layers:
-            out = layer(x)
-            x = torch.cat([x, out], dim=1)
+            x = layer(x)
         return x
 
 
-class _dense_conv_3d(nn.Module):
-    def __init__(self, num_filters, kernel_size):
-        super(_dense_conv_3d, self).__init__()
-        self.conv1 = nn.Conv3d(num_filters, 4 * num_filters, kernel_size=1, padding='same', bias=False)
-        self.conv2 = nn.Conv3d(4 * num_filters, num_filters, kernel_size=kernel_size, padding='same', bias=False)
-        self.activation = nn.ReLU() 
+class _voll_dense_conv(nn.Module):
+    def __init__(self, num_filters, kernel_size=3, activation='relu'):
+        super(_voll_dense_conv, self).__init__()
+        self.batch_norm1 = nn.BatchNorm3d(num_features=num_filters * 4)
+        self.activation = self.get_activation_function(activation)
+        self.conv1 = nn.Conv3d(in_channels=num_filters, out_channels=num_filters * 4, kernel_size=1, bias=False, padding='same')
+        self.batch_norm2 = nn.BatchNorm3d(num_features=num_filters)
+        self.conv2 = nn.Conv3d(in_channels=num_filters * 4, out_channels=num_filters, kernel_size=kernel_size, bias=False, padding='same')
 
     def forward(self, x):
-        y = self.activation(x)
+        y = self.batch_norm1(x)
+        y = self.activation(y)
         y = self.conv1(y)
+        y = self.batch_norm2(y)
         y = self.activation(y)
         y = self.conv2(y)
-        return torch.cat([x, y], dim=1)
+        return torch.cat([y, x], dim=1)
 
-class _transition_block_3d(nn.Module):
-    def __init__(self, in_channels, reduction):
-        super(_transition_block_3d, self).__init__()
-        out_channels = int(in_channels * reduction)
-        self.bn = nn.BatchNorm3d(in_channels)
-        self.conv = nn.Conv3d(in_channels, out_channels, kernel_size=1, padding='same', bias=False)
-        self.pool = nn.MaxPool3d(2)
-        self.activation = nn.ReLU() 
+    def get_activation_function(self, activation):
+        if activation == 'relu':
+            return F.relu
+        elif activation == 'leaky_relu':
+            return F.leaky_relu
+        elif activation == 'sigmoid':
+            return torch.sigmoid
+        elif activation == 'tanh':
+            return torch.tanh
+        else:
+            raise ValueError(f"Unsupported activation: {activation}")
+
+
+class _voll_transition_block(nn.Module):
+    def __init__(self, in_channels, reduction, activation='relu'):
+        super(_voll_transition_block, self).__init__()
+        self.batch_norm = nn.BatchNorm3d(num_features=in_channels)
+        self.activation = self.get_activation_function(activation)
+        self.conv = nn.Conv3d(in_channels=in_channels, out_channels=int(in_channels * reduction), kernel_size=1, bias=False)
+        self.pool = nn.MaxPool3d(kernel_size=2, stride=2)
 
     def forward(self, x):
-        x = self.bn(x)
-        if self.activation:
-            x = self.activation(x)
+        x = self.batch_norm(x)
+        x = self.activation(x)
         x = self.conv(x)
         x = self.pool(x)
         return x
+
+    def get_activation_function(self, activation):
+        if activation == 'relu':
+            return F.relu
+        elif activation == 'leaky_relu':
+            return F.leaky_relu
+        elif activation == 'sigmoid':
+            return torch.sigmoid
+        elif activation == 'tanh':
+            return torch.tanh
+        else:
+            raise ValueError(f"Unsupported activation: {activation}")
+
+
+class _voll_conv(nn.Module):
+    def __init__(self, in_channels, num_filters=64, kernel_size=3, strides=1, activation='relu', batch_normalization=True, conv_first=True):
+        super(_voll_conv, self).__init__()
+        self.conv = nn.Conv3d(
+            in_channels=in_channels,
+            out_channels=num_filters,
+            kernel_size=kernel_size,
+            stride=strides,
+            padding='same',
+            bias=False
+        )
+        self.batch_norm = nn.BatchNorm3d(num_features=num_filters) if batch_normalization else None
+        self.activation = self.get_activation_function(activation) if activation is not None else None
+        self.conv_first = conv_first
+
+    def forward(self, x):
+        if self.conv_first:
+            x = self.conv(x)
+            if self.batch_norm:
+                x = self.batch_norm(x)
+            if self.activation:
+                x = self.activation(x)
+        else:
+            if self.batch_norm:
+                x = self.batch_norm(x)
+            if self.activation:
+                x = self.activation(x)
+            x = self.conv(x)
+        return x
+
+    def get_activation_function(self, activation):
+        if activation == 'relu':
+            return F.relu
+        elif activation == 'leaky_relu':
+            return F.leaky_relu
+        elif activation == 'sigmoid':
+            return torch.sigmoid
+        elif activation == 'tanh':
+            return torch.tanh
+        else:
+            raise ValueError(f"Unsupported activation: {activation}")
+
 
 
 class CloudAutoEncoder(nn.Module):
