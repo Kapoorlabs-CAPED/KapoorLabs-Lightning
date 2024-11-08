@@ -1295,7 +1295,6 @@ class DenseNet3D(nn.Module):
             in_channels=input_channels,  
             out_channels=startfilter,
             kernel_size=start_kernel,
-            padding='same',
         )
 
         self.dense_blocks = nn.ModuleList()
