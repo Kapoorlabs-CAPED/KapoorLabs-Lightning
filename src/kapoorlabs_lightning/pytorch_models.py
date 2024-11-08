@@ -1308,7 +1308,6 @@ class DenseNet3D(nn.Module):
             self.dense_blocks.append(
                 _dense_block_3d(self.nb_layers[stage], num_filters, mid_kernel)
             )
-            num_filters = num_filters + self.nb_layers[stage] * num_filters
             # Add Transition Block (if not the last stage)
             if stage < stage_number - 1:
                 self.transition_blocks.append(
