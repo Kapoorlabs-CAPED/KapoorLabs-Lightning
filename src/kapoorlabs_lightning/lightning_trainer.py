@@ -457,6 +457,7 @@ class MitosisInception:
 
     def train(self):
 
+        print('Starting training')
         lightning_special_train = LightningModelTrain(
             self.train_loader,
             self.val_loader,
