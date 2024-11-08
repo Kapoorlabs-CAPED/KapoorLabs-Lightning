@@ -1366,7 +1366,7 @@ class _dense_conv_3d(nn.Module):
         super(_dense_conv_3d, self).__init__()
         self.bn1 = nn.BatchNorm3d(num_filters)
         self.conv1 = nn.Conv3d(num_filters, 4 * num_filters, kernel_size=1, padding='same', bias=False)
-        self.bn2 = nn.BatchNorm3d(4 * num_filters)
+        self.bn2 = nn.BatchNorm3d(8 * num_filters)
         self.conv2 = nn.Conv3d(4 * num_filters, num_filters, kernel_size=kernel_size, padding='same', bias=False)
         self.activation = nn.ReLU() 
 
