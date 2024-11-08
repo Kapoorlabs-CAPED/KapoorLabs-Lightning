@@ -1370,6 +1370,7 @@ class DenseVollNet(nn.Module):
         )
 
         # Bottom part
+        print('Setting up VollBottom')
         self.bottom = VollBottom(
             input_shape=input_shape,
             categories=categories,
