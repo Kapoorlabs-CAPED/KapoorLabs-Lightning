@@ -1356,6 +1356,7 @@ class DenseNet3D(nn.Module):
         
 
         self.features = nn.Sequential(OrderedDict(self.features))
+        num_features = startfilter
         for i, num_layers in enumerate(block_config):
             block = _DenseBlock(num_layers=num_layers,
                                 num_input_features=num_features,
