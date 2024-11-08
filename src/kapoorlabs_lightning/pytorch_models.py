@@ -1303,6 +1303,7 @@ class DenseNet3D(nn.Module):
 
         num_filters = startfilter
         for stage in tqdm(range(stage_number)):
+            print(stage)
             # Add Dense Block
             self.dense_blocks.append(
                 _dense_block_3d(self.nb_layers[stage], num_filters, mid_kernel)
@@ -1312,6 +1313,7 @@ class DenseNet3D(nn.Module):
                 self.transition_blocks.append(
                     _transition_block_3d(num_filters + self.nb_layers[stage] * num_filters, reduction)
                 )
+            print(len(self.dense_blocks, len(self.transition_blocks)))    
             num_filters = int(num_filters * reduction) + self.nb_layers[stage] * num_filters
 
         self.final_batch_norm = nn.BatchNorm3d(num_filters)
