@@ -1252,6 +1252,7 @@ class LightningModel(LightningModule):
             # Compute class accuracy
             predicted_class_indices = torch.argmax(predicted_classes, dim=1)
             true_class_indices = torch.argmax(true_classes, dim=1)
+            print(predicted_class_indices.shape, true_class_indices.shape)
             class_accuracy_metric = Accuracy(task="multiclass", num_classes=self.num_classes).to(self.device)
             class_accuracy = class_accuracy_metric(predicted_class_indices, true_class_indices)
 
