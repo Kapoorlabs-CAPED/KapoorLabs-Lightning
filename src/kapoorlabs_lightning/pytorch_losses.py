@@ -41,6 +41,7 @@ def extract_ground_event_volume_truth(y_true, categories, box_vector):
         tuple: (true_box_class, true_box_xyz, true_box_whd, true_box_conf)
     """
     true_box_class = y_true[..., :categories]
+    print(y_true.shape)
     true_nboxes = y_true[..., categories:].view(-1, 1, box_vector)
     true_box_xyz = true_nboxes[..., :3]
     true_box_whd = true_nboxes[..., 3:6]
