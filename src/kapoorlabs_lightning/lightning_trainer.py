@@ -1237,15 +1237,57 @@ class LightningModel(LightningModule):
 
     def compute_accuracy(self, outputs, labels):
         
-         predicted = outputs
-         if self.oneat_accuracy:
-             labels = labels.reshape(outputs.shape)
-         accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
+        predicted = outputs
+
+        if self.oneat_accuracy:
+            labels = labels.reshape(outputs.shape)
+            print(labels.shape, outputs.shape)
+            predicted_classes = outputs[:, :self.num_classes]
+            true_classes = labels[:, :self.num_classes]
+            predicted_xyz = outputs[:, self.num_classes:self.num_classes+3]
+            true_xyz = labels[:, self.num_classes:self.num_classes+3]
+            predicted_hwd = outputs[:, self.num_classes+3:self.num_classes+6]
+            true_hwd = labels[:, self.num_classes+3:self.num_classes+6]
+            predicted_confidence = outputs[:, self.num_classes+6]
+            true_confidence = labels[:, self.num_classes+6]
+
+            # Compute class accuracy
+            predicted_class_indices = torch.argmax(predicted_classes, dim=1)
+            true_class_indices = torch.argmax(true_classes, dim=1)
+            
+            class_accuracy_metric = Accuracy(task="multiclass", num_classes=self.num_classes).to(self.device)
+            class_accuracy = class_accuracy_metric(predicted_class_indices, true_class_indices)
+
+            # Compute accuracy for xyz coordinates (MSE)
+            xyz_accuracy_metric = MeanSquaredError().to(self.device)
+            xyz_accuracy = 1.0 - xyz_accuracy_metric(predicted_xyz, true_xyz)  # 1 - MSE for similarity to accuracy
+
+            # Compute accuracy for dimensions hwd (MSE)
+            hwd_accuracy_metric = MeanSquaredError().to(self.device)
+            hwd_accuracy = 1.0 - hwd_accuracy_metric(predicted_hwd, true_hwd)
+
+            # Compute confidence accuracy (Binary or MSE depending on task)
+            confidence_accuracy_metric = MeanAbsoluteError().to(self.device)
+            confidence_accuracy = 1.0 - confidence_accuracy_metric(predicted_confidence, true_confidence)
+
+            # Combine all accuracies with a weighted average (optional)
+            overall_accuracy = (class_accuracy + xyz_accuracy + hwd_accuracy + confidence_accuracy) / 4.0
+
+            # Return a dictionary of individual accuracies and the overall accuracy
+            accuracies = {
+                "class_accuracy": class_accuracy.item(),
+                "xyz_accuracy": xyz_accuracy.item(),
+                "hwd_accuracy": hwd_accuracy.item(),
+                "confidence_accuracy": confidence_accuracy.item(),
+                "overall_accuracy": overall_accuracy.item(),
+            }
+        else:
+            accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
                 self.device
             )
-         accuracies = accuracy(predicted, labels)
+            accuracies = accuracy(predicted, labels)
 
-         return accuracies
+        return accuracies
 
     def configure_optimizers(self):
         optimizer = self.optim_func(self.parameters())
