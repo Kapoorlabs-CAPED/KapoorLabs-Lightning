@@ -118,7 +118,6 @@ class VolumeYoloLoss(nn.Module):
 
         
         y_true = y_true.reshape(y_pred.shape)
-        print(y_true.shape, y_pred.shape)
         y_true = y_true.to(self.device)
         y_pred = y_pred.to(self.device)
         
