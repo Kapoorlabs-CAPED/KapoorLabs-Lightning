@@ -178,7 +178,6 @@ class H5VisionDataset(Dataset):
        
             array = torch.from_numpy(np.asarray(self.data[idx])).float()
             label = torch.from_numpy(np.asarray(self.targets[idx]))
-            print(label)
 
             return array, label    
 
