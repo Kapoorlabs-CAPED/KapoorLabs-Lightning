@@ -25,9 +25,7 @@ class ChamferLoss(nn.Module):
         return loss_1 + loss_2
 
 
-def get_event_grid():
-    event_grid = torch.tensor([[0.0, 0.0, 0.0]])  # Shape: (1, 3)
-    return event_grid
+
 
 # Simplified extract functions
 def extract_ground_event_volume_truth(y_true, categories, box_vector):
@@ -41,7 +39,6 @@ def extract_ground_event_volume_truth(y_true, categories, box_vector):
         tuple: (true_box_class, true_box_xyz, true_box_whd, true_box_conf)
     """
     true_box_class = y_true[..., :categories]
-    print(y_true.shape)
     true_nboxes = y_true[..., categories:].view(-1, 1, box_vector)
     true_box_xyz = true_nboxes[..., :3]
     true_box_whd = true_nboxes[..., 3:6]
@@ -50,20 +47,19 @@ def extract_ground_event_volume_truth(y_true, categories, box_vector):
     return true_box_class, true_box_xyz, true_box_whd, true_box_conf
 
 
-def extract_ground_event_volume_pred(y_pred, categories, event_grid, box_vector):
+def extract_ground_event_volume_pred(y_pred, categories, box_vector):
     """
     Extracts class, position (xyz), dimensions (whd), and confidence from the predicted tensor.
     Args:
         y_pred (torch.Tensor): Predicted tensor.
         categories (int): Number of categories/classes.
-        event_grid (torch.Tensor): Event grid tensor used for positional adjustment.
         box_vector (int): Length of the box vector.
     Returns:
         tuple: (pred_box_class, pred_box_xyz, pred_box_whd, pred_box_conf)
     """
     pred_box_class = y_pred[..., :categories]
     pred_nboxes = y_pred[..., categories:].view(-1, 1, box_vector)
-    pred_box_xyz = pred_nboxes[..., :3] + event_grid
+    pred_box_xyz = pred_nboxes[..., :3]
     pred_box_whd = pred_nboxes[..., 3:6]
     pred_box_conf = pred_nboxes[..., -1]
 
@@ -117,7 +113,6 @@ class VolumeYoloLoss(nn.Module):
         self.categories = categories
         self.box_vector = box_vector
         self.device = device
-        self.event_grid = get_event_grid()
 
     def forward(self, y_true, y_pred):
         y_true = y_true.to(self.device)
@@ -125,7 +120,7 @@ class VolumeYoloLoss(nn.Module):
         true_box_class, true_box_xyz, true_box_whd, true_box_conf = extract_ground_event_volume_truth(
             y_true, self.categories, self.box_vector)
         pred_box_class, pred_box_xyz, pred_box_whd, pred_box_conf = extract_ground_event_volume_pred(
-            y_pred, self.categories, self.event_grid, self.box_vector)
+            y_pred, self.categories, self.box_vector)
 
         loss_xyzwhd = calc_loss_xyzwhd(true_box_xyz, pred_box_xyz, true_box_whd, pred_box_whd)
         loss_class = calc_loss_class(true_box_class, pred_box_class)

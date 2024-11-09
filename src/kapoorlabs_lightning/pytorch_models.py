@@ -1261,15 +1261,12 @@ class DenseVollNet(nn.Module):
         x = self.conv3d_main(x)
         x = self.batch_norm_main(x)
         x = self.relu_main(x)
-        print(x.shape)
         # Split into categories and boxes
         input_cat = x[:, :self.conv3d_cat.in_channels, :, :, :]
         input_box = x[:, self.conv3d_cat.in_channels:, :, :, :]
-        print(input_cat.shape, input_box.shape)
         # Apply convolutions
         output_cat = self.conv3d_cat(input_cat)
         output_box = self.conv3d_box(input_box)
-        print(output_cat.shape, output_box.shape)
         # Apply activations
         if self.last_activation == "softmax":
             output_cat = F.softmax(output_cat, dim=1)
