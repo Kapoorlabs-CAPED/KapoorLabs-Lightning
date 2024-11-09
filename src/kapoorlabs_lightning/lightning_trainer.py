@@ -430,7 +430,7 @@ class MitosisInception:
         if self.loss_function == "mse":
             self.loss = MSELoss()
         if self.loss_function == "oneat":
-           self.loss = VolumeYoloLoss(categories=self.categories, box_vector=self.box_vector)    
+           self.loss = VolumeYoloLoss(categories=self.categories, box_vector=self.box_vector, device= self.map_location)    
 
         self.progress = CustomProgressBar()
         self.lightning_model = LightningModel(

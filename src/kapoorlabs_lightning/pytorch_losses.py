@@ -112,13 +112,16 @@ def calc_loss_class(true_box_class, pred_box_class):
 
 # Combined loss function
 class VolumeYoloLoss(nn.Module):
-    def __init__(self, categories, box_vector):
+    def __init__(self, categories, box_vector, device):
         super().__init__()
         self.categories = categories
         self.box_vector = box_vector
+        self.device = device
         self.event_grid = get_event_grid()
 
     def forward(self, y_true, y_pred):
+        y_true = y_true.to(self.device)
+        y_pred = y_pred.to(self.device)
         true_box_class, true_box_xyz, true_box_whd, true_box_conf = extract_ground_event_volume_truth(
             y_true, self.categories, self.box_vector)
         pred_box_class, pred_box_xyz, pred_box_whd, pred_box_conf = extract_ground_event_volume_pred(
