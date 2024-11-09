@@ -1239,7 +1239,7 @@ class LightningModel(LightningModule):
         
          predicted = outputs
          if self.oneat_accuracy:
-             labels = labels.reshape(outputs)
+             labels = labels.reshape(outputs.shape)
          accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
                 self.device
             )
