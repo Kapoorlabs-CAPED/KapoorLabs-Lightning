@@ -1222,7 +1222,7 @@ class DenseVollNet(nn.Module):
         # Bottom Part
         print('Model bottom initialization')
         self.conv3d_main = nn.Conv3d(
-            in_channels=startfilter,
+            in_channels=self.input_channels,
             out_channels=categories + nboxes * box_vector,
             kernel_size=mid_kernel,
             padding="same"
