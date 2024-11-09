@@ -68,21 +68,8 @@ def extract_ground_event_volume_pred(y_pred, categories, box_vector):
 
 # Loss functions
 def compute_conf_loss_volume(pred_box_whd, true_box_whd, pred_box_xyz, true_box_xyz, true_box_conf, pred_box_conf):
-    """
-    Computes the confidence loss for 3D volume predictions using IoU.
-    """
-    intersect_whd = torch.max(
-        torch.zeros_like(pred_box_whd),
-        (pred_box_whd + true_box_whd) / 2 - torch.abs(pred_box_xyz - true_box_xyz)
-    )
-    intersect_volume = intersect_whd[..., 0] * intersect_whd[..., 1] * intersect_whd[..., 2]
-    true_volume = true_box_whd[..., 0] * true_box_whd[..., 1] * true_box_whd[..., 2]
-    pred_volume = pred_box_whd[..., 0] * pred_box_whd[..., 1] * pred_box_whd[..., 2]
-    union_volume = pred_volume + true_volume - intersect_volume
-    iou = intersect_volume / (union_volume + 1e-6)
-
-    best_ious = iou.max(dim=-1).values
-    loss_conf = F.mse_loss(true_box_conf * best_ious, pred_box_conf, reduction='sum')
+    
+    loss_conf = F.mse_loss(true_box_conf , pred_box_conf, reduction='sum')
 
     return loss_conf
 
