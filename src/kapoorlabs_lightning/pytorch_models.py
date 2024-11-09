@@ -1222,7 +1222,7 @@ class DenseVollNet(nn.Module):
         # Bottom Part
         print('Model bottom initialization')
         self.conv3d_main = nn.Conv3d(
-            in_channels=self.input_channels,
+            in_channels=self.densenet.final_features,
             out_channels=categories + nboxes * box_vector,
             kernel_size=mid_kernel,
             padding="same"
@@ -1383,6 +1383,8 @@ class DenseNet3D(nn.Module):
                 m.bias.data.zero_()
         
         self.final_activation = nn.ReLU() 
+
+        self.final_features = num_features
 
     def forward(self, x):
         features = self.features(x)
