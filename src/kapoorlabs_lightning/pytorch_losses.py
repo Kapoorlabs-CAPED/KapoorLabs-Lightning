@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class ChamferLoss(nn.Module):
     def __init__(self):
         super().__init__()
@@ -23,8 +24,6 @@ class ChamferLoss(nn.Module):
         mins, _ = torch.min(P, 2)
         loss_2 = torch.sum(mins)
         return loss_1 + loss_2
-
-
 
 
 # Simplified extract functions
@@ -67,9 +66,9 @@ def extract_ground_event_volume_pred(y_pred, categories, box_vector):
 
 
 # Loss functions
-def compute_conf_loss_volume(pred_box_whd, true_box_whd, pred_box_xyz, true_box_xyz, true_box_conf, pred_box_conf):
-    
-    loss_conf = F.mse_loss(true_box_conf , pred_box_conf, reduction='sum')
+def compute_conf_loss_volume(true_box_conf, pred_box_conf):
+
+    loss_conf = F.mse_loss(true_box_conf, pred_box_conf, reduction="sum")
 
     return loss_conf
 
@@ -79,7 +78,9 @@ def calc_loss_xyzwhd(true_box_xyz, pred_box_xyz, true_box_whd, pred_box_whd):
     Calculates the loss for position (xyz) and dimensions (whd).
     """
     loss_xyz = torch.sum((true_box_xyz - pred_box_xyz) ** 2, dim=-1).sum()
-    loss_whd = torch.sum((torch.sqrt(true_box_whd + 1e-6) - torch.sqrt(pred_box_whd + 1e-6)) ** 2, dim=-1).sum()
+    loss_whd = torch.sum(
+        (torch.sqrt(true_box_whd + 1e-6) - torch.sqrt(pred_box_whd + 1e-6)) ** 2, dim=-1
+    ).sum()
     loss_xyzwhd = loss_xyz + loss_whd
 
     return loss_xyzwhd
@@ -89,7 +90,9 @@ def calc_loss_class(true_box_class, pred_box_class):
     """
     Calculates the classification loss using categorical cross-entropy.
     """
-    loss_class = F.cross_entropy(pred_box_class, torch.argmax(true_box_class, dim=-1), reduction='mean')
+    loss_class = F.cross_entropy(
+        pred_box_class, torch.argmax(true_box_class, dim=-1), reduction="mean"
+    )
     return loss_class
 
 
@@ -103,19 +106,28 @@ class VolumeYoloLoss(nn.Module):
 
     def forward(self, y_true, y_pred):
 
-        
         y_true = y_true.reshape(y_pred.shape)
         y_true = y_true.to(self.device)
         y_pred = y_pred.to(self.device)
-        
-        true_box_class, true_box_xyz, true_box_whd, true_box_conf = extract_ground_event_volume_truth(
-            y_true, self.categories, self.box_vector)
-        pred_box_class, pred_box_xyz, pred_box_whd, pred_box_conf = extract_ground_event_volume_pred(
-            y_pred, self.categories, self.box_vector)
 
-        loss_xyzwhd = calc_loss_xyzwhd(true_box_xyz, pred_box_xyz, true_box_whd, pred_box_whd)
+        (
+            true_box_class,
+            true_box_xyz,
+            true_box_whd,
+            true_box_conf,
+        ) = extract_ground_event_volume_truth(y_true, self.categories, self.box_vector)
+        (
+            pred_box_class,
+            pred_box_xyz,
+            pred_box_whd,
+            pred_box_conf,
+        ) = extract_ground_event_volume_pred(y_pred, self.categories, self.box_vector)
+
+        loss_xyzwhd = calc_loss_xyzwhd(
+            true_box_xyz, pred_box_xyz, true_box_whd, pred_box_whd
+        )
         loss_class = calc_loss_class(true_box_class, pred_box_class)
-        loss_conf = compute_conf_loss_volume(pred_box_whd, true_box_whd, pred_box_xyz, true_box_xyz, true_box_conf, pred_box_conf)
+        loss_conf = compute_conf_loss_volume(true_box_conf, pred_box_conf)
 
         combined_loss = loss_xyzwhd + loss_conf + loss_class
         return combined_loss

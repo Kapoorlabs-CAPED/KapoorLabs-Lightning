@@ -30,7 +30,7 @@ from .pytorch_models import (
     AttentionNet,
     HybridAttentionDenseNet,
     TrackAsuraTransformer,
-    DenseVollNet
+    DenseVollNet,
 )
 from .pytorch_losses import VolumeYoloLoss
 from .schedulers import (
@@ -104,7 +104,7 @@ class MitosisInception:
         t_max: int = None,
         weight_decay: float = 1e-5,
         eps: float = 1e-1,
-        n_pos: list=(8,),
+        n_pos: list = (8,),
         attention_dim: int = 64,
         strategy: str = "auto",
     ):
@@ -119,7 +119,7 @@ class MitosisInception:
         self.num_workers = num_workers
         self.epochs = epochs
         self.t_max = t_max if t_max is not None else self.epochs
-        self.n_pos = n_pos 
+        self.n_pos = n_pos
         self.batch_size = batch_size
         self.log_path = log_path
         self.accelerator = accelerator
@@ -239,8 +239,7 @@ class MitosisInception:
 
             self.train_loader = self.mitosis_data.train_dataloader()
             self.val_loader = self.mitosis_data.val_dataloader()
-            print('Data loaded')
-
+            print("Data loaded")
 
     def setup_h5_datasets(self):
         if self.h5_file is not None:
@@ -322,10 +321,18 @@ class MitosisInception:
         )
         print(f"Training Mitosis Inception Model {self.model}")
 
-    def setup_densenet_vision_model(self,input_shape,categories,box_vector,
-                                    start_kernel,mid_kernel,startfilter,depth):
-       
-        print('Setting up model')
+    def setup_densenet_vision_model(
+        self,
+        input_shape,
+        categories,
+        box_vector,
+        start_kernel,
+        mid_kernel,
+        startfilter,
+        depth,
+    ):
+
+        print("Setting up model")
         self.model = DenseVollNet(
             input_shape,
             categories,
@@ -333,17 +340,12 @@ class MitosisInception:
             start_kernel=start_kernel,
             mid_kernel=mid_kernel,
             startfilter=startfilter,
-          
             depth=depth,
-           
         )
-        self.categories = categories 
+        self.categories = categories
         self.box_vector = box_vector
 
         print(f"Training Vision Inception Model {self.model}")
-
-
-
 
     def setup_attention_model(self):
 
@@ -363,8 +365,8 @@ class MitosisInception:
             num_init_features=self.num_init_features,
             bottleneck_size=self.bottleneck_size,
             kernel_size=self.kernel_size,
-            attention_dim=self.attention_dim,  
-            n_pos = self.n_pos,
+            attention_dim=self.attention_dim,
+            n_pos=self.n_pos,
         )
         print(f"Training Hybrid DenseNet with Attention Model {self.model}")
 
@@ -420,7 +422,7 @@ class MitosisInception:
                 t_warmup=self.t_warmup, t_max=self.t_max, eta_min=self.eta_min
             )
 
-    def setup_lightning_model(self, oneat_accuracy = False):
+    def setup_lightning_model(self, oneat_accuracy=False):
         if self.loss_function == "cross_entropy":
             self.loss = CrossEntropyLoss()
         if self.loss_function == "cosine":
@@ -430,7 +432,11 @@ class MitosisInception:
         if self.loss_function == "mse":
             self.loss = MSELoss()
         if self.loss_function == "oneat":
-           self.loss = VolumeYoloLoss(categories=self.categories, box_vector=self.box_vector, device= self.map_location)    
+            self.loss = VolumeYoloLoss(
+                categories=self.categories,
+                box_vector=self.box_vector,
+                device=self.map_location,
+            )
 
         self.progress = CustomProgressBar()
         self.lightning_model = LightningModel(
@@ -439,7 +445,7 @@ class MitosisInception:
             self.optimizer,
             scheduler=self.scheduler,
             num_classes=self.num_classes,
-            oneat_accuracy = oneat_accuracy
+            oneat_accuracy=oneat_accuracy,
         )
         model_hyperparameters = {
             "input_channels": self.input_channels,
@@ -460,7 +466,7 @@ class MitosisInception:
 
     def train(self):
 
-        print('Starting training')
+        print("Starting training")
         lightning_special_train = LightningModelTrain(
             self.train_loader,
             self.val_loader,
@@ -955,7 +961,7 @@ class LightningModel(LightningModule):
         sync_dist: bool = True,
         rank_zero_only: bool = False,
         num_classes=2,
-        oneat_accuracy = False
+        oneat_accuracy=False,
     ):
         super().__init__()
         self.save_hyperparameters(
@@ -1236,30 +1242,36 @@ class LightningModel(LightningModule):
             sch.step(self.trainer.callback_metrics[self.reduce_lr_metric])
 
     def compute_accuracy(self, outputs, labels):
-        
+
         predicted = outputs
 
         if self.oneat_accuracy:
             outputs = outputs.reshape(labels.shape)
-            predicted_classes = outputs[:, :self.num_classes]
-            true_classes = labels[:, :self.num_classes]
-            predicted_xyz = outputs[:, self.num_classes:self.num_classes+3]
-            true_xyz = labels[:, self.num_classes:self.num_classes+3]
-            predicted_hwd = outputs[:, self.num_classes+3:self.num_classes+6]
-            true_hwd = labels[:, self.num_classes+3:self.num_classes+6]
-            predicted_confidence = outputs[:, self.num_classes+6]
-            true_confidence = labels[:, self.num_classes+6]
+            predicted_classes = outputs[:, : self.num_classes]
+            true_classes = labels[:, : self.num_classes]
+            predicted_xyz = outputs[:, self.num_classes : self.num_classes + 3]
+            true_xyz = labels[:, self.num_classes : self.num_classes + 3]
+            predicted_hwd = outputs[:, self.num_classes + 3 : self.num_classes + 6]
+            true_hwd = labels[:, self.num_classes + 3 : self.num_classes + 6]
+            predicted_confidence = outputs[:, self.num_classes + 6]
+            true_confidence = labels[:, self.num_classes + 6]
 
             # Compute class accuracy
             predicted_class_indices = torch.argmax(predicted_classes, dim=1)
             true_class_indices = torch.argmax(true_classes, dim=1)
-            
-            class_accuracy_metric = Accuracy(task="multiclass", num_classes=self.num_classes).to(self.device)
-            class_accuracy = class_accuracy_metric(predicted_class_indices, true_class_indices)
+
+            class_accuracy_metric = Accuracy(
+                task="multiclass", num_classes=self.num_classes
+            ).to(self.device)
+            class_accuracy = class_accuracy_metric(
+                predicted_class_indices, true_class_indices
+            )
 
             # Compute accuracy for xyz coordinates (MSE)
             xyz_accuracy_metric = MeanSquaredError().to(self.device)
-            xyz_accuracy = 1.0 - xyz_accuracy_metric(predicted_xyz, true_xyz)  # 1 - MSE for similarity to accuracy
+            xyz_accuracy = 1.0 - xyz_accuracy_metric(
+                predicted_xyz, true_xyz
+            )  # 1 - MSE for similarity to accuracy
 
             # Compute accuracy for dimensions hwd (MSE)
             hwd_accuracy_metric = MeanSquaredError().to(self.device)
@@ -1267,13 +1279,17 @@ class LightningModel(LightningModule):
 
             # Compute confidence accuracy (Binary or MSE depending on task)
             confidence_accuracy_metric = MeanAbsoluteError().to(self.device)
-            confidence_accuracy = 1.0 - confidence_accuracy_metric(predicted_confidence, true_confidence)
+            confidence_accuracy = 1.0 - confidence_accuracy_metric(
+                predicted_confidence, true_confidence
+            )
 
             # Combine all accuracies with a weighted average (optional)
-            overall_accuracy = (class_accuracy + xyz_accuracy + hwd_accuracy + confidence_accuracy) / 4.0
+            overall_accuracy = (
+                4 * class_accuracy + xyz_accuracy + hwd_accuracy + confidence_accuracy
+            ) / 4.0
 
             # Return a dictionary of individual accuracies and the overall accuracy
-            accuracies = overall_accuracy 
+            accuracies = overall_accuracy
         else:
             accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
                 self.device
