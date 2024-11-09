@@ -995,6 +995,89 @@ class LightningModel(LightningModule):
                 mitosis_data = checkpoint_model_json
             return mitosis_data
 
+
+    @classmethod
+    def extract_vision_inception_model(
+        cls,
+        vision_inception_model,
+        vision_inception_model_json,
+        input_shape,
+        box_vector,
+        loss_func,
+        optim_func,
+        local_model_path=None,
+        scheduler=None,
+        ckpt_model_path=None,
+        map_location="cuda",
+    ):
+        if vision_inception_model_json is not None:
+            assert isinstance(
+                vision_inception_model_json, (str, dict)
+            ), "checkpoint_model_json must be a json or dict"
+
+            if isinstance(vision_inception_model_json, str):
+                with open(vision_inception_model_json) as file:
+                    vision_inception_data = json.load(file)
+            else:
+                    vision_inception_data = vision_inception_model_json
+
+            num_classes = vision_inception_data["num_classes"]
+            input_channels = vision_inception_data["input_channels"]
+            if "growth_rate" in vision_inception_data.keys():
+                growth_rate = vision_inception_data["growth_rate"]
+                block_config = tuple(vision_inception_data["block_config"])
+                num_init_features = vision_inception_data["num_init_features"]
+                bottleneck_size = vision_inception_data["bottleneck_size"]
+                kernel_size = vision_inception_data["kernel_size"]
+            
+
+            if ckpt_model_path is None:
+                if local_model_path is None:
+                    checkpoint_model_path = vision_inception_data["model_path"]
+                else:
+                    checkpoint_model_path = local_model_path
+                most_recent_checkpoint_ckpt = get_most_recent_file(
+                    checkpoint_model_path, ".ckpt"
+                )
+            else:
+                most_recent_checkpoint_ckpt = ckpt_model_path
+            checkpoint = torch.load(
+                most_recent_checkpoint_ckpt, map_location=map_location
+            )
+            learning_rate = 1.0e-3
+            if isinstance(scheduler, CosineAnnealingScheduler):
+                t_max = checkpoint["lr_schedulers"][0]["T_max"]
+                eta_min = checkpoint["lr_schedulers"][0]["eta_min"]
+                scheduler = scheduler(t_max=t_max, eta_min=eta_min)
+                learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
+            if isinstance(scheduler, ExponentialLR):
+                gamma = checkpoint["lr_schedulers"][0]["gamma"]
+                scheduler = scheduler(gamma=gamma)
+                learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
+            if isinstance(scheduler, MultiStepLR):
+                milestones = checkpoint["lr_schedulers"][0]["milestones"]
+                gamma = checkpoint["lr_schedulers"][0]["gamma"]
+                scheduler = scheduler(milestones=milestones, gamma=gamma)
+                learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
+
+            optimizer = optim_func(lr=learning_rate)
+            network = vision_inception_model(input_shape, categories = num_classes, box_vector = box_vector,
+                                         start_kernel = kernel_size, startfilter = num_init_features, depth = block_config    )
+            
+
+            checkpoint_lightning_model = cls.load_from_checkpoint(
+                most_recent_checkpoint_ckpt,
+                network=network,
+                loss_func=loss_func,
+                optim_func=optimizer,
+                scheduler=scheduler,
+                map_location=map_location,
+            )
+
+            checkpoint_torch_model = checkpoint_lightning_model.network
+
+            return checkpoint_lightning_model, checkpoint_torch_model
+
     @classmethod
     def extract_mitosis_model(
         cls,
