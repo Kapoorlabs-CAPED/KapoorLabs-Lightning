@@ -1238,7 +1238,8 @@ class LightningModel(LightningModule):
     def compute_accuracy(self, outputs, labels):
         
          predicted = outputs
-
+         if self.oneat_accuracy:
+             labels = labels.reshape(outputs)
          accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
                 self.device
             )
