@@ -1338,7 +1338,7 @@ class _Transition(nn.Sequential):
                       kernel_size=1,
                       stride=1,
                       bias=False))
-        self.add_module('pool', nn.AvgPool3d(kernel_size=2, stride=2))
+        self.add_module('pool', nn.MaxPool3d(kernel_size=2, stride=2))
 
 
 class DenseNet3D(nn.Module):
@@ -1386,7 +1386,7 @@ class DenseNet3D(nn.Module):
 
     def forward(self, x):
         features = self.features(x)
-        x = self.final_activation(x)
+        x = self.final_activation(features)
         return x
 
 
