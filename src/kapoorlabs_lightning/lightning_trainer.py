@@ -1241,7 +1241,6 @@ class LightningModel(LightningModule):
 
         if self.oneat_accuracy:
             outputs = outputs.reshape(labels.shape)
-            print(labels.shape, outputs.shape)
             predicted_classes = outputs[:, :self.num_classes]
             true_classes = labels[:, :self.num_classes]
             predicted_xyz = outputs[:, self.num_classes:self.num_classes+3]
