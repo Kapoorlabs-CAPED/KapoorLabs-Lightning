@@ -1240,7 +1240,7 @@ class LightningModel(LightningModule):
         predicted = outputs
 
         if self.oneat_accuracy:
-            labels = labels.reshape(outputs.shape)
+            outputs = outputs.reshape(labels.shape)
             print(labels.shape, outputs.shape)
             predicted_classes = outputs[:, :self.num_classes]
             true_classes = labels[:, :self.num_classes]
@@ -1274,13 +1274,7 @@ class LightningModel(LightningModule):
             overall_accuracy = (class_accuracy + xyz_accuracy + hwd_accuracy + confidence_accuracy) / 4.0
 
             # Return a dictionary of individual accuracies and the overall accuracy
-            accuracies = {
-                "class_accuracy": class_accuracy.item(),
-                "xyz_accuracy": xyz_accuracy.item(),
-                "hwd_accuracy": hwd_accuracy.item(),
-                "confidence_accuracy": confidence_accuracy.item(),
-                "overall_accuracy": overall_accuracy.item(),
-            }
+            accuracies = overall_accuracy 
         else:
             accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
                 self.device
