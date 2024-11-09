@@ -91,6 +91,8 @@ def calc_loss_xyzwhd(true_box_xyz, pred_box_xyz, true_box_whd, pred_box_whd):
     """
     Calculates the loss for position (xyz) and dimensions (whd).
     """
+    print(true_box_xyz)
+    print(pred_box_xyz)
     loss_xyz = torch.sum((true_box_xyz - pred_box_xyz) ** 2, dim=-1).sum()
     loss_whd = torch.sum((torch.sqrt(true_box_whd + 1e-6) - torch.sqrt(pred_box_whd + 1e-6)) ** 2, dim=-1).sum()
     loss_xyzwhd = loss_xyz + loss_whd
