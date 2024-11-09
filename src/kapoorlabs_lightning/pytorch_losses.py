@@ -116,7 +116,8 @@ class VolumeYoloLoss(nn.Module):
 
     def forward(self, y_true, y_pred):
 
-        print(y_true.shape, y_pred.shape)
+        y_true = y_true.reshape(y_pred.shape)
+
         y_true = y_true.to(self.device)
         y_pred = y_pred.to(self.device)
         
