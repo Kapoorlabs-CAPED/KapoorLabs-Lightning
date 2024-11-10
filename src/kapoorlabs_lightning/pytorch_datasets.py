@@ -180,9 +180,10 @@ class H5VisionDataset(Dataset):
             
             array = torch.tensor(self.data[idx], dtype = torch.float32)
             if self.resize_size:
-                array_resized = F.interpolate(array, scale_factor=(1, self.resize_size, self.resize_size), mode='bilinear', align_corners=False)
+                array_resized = F.interpolate(array, scale_factor=self.resize_size, mode='bilinear', align_corners=False)
                 
                 array = array_resized
+                print(array.shape)
             array = torch.from_numpy(np.asarray(array)).float()    
             label = torch.from_numpy(np.asarray(self.targets[idx]))
 
