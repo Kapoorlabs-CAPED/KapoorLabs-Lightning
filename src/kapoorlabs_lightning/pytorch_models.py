@@ -1199,6 +1199,8 @@ class DenseVollNet(nn.Module):
         start_kernel: int = 7,
         mid_kernel: int = 3,
         startfilter: int = 64,
+        growth_rate: int = 32, 
+        bn_size: int = 4, 
         depth: dict = {'depth_0': 6, 'depth_1': 12, 'depth_2': 24, 'depth_3': 16},
         last_activation: str = "softmax",
     ):
@@ -1216,7 +1218,9 @@ class DenseVollNet(nn.Module):
             block_config=depth,
             startfilter=startfilter,
             start_kernel=start_kernel,
-            mid_kernel=mid_kernel
+            mid_kernel=mid_kernel,
+            growth_rate=growth_rate,
+            bn_size=bn_size
         )
 
         # Bottom Part
