@@ -1339,7 +1339,7 @@ class _Transition(nn.Sequential):
                       kernel_size=1,
                       stride=1,
                       bias=False))
-        self.add_module('pool', nn.MaxPool3d(kernel_size=2, stride=2))
+        self.add_module('pool', nn.AvgPool3d(kernel_size=2, stride=2))
 
 
 class DenseNet3D(nn.Module):
@@ -1355,7 +1355,9 @@ class DenseNet3D(nn.Module):
                                     kernel_size=(start_kernel, start_kernel, start_kernel),
                                     padding='same')),
                          ('norm1', nn.BatchNorm3d(startfilter)),
-                         ('relu1', nn.ReLU())]
+                         ('relu1', nn.ReLU(),
+                          'pool1', nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
+                          )]
         
 
         self.features = nn.Sequential(OrderedDict(self.features))
