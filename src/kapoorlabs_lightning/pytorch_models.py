@@ -1238,9 +1238,9 @@ class DenseVollNet(nn.Module):
             in_channels=categories,
             out_channels=categories,
             kernel_size=(
-                input_shape[1] // last_conv_factor * 3,
-                input_shape[2] // last_conv_factor * 3,
-                input_shape[3] // last_conv_factor * 3,
+                input_shape[1] // last_conv_factor // 3,
+                input_shape[2] // last_conv_factor // 3,
+                input_shape[3] // last_conv_factor // 3,
             ),
             padding='valid'
         )
@@ -1248,9 +1248,9 @@ class DenseVollNet(nn.Module):
             in_channels=box_vector,
             out_channels=box_vector,
             kernel_size=(
-                input_shape[1] // last_conv_factor * 3,
-                input_shape[2] // last_conv_factor * 3,
-                input_shape[3] // last_conv_factor * 3,
+                input_shape[1] // last_conv_factor // 3,
+                input_shape[2] // last_conv_factor // 3,
+                input_shape[3] // last_conv_factor // 3,
             ),
             padding='valid'
         )
