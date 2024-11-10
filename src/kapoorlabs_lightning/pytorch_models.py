@@ -1203,12 +1203,17 @@ class DenseVollNet(nn.Module):
         bn_size: int = 4, 
         depth: dict = {'depth_0': 6, 'depth_1': 12, 'depth_2': 24, 'depth_3': 16},
         last_activation: str = "softmax",
+        pool_first = True
     ):
         super(DenseVollNet, self).__init__()
         
         # Top module
         stage_number = len(depth)
-        last_conv_factor = 2 ** (stage_number)
+        if pool_first:
+          last_conv_factor = 2 ** (stage_number)
+        else:
+          last_conv_factor = 2 ** (stage_number - 1)    
+
         self.input_channels = input_shape[0]
 
         # DenseNet initialization
@@ -1220,7 +1225,8 @@ class DenseVollNet(nn.Module):
             start_kernel=start_kernel,
             mid_kernel=mid_kernel,
             growth_rate=growth_rate,
-            bn_size=bn_size
+            bn_size=bn_size,
+            pool_first = pool_first
         )
 
         # Bottom Part
@@ -1343,8 +1349,9 @@ class _Transition(nn.Sequential):
 
 
 class DenseNet3D(nn.Module):
-    def __init__(self,input_channels, block_config: dict, startfilter,  start_kernel, mid_kernel, growth_rate=32, bn_size=4,
-                 drop_rate=0):
+    def __init__(self,input_channels, block_config: dict, startfilter,  start_kernel, 
+                 mid_kernel, growth_rate=32, bn_size=4,
+                 drop_rate=0, pool_first = True):
         super(DenseNet3D, self).__init__()
         if isinstance(block_config, tuple):
             block_config = {f'block_{i+1}': num_layers for i, num_layers in enumerate(block_config)}
@@ -1356,7 +1363,8 @@ class DenseNet3D(nn.Module):
                                     padding='same')),
                          ('norm1', nn.BatchNorm3d(startfilter)),
                          ('relu1', nn.ReLU()),
-                          ('pool1', nn.MaxPool3d(kernel_size=3, stride=2, padding=1))
+                         ('pool1', nn.MaxPool3d(kernel_size=3, stride=2, padding=1)) if pool_first else 
+                         ('identity1', nn.Identity())
                           ]
         
 
