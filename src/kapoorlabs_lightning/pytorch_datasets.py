@@ -179,9 +179,8 @@ class H5VisionDataset(Dataset):
     def __getitem__(self, idx):
             
             array = torch.tensor(self.data[idx], dtype = torch.float32)
-            print(array.shape)
             if self.resize_size:
-                array_resized = F.interpolate(array, scale_factor=(1, 1, self.resize_size, self.resize_size), mode='trilinear', align_corners=False)
+                array_resized = F.interpolate(array, scale_factor=(1, self.resize_size, self.resize_size), mode='bilinear', align_corners=False)
                 
                 array = array_resized
             array = torch.from_numpy(np.asarray(array)).float()    
