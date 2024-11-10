@@ -207,8 +207,40 @@ class MitosisInception:
 
             self.train_loader = self.mitosis_data.train_dataloader()
             self.val_loader = self.mitosis_data.val_dataloader()
-
     def setup_gbr_h5_datasets(self):
+        if self.h5_file is not None:
+            train_arrays_key = "train_arrays"
+            train_labels_key = "train_labels"
+
+            val_arrays_key = "val_arrays"
+            val_labels_key = "val_labels"
+
+            self.dataset_train = H5MitosisDataset(
+                self.h5_file,
+                train_arrays_key,
+                train_labels_key,
+            )
+
+            self.dataset_val = H5MitosisDataset(
+                self.h5_file,
+                val_arrays_key,
+                val_labels_key,
+            )
+
+            self.input_channels = self.dataset_train.input_channels
+
+            self.mitosis_data = LightningData(
+                data_train=self.dataset_train,
+                data_val=self.dataset_val,
+                batch_size=self.batch_size,
+                num_workers=self.num_workers,
+            )
+
+            self.train_loader = self.mitosis_data.train_dataloader()
+            self.val_loader = self.mitosis_data.val_dataloader()
+            print('Data loaded')
+
+    def setup_gbr_vision_h5_datasets(self):
         if self.h5_file is not None:
             train_arrays_key = "train_arrays"
             train_labels_key = "train_labels"

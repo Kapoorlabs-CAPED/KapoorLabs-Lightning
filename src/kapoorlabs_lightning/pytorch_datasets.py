@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 from pyntcloud import PyntCloud
+import torch.nn.functional as F
 from sklearn import preprocessing
 from sklearn.decomposition import PCA
 from torch.utils.data import Dataset
@@ -156,16 +157,17 @@ class H5MitosisDataset(Dataset):
     def __getitem__(self, idx):
        
             array = torch.from_numpy(np.asarray(self.data[idx])).permute(1, 0).float()
-
+      
             label = torch.from_numpy(np.asarray(self.targets[idx]))
 
             return array, label
     
 class H5VisionDataset(Dataset):
-    def __init__(self, h5_file, data_key, label_key):
+    def __init__(self, h5_file, data_key, label_key, resize_size = None):
         self.h5_file = h5_file
         self.data_key = data_key
         self.label_key = label_key
+        self.resize_size = resize_size
         self.data_label = h5py.File(self.h5_file, "r")
         self.data = self.data_label[data_key]
         self.targets = self.data_label[label_key]
@@ -175,8 +177,14 @@ class H5VisionDataset(Dataset):
         return len(self.targets)
 
     def __getitem__(self, idx):
-       
-            array = torch.from_numpy(np.asarray(self.data[idx])).float()
+            
+            array = self.data[idx]
+            
+            if self.resize_size:
+                array_resized = F.interpolate(array.unsqueeze(0), scale_factor=(1, 1, self.resize_size, self.resize_size), mode='trilinear', align_corners=False)
+                array_resized = array_resized.squeeze(0)
+                array = array_resized
+            array = torch.from_numpy(np.asarray(array)).float()    
             label = torch.from_numpy(np.asarray(self.targets[idx]))
 
             return array, label    
