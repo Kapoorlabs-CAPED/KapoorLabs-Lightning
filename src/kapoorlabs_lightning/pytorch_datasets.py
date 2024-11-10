@@ -164,11 +164,11 @@ class H5MitosisDataset(Dataset):
             return array, label
     
 class H5VisionDataset(Dataset):
-    def __init__(self, h5_file, data_key, label_key, resize_size = None):
+    def __init__(self, h5_file, data_key, label_key, crop_size = None):
         self.h5_file = h5_file
         self.data_key = data_key
         self.label_key = label_key
-        self.resize_size = resize_size
+        self.crop_size = crop_size
         self.data_label = h5py.File(self.h5_file, "r")
         self.data = self.data_label[data_key]
         self.targets = self.data_label[label_key]
@@ -176,13 +176,27 @@ class H5VisionDataset(Dataset):
   
     def __len__(self) -> int:
         return len(self.targets)
+    
+    def _center_crop(self, array, crop_size):
+        _, z, y, x = array.shape
 
+        crop_z, crop_y, crop_x = crop_size
+
+        start_z = (z - crop_z) // 2
+        start_y = (y - crop_y) // 2
+        start_x = (x - crop_x) // 2
+
+        end_z = start_z + crop_z
+        end_y = start_y + crop_y
+        end_x = start_x + crop_x
+
+        # Apply the center crop
+        return array[:, start_z:end_z, start_y:end_y, start_x:end_x]
     def __getitem__(self, idx):
             
             array = torch.tensor(self.data[idx], dtype = torch.float32)
-            if self.resize_size:
-                 cropper = T.CenterCrop(self.resize_size)
-                 array = cropper(array)
+            if self.crop_size:
+                 array = self._center_crop(array, self.crop_size)
             array = torch.from_numpy(np.asarray(array)).float()    
             label = torch.from_numpy(np.asarray(self.targets[idx]))
 
