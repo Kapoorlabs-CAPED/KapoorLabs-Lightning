@@ -1356,7 +1356,7 @@ class DenseNet3D(nn.Module):
                                     padding='same')),
                          ('norm1', nn.BatchNorm3d(startfilter)),
                          ('relu1', nn.ReLU(),
-                          'pool1', nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
+                          ('pool1', nn.MaxPool3d(kernel_size=3, stride=2, padding=1))
                           )]
         
 
