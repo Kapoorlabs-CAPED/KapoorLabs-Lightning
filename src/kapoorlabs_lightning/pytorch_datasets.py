@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 from pyntcloud import PyntCloud
 import torch.nn.functional as F
+import torchvision.transforms as T
 from sklearn import preprocessing
 from sklearn.decomposition import PCA
 from torch.utils.data import Dataset
@@ -180,9 +181,8 @@ class H5VisionDataset(Dataset):
             
             array = torch.tensor(self.data[idx], dtype = torch.float32)
             if self.resize_size:
-                array_resized = F.interpolate(array, scale_factor=self.resize_size, mode='bilinear', align_corners=False)
-                
-                array = array_resized
+                 cropper = T.CenterCrop(self.resize_size)
+                 array = cropper(array)
             array = torch.from_numpy(np.asarray(array)).float()    
             label = torch.from_numpy(np.asarray(self.targets[idx]))
 
