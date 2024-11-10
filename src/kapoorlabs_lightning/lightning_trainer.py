@@ -364,7 +364,8 @@ class MitosisInception:
         mid_kernel,
         startfilter,
         depth,
-        growth_rate
+        growth_rate,
+        pool_first = True
     ):
 
         print("Setting up model")
@@ -376,7 +377,8 @@ class MitosisInception:
             mid_kernel=mid_kernel,
             startfilter=startfilter,
             depth=depth,
-            growth_rate = growth_rate
+            growth_rate = growth_rate,
+            pool_first = pool_first
         )
         self.categories = categories
         self.box_vector = box_vector
