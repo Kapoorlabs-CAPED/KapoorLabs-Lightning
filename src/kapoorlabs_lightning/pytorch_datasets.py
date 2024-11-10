@@ -178,20 +178,22 @@ class H5VisionDataset(Dataset):
         return len(self.targets)
     
     def _center_crop(self, array, crop_size):
-        _, z, y, x = array.shape
+        t, z, y, x = array.shape
 
-        crop_z, crop_y, crop_x = crop_size
+        crop_t, crop_z, crop_y, crop_x = crop_size
 
+        start_t = (t - crop_t) // 2 
         start_z = (z - crop_z) // 2
         start_y = (y - crop_y) // 2
         start_x = (x - crop_x) // 2
 
+        end_t = start_t + crop_t
         end_z = start_z + crop_z
         end_y = start_y + crop_y
         end_x = start_x + crop_x
 
         # Apply the center crop
-        return array[:, start_z:end_z, start_y:end_y, start_x:end_x]
+        return array[start_t:end_t, start_z:end_z, start_y:end_y, start_x:end_x]
     def __getitem__(self, idx):
             
             array = torch.tensor(self.data[idx], dtype = torch.float32)
