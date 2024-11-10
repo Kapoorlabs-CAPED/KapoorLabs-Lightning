@@ -240,7 +240,7 @@ class MitosisInception:
             self.val_loader = self.mitosis_data.val_dataloader()
             print('Data loaded')
 
-    def setup_gbr_vision_h5_datasets(self):
+    def setup_gbr_vision_h5_datasets(self, resize_size = None):
         if self.h5_file is not None:
             train_arrays_key = "train_arrays"
             train_labels_key = "train_labels"
@@ -252,12 +252,14 @@ class MitosisInception:
                 self.h5_file,
                 train_arrays_key,
                 train_labels_key,
+                resize_size=resize_size
             )
 
             self.dataset_val = H5VisionDataset(
                 self.h5_file,
                 val_arrays_key,
                 val_labels_key,
+                resize_size=resize_size
             )
 
             self.input_channels = self.dataset_train.input_channels
