@@ -302,46 +302,7 @@ class MitosisInception:
             self.train_loader = self.mitosis_data.train_dataloader()
             self.val_loader = self.mitosis_data.val_dataloader()
 
-    def setup_datasets(self):
-
-        training_data = np.load(self.npz_file)
-        train_dividing_arrays = training_data["dividing_train_arrays"]
-        train_dividing_labels = training_data["dividing_train_labels"]
-        train_non_dividing_arrays = training_data["non_dividing_train_arrays"]
-        train_non_dividing_labels = training_data["non_dividing_train_labels"]
-
-        val_dividing_arrays = training_data["dividing_val_arrays"]
-        val_dividing_labels = training_data["dividing_val_labels"]
-        val_non_dividing_arrays = training_data["non_dividing_val_arrays"]
-        val_non_dividing_labels = training_data["non_dividing_val_labels"]
-        print(
-            f"Dividing labels in training {len(train_dividing_labels)}, Non Dividing labels in training {len(train_non_dividing_labels)}"
-        )
-        train_arrays = np.concatenate(
-            (train_dividing_arrays, train_non_dividing_arrays)
-        )
-        train_labels = np.concatenate(
-            (train_dividing_labels, train_non_dividing_labels)
-        )
-
-        self.dataset_train = MitosisDataset(train_arrays, train_labels)
-
-        self.input_channels = self.dataset_train.input_channels
-
-        val_arrays = np.concatenate((val_dividing_arrays, val_non_dividing_arrays))
-        val_labels = np.concatenate((val_dividing_labels, val_non_dividing_labels))
-
-        self.dataset_val = MitosisDataset(val_arrays, val_labels)
-
-        self.mitosis_data = LightningData(
-            data_train=self.dataset_train,
-            data_val=self.dataset_val,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-        )
-
-        self.train_loader = self.mitosis_data.train_dataloader()
-        self.val_loader = self.mitosis_data.val_dataloader()
+   
 
     def setup_densenet_model(self):
         self.model = DenseNet(
