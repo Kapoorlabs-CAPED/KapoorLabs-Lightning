@@ -1,7 +1,7 @@
 from typing import List
 import torch
 from torchvision import transforms
-
+import numpy as np
 
 class Transforms:
     def __init__(
@@ -49,3 +49,59 @@ class Transforms:
         Returns the composed transform.
         """
         return self.transform
+
+
+
+class AddGaussianNoise(torch.nn.Module):
+    def __init__(self, mean=0.0, std=0.01):
+        super().__init__()
+        self.mean = mean
+        self.std = std
+
+    def forward(self, x):
+        noise = torch.randn_like(x) * self.std + self.mean
+        return x + noise
+
+class RandomTimeShift(torch.nn.Module):
+    def __init__(self, max_shift=2):
+        super().__init__()
+        self.max_shift = max_shift
+
+    def forward(self, x):
+        shift = np.random.randint(-self.max_shift, self.max_shift + 1)
+        return torch.roll(x, shifts=shift, dims=-1)
+
+class RandomScaling(torch.nn.Module):
+    def __init__(self, min_scale=0.9, max_scale=1.1):
+        super().__init__()
+        self.min_scale = min_scale
+        self.max_scale = max_scale
+
+    def forward(self, x):
+        scale = np.random.uniform(self.min_scale, self.max_scale)
+        return x * scale
+
+class RandomMasking(torch.nn.Module):
+    def __init__(self, max_mask_ratio=0.2):
+        super().__init__()
+        self.max_mask_ratio = max_mask_ratio
+
+    def forward(self, x):
+        mask_ratio = np.random.uniform(0, self.max_mask_ratio)
+        num_mask = int(mask_ratio * x.shape[-1])
+        mask_indices = np.random.choice(x.shape[-1], num_mask, replace=False)
+        x[:, :, mask_indices] = 0  # Zero-out masked points
+        return x
+
+
+def get_transforms(mean = 0.0, std=0.02, min_scale= 0.95,max_shift=1.05,  max_scale=1.05, max_mask_ratio=0.1):
+    time_series_transforms = transforms.Compose([
+            AddGaussianNoise(mean=mean, std=std),
+            RandomTimeShift(max_shift=max_shift),
+            RandomScaling(min_scale=min_scale, max_scale=max_scale),
+            RandomMasking(max_mask_ratio=max_mask_ratio),
+        ])
+    
+    return time_series_transforms
+
+

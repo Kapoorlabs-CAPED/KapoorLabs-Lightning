@@ -143,10 +143,11 @@ class MitosisDataset(Dataset):
 
 
 class H5MitosisDataset(Dataset):
-    def __init__(self, h5_file, data_key, label_key):
+    def __init__(self, h5_file, data_key, label_key, transforms = None):
         self.h5_file = h5_file
         self.data_key = data_key
         self.label_key = label_key
+        self.transforms = transforms
         self.data_label = h5py.File(self.h5_file, "r")
         self.data = self.data_label[data_key]
         self.targets = self.data_label[label_key]
@@ -160,6 +161,9 @@ class H5MitosisDataset(Dataset):
             array = torch.from_numpy(np.asarray(self.data[idx])).permute(1, 0).float()
       
             label = torch.from_numpy(np.asarray(self.targets[idx]))
+
+            if self.transforms:
+                array = self.transforms(array)
 
             return array, label
     

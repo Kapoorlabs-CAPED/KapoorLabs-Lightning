@@ -40,6 +40,7 @@ from .schedulers import (
     ReduceLROnPlateau,
     WarmCosineAnnealingLR,
 )
+from .pytorch_transforms import get_transforms
 from torchmetrics import Accuracy, MeanSquaredError, MeanAbsoluteError
 import signal
 from lightning.fabric.plugins.environments import SLURMEnvironment
@@ -157,6 +158,12 @@ class MitosisInception:
                 f"Invalid scheduler choice, must be one of {self.SCHEDULER_CHOICES}"
             )
 
+    def setup_timeseries_transforms(self):
+
+       self.time_series_transforms = get_transforms()
+
+
+
     def setup_gbr_datasets(self):
         if self.npz_file is not None:
             training_data = np.load(self.npz_file)
@@ -207,6 +214,8 @@ class MitosisInception:
 
             self.train_loader = self.mitosis_data.train_dataloader()
             self.val_loader = self.mitosis_data.val_dataloader()
+
+
     def setup_gbr_h5_datasets(self):
         if self.h5_file is not None:
             train_arrays_key = "train_arrays"
@@ -219,12 +228,14 @@ class MitosisInception:
                 self.h5_file,
                 train_arrays_key,
                 train_labels_key,
+                transforms=self.time_series_transforms
             )
 
             self.dataset_val = H5MitosisDataset(
                 self.h5_file,
                 val_arrays_key,
                 val_labels_key,
+                transforms=self.time_series_transforms
             )
 
             self.input_channels = self.dataset_train.input_channels
@@ -283,11 +294,11 @@ class MitosisInception:
             val_labels_key = "val_labels"
 
             self.dataset_train = H5MitosisDataset(
-                self.h5_file, train_arrays_key, train_labels_key
+                self.h5_file, train_arrays_key, train_labels_key, transforms=self.time_series_transforms
             )
 
             self.dataset_val = H5MitosisDataset(
-                self.h5_file, val_arrays_key, val_labels_key
+                self.h5_file, val_arrays_key, val_labels_key, transforms=self.time_series_transforms
             )
 
             self.input_channels = self.dataset_train.input_channels
