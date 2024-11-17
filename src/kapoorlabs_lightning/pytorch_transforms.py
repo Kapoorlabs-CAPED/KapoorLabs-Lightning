@@ -90,7 +90,7 @@ class RandomMasking(torch.nn.Module):
         mask_ratio = np.random.uniform(0, self.max_mask_ratio)
         num_mask = int(mask_ratio * x.shape[-1])
         mask_indices = np.random.choice(x.shape[-1], num_mask, replace=False)
-        x[:, :, mask_indices] = 0  # Zero-out masked points
+        x[:, mask_indices] = 0  
         return x
 
 
