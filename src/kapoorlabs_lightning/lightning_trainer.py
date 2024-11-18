@@ -158,9 +158,9 @@ class MitosisInception:
                 f"Invalid scheduler choice, must be one of {self.SCHEDULER_CHOICES}"
             )
 
-    def setup_timeseries_transforms(self):
+    def setup_timeseries_transforms(self, mean = 0.0, std=0.02, min_scale= 0.95,max_shift=1.05,  max_scale=1.05, max_mask_ratio=0.1):
 
-       self.time_series_transforms = get_transforms()
+       self.time_series_transforms = get_transforms(mean = mean, std=std, min_scale= min_scale,max_shift=max_shift,  max_scale=max_scale, max_mask_ratio=max_mask_ratio)
 
 
 
