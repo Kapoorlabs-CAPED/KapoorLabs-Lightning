@@ -13,7 +13,7 @@ from sklearn import preprocessing
 from sklearn.decomposition import PCA
 from torch.utils.data import Dataset
 import networkx as nx
-
+from collections import Counter
 
 SHAPE_FEATURES = [
     "Radius",
@@ -143,7 +143,7 @@ class MitosisDataset(Dataset):
 
 
 class H5MitosisDataset(Dataset):
-    def __init__(self, h5_file, data_key, label_key, transforms = None):
+    def __init__(self, h5_file, data_key, label_key, num_classes = 3, transforms = None):
         self.h5_file = h5_file
         self.data_key = data_key
         self.label_key = label_key
@@ -152,6 +152,8 @@ class H5MitosisDataset(Dataset):
         self.data = self.data_label[data_key]
         self.targets = self.data_label[label_key]
         self.input_channels = np.asarray(self.data[0]).shape[1]
+        self.class_weights_dict = self._compute_class_weights(num_classes)
+        print(f'Class weights computed {self.class_weights_dict}')
   
     def __len__(self) -> int:
         return len(self.targets)
@@ -166,6 +168,27 @@ class H5MitosisDataset(Dataset):
                 array = self.transforms(array)
 
             return array, label
+    
+    def _compute_class_weights(self, num_classes):
+        """
+        Compute class weights directly using self.targets.
+
+        Args:
+            num_classes (int): Number of classes.
+
+        Returns:
+            np.ndarray: Array of class weights.
+        """
+        class_counts = np.bincount(self.targets[:], minlength=num_classes)
+
+        total_samples = len(self.targets)
+
+        class_weights = total_samples / (num_classes * np.maximum(class_counts, 1))  
+
+        class_weights_dict = {class_idx: weight for class_idx, weight in enumerate(class_weights)}
+
+        return class_weights_dict
+
     
 class H5VisionDataset(Dataset):
     def __init__(self, h5_file, data_key, label_key, crop_size = None):
@@ -196,8 +219,9 @@ class H5VisionDataset(Dataset):
         end_y = start_y + crop_y
         end_x = start_x + crop_x
 
-        # Apply the center crop
         return array[start_t:end_t, start_z:end_z, start_y:end_y, start_x:end_x]
+    
+
     def __getitem__(self, idx):
             
             array = torch.tensor(self.data[idx], dtype = torch.float32)

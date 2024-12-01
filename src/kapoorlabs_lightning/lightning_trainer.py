@@ -228,6 +228,7 @@ class MitosisInception:
                 self.h5_file,
                 train_arrays_key,
                 train_labels_key,
+                num_classes = self.num_classes,
                 transforms=self.time_series_transforms
             )
 
@@ -235,6 +236,7 @@ class MitosisInception:
                 self.h5_file,
                 val_arrays_key,
                 val_labels_key,
+                num_classes = self.num_classes,
                 transforms=self.time_series_transforms
             )
 
@@ -263,6 +265,7 @@ class MitosisInception:
                 self.h5_file,
                 train_arrays_key,
                 train_labels_key,
+                num_classes = self.num_classes,
                 crop_size=crop_size
             )
 
@@ -270,6 +273,7 @@ class MitosisInception:
                 self.h5_file,
                 val_arrays_key,
                 val_labels_key,
+                num_classes = self.num_classes,
                 crop_size=crop_size
             )
 
@@ -294,11 +298,11 @@ class MitosisInception:
             val_labels_key = "val_labels"
 
             self.dataset_train = H5MitosisDataset(
-                self.h5_file, train_arrays_key, train_labels_key, transforms=self.time_series_transforms
+                self.h5_file, train_arrays_key, train_labels_key, num_classes = self.num_classes, transforms=self.time_series_transforms
             )
 
             self.dataset_val = H5MitosisDataset(
-                self.h5_file, val_arrays_key, val_labels_key, transforms=self.time_series_transforms
+                self.h5_file, val_arrays_key, val_labels_key, num_classes = self.num_classes, transforms=self.time_series_transforms
             )
 
             self.input_channels = self.dataset_train.input_channels
@@ -433,12 +437,21 @@ class MitosisInception:
             )
 
     def setup_lightning_model(self, oneat_accuracy=False):
+        
+        self.class_weights_dict = getattr(self.dataset_train, "class_weights_dict", None)
+
+        if self.class_weights_dict is not None:
+            self.class_weights = torch.tensor(
+                list(self.class_weights_dict.values()), dtype=torch.float
+            )
+        else:
+            self.class_weights = None
         if self.loss_function == "cross_entropy":
-            self.loss = CrossEntropyLoss()
+            self.loss = CrossEntropyLoss(weight=self.class_weights)
         if self.loss_function == "cosine":
             self.loss = CosineSimilarity()
         if self.loss_function == "bce":
-            self.loss = BCEWithLogitsLoss()
+            self.loss = BCEWithLogitsLoss(pos_weight=self.class_weights)
         if self.loss_function == "mse":
             self.loss = MSELoss()
         if self.loss_function == "oneat":
@@ -446,6 +459,7 @@ class MitosisInception:
                 categories=self.categories,
                 box_vector=self.box_vector,
                 device=self.map_location,
+                class_weights_dict=self.class_weights_dict
             )
 
         self.progress = CustomProgressBar()
