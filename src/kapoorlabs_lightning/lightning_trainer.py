@@ -1207,6 +1207,7 @@ class LightningModel(LightningModule):
                 optim_func=optimizer,
                 scheduler=scheduler,
                 map_location=map_location,
+                strict=False
             )
 
             checkpoint_torch_model = checkpoint_lightning_model.network
