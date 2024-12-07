@@ -19,6 +19,9 @@ from .pytorch_datasets import (
     SingleCellDataset,
     MitosisDataset,
     H5MitosisDataset,
+    VolumeLabelDataSet,
+    VolumeMaker
+
 )
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_models import __all__ as all_pytorch_models
@@ -61,6 +64,8 @@ __all__ = [
     "CustomVirtualMemory",
     "MitosisDataset",
     "H5MitosisDataset",
+    "VolumeLabelDataSet",
+    "VolumeMaker",
     "Adam",
     "RMSprop",
     "Rprop",

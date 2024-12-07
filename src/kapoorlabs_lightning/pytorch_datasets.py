@@ -13,7 +13,8 @@ from sklearn import preprocessing
 from sklearn.decomposition import PCA
 from torch.utils.data import Dataset
 import networkx as nx
-from collections import Counter
+from skimage import measure
+from tifffile import imread
 
 SHAPE_FEATURES = [
     "Radius",
@@ -721,3 +722,270 @@ class VesselMNIST3D(Dataset):
             u,
             class_name,
         )
+
+
+
+
+
+def getHWD(
+    defaultX,
+    defaultY,
+    defaultZ,
+    currentsegimage,
+):
+
+    properties = measure.regionprops(currentsegimage)
+    SegLabel = currentsegimage[int(defaultZ), int(defaultY), int(defaultX)]
+
+    for prop in properties:
+        if SegLabel > 0 and prop.label == SegLabel:
+            minr, minc, mind, maxr, maxc, maxd = prop.bbox
+            center = (defaultZ, defaultY, defaultX)
+            height = abs(maxc - minc)
+            width = abs(maxr - minr)
+            depth = abs(maxd - mind)
+            return height, width, depth, center, SegLabel
+
+
+def normalizeFloatZeroOne(x, pmin=1, pmax=99.8, axis=None, eps=1e-20, dtype=np.uint8):
+    """Percentile based Normalization
+
+    Normalize patches of image before feeding into the network
+
+    Parameters
+    ----------
+    x : np array Image patch
+    pmin : minimum percentile value for normalization
+    pmax : maximum percentile value for normalization
+    axis : axis along which the normalization has to be carried out
+    eps : avoid dividing by zero
+    """
+    mi = np.percentile(x, pmin, axis=axis, keepdims=True)
+    ma = np.percentile(x, pmax, axis=axis, keepdims=True)
+    return normalize_mi_ma(x, mi, ma, eps=eps, dtype=dtype)
+
+
+def normalize_mi_ma(x, mi, ma, eps=1e-20, dtype=np.uint8):
+
+    x = x.astype(dtype)
+    mi = dtype(mi) if np.isscalar(mi) else mi.astype(dtype, copy=False)
+    ma = dtype(ma) if np.isscalar(ma) else ma.astype(dtype, copy=False)
+    eps = dtype(eps) if np.isscalar(eps) else eps.astype(dtype, copy=False)
+
+    x = (x - mi) / (ma - mi + eps)
+
+    return x
+
+
+def normalize_image_in_chunks(
+    originalimage,
+    chunk_steps=50,
+    percentile_min=1,
+    percentile_max=99.8,
+    dtype=np.float32,
+):
+    """
+    Normalize a TZYX image in chunks along the T (time) dimension.
+
+    Args:
+        image (np.ndarray): The original TZYX image.
+        chunk_size (int): The number of timesteps to process at a time.
+        percentile_min (float): The lower percentile for normalization.
+        percentile_max (float): The upper percentile for normalization.
+        dtype (np.dtype): The data type to cast the normalized image.
+
+    Returns:
+        np.ndarray: The normalized image with the same shape as the input.
+    """
+
+    # Get the shape of the original image (T, Z, Y, X)
+    T, Z, Y, X = originalimage.shape
+
+    # Create an empty array to hold the normalized image
+    normalized_image = np.empty((T, Z, Y, X), dtype=dtype)
+
+    # Process the image in chunks of `chunk_size` along the T (time) axis
+    for t in range(0, T, chunk_steps):
+        # Determine the chunk slice, ensuring we don't go out of bounds
+        t_end = min(t + chunk_steps, T)
+
+        # Extract the chunk of timesteps to normalize
+        chunk = originalimage[t:t_end]
+
+        # Normalize this chunk
+        chunk_normalized = normalizeFloatZeroOne(
+            chunk, percentile_min, percentile_max, dtype=dtype
+        )
+
+        # Replace the corresponding portion of the original image with the normalized chunk
+        normalized_image[t:t_end] = chunk_normalized
+
+    return normalized_image
+
+
+def CreateVolume(patch, size_tminus, size_tplus, timepoint):
+    starttime = timepoint - int(size_tminus)
+    endtime = timepoint + int(size_tplus) + 1
+    smallimg = patch[starttime:endtime, :]
+
+    return smallimg
+
+
+def VolumeLabelDataSet(
+    image_dir,
+    seg_image_dir,
+    csv_dir,
+    save_dir,
+    h5_file_path, 
+    class_name,
+    class_label,
+    csv_name_diff,
+    crop_size,
+    tshift=0,
+    normalizeimage=True,
+    dtype=np.uint8,
+    val_percentage = 0.1
+):
+    files_raw = os.listdir(image_dir)
+    Path(save_dir).mkdir(exist_ok=True)
+    total_categories = len(class_name)
+
+    with h5py.File(h5_file_path, "w") as h5_file:
+        train_group = h5_file.create_group("train")
+        val_group = h5_file.create_group("val")
+
+        train_data = train_group.create_dataset(
+            "data", (0,) + tuple(crop_size), maxshape=(None,) + tuple(crop_size), dtype="float32"
+        )
+        train_labels = train_group.create_dataset(
+            "labels", (0, total_categories + 8), maxshape=(None, total_categories + 8), dtype="float32"
+        )
+        val_data = val_group.create_dataset(
+            "data", (0,) + tuple(crop_size), maxshape=(None,) + tuple(crop_size), dtype="float32"
+        )
+        val_labels = val_group.create_dataset(
+            "labels", (0, total_categories + 8), maxshape=(None, total_categories + 8), dtype="float32"
+        )
+
+        val_limit = int(len(files_raw) * val_percentage) 
+        val_count = 0 
+        for fname in files_raw:
+            name = os.path.basename(os.path.splitext(fname)[0])
+            for i in range(0, len(class_name)):
+                event_name = class_name[i]
+                trainlabel = class_label[i]
+                Csvname = csv_name_diff + event_name + name
+                csvfname = os.path.join(csv_dir, Csvname + ".csv")
+                if os.path.exists(csvfname):
+                    print(Csvname)
+                    image = imread(os.path.join(image_dir, fname)).astype(dtype)
+                    segimage = imread(os.path.join(seg_image_dir, fname)).astype("uint16")
+                    dataset = pd.read_csv(csvfname)
+                    time = dataset[dataset.keys()[0]]
+                    z = dataset[dataset.keys()[1]]
+                    y = dataset[dataset.keys()[2]]
+                    x = dataset[dataset.keys()[3]]
+
+                    for key, t in time.items():
+                        volume, label = VolumeMaker(
+                            t,
+                            z[key],
+                            y[key],
+                            x[key],
+                            image,
+                            segimage,
+                            crop_size,
+                            total_categories,
+                            trainlabel,
+                            name + event_name + str(key),
+                            save_dir,
+                            tshift,
+                            normalizeimage,
+                            dtype,
+                            return_data=True,  
+                        )
+                        if volume is not None:
+                            if val_count < val_limit:
+                                data_dset, labels_dset = val_data, val_labels
+                                val_count += 1
+                            else:
+                                data_dset, labels_dset = train_data, train_labels
+                            
+                            data_dset.resize(data_dset.shape[0] + 1, axis=0)
+                            labels_dset.resize(labels_dset.shape[0] + 1, axis=0)
+
+                            data_dset[-1] = volume
+                            labels_dset[-1] = label
+
+def VolumeMaker(
+    time,
+    z,
+    y,
+    x,
+    image,
+    segimage,
+    crop_size,
+    total_categories,
+    trainlabel,
+    tshift,
+    normalizeimage,
+    dtype,
+    return_data=True,  
+):
+    imagesizex, imagesizey, imagesizez, size_tminus, size_tplus = crop_size
+
+    time = time - tshift
+    if normalizeimage:
+        image = normalizeFloatZeroOne(image.astype(dtype), 1, 99.8, dtype=dtype)
+    if time > size_tminus:
+        currentsegimage = segimage[int(time), :].astype("uint16")
+        image_props = getHWD(x, y, z, currentsegimage, imagesizex, imagesizey, imagesizez)
+
+        if image_props is not None:
+            height, width, depth, center, seg_label = image_props
+            smallimage = CreateVolume(image, size_tminus, size_tplus, int(time))
+
+            x, y, z = center[2], center[1], center[0]
+            Label = np.zeros([total_categories + 8])
+            Label[trainlabel] = 1
+
+            Label[total_categories + 3] = size_tminus / (size_tminus + size_tplus)
+
+            if (
+                x > imagesizex / 2
+                and z > imagesizez / 2
+                and y > imagesizey / 2
+                and z + int(imagesizez / 2) < image.shape[1]
+                and y + int(imagesizey / 2) < image.shape[2]
+                and x + int(imagesizex / 2) < image.shape[3]
+                and time > size_tminus
+                and time + size_tplus + 1 < image.shape[0]
+            ):
+                crop_xminus = x - int(imagesizex / 2)
+                crop_xplus = x + int(imagesizex / 2)
+                crop_yminus = y - int(imagesizey / 2)
+                crop_yplus = y + int(imagesizey / 2)
+                crop_zminus = z - int(imagesizez / 2)
+                crop_zplus = z + int(imagesizez / 2)
+                region = (
+                    slice(0, smallimage.shape[0]),
+                    slice(int(crop_zminus), int(crop_zplus)),
+                    slice(int(crop_yminus), int(crop_yplus)),
+                    slice(int(crop_xminus), int(crop_xplus)),
+                )
+
+                crop_image = smallimage[region]
+                seglocationx, seglocationy, seglocationz = center[2] - crop_xminus, center[1] - crop_yminus, center[0] - crop_zminus
+
+                Label[total_categories] = seglocationx / imagesizex
+                Label[total_categories + 1] = seglocationy / imagesizey
+                Label[total_categories + 2] = seglocationz / imagesizez
+                Label[total_categories + 4] = height / imagesizey
+                Label[total_categories + 5] = width / imagesizex
+                Label[total_categories + 6] = depth / imagesizez
+                Label[total_categories + 7] = 1
+
+                if return_data:
+                    return crop_image, Label
+
+    return None, None
