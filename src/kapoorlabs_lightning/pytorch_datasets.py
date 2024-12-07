@@ -835,11 +835,9 @@ def VolumeLabelDataSet(
     image_dir,
     seg_image_dir,
     csv_dir,
-    save_dir,
-    h5_file_path, 
+    oneat_h5_file, 
     class_name,
     class_label,
-    csv_name_diff,
     crop_size,
     tshift=0,
     normalizeimage=True,
@@ -847,10 +845,9 @@ def VolumeLabelDataSet(
     val_percentage = 0.1
 ):
     files_raw = os.listdir(image_dir)
-    Path(save_dir).mkdir(exist_ok=True)
     total_categories = len(class_name)
 
-    with h5py.File(h5_file_path, "w") as h5_file:
+    with h5py.File(oneat_h5_file, "w") as h5_file:
         train_group = h5_file.create_group("train")
         val_group = h5_file.create_group("val")
 
@@ -874,7 +871,7 @@ def VolumeLabelDataSet(
             for i in range(0, len(class_name)):
                 event_name = class_name[i]
                 trainlabel = class_label[i]
-                Csvname = csv_name_diff + event_name + name
+                Csvname = event_name + name
                 csvfname = os.path.join(csv_dir, Csvname + ".csv")
                 if os.path.exists(csvfname):
                     print(Csvname)
@@ -897,8 +894,6 @@ def VolumeLabelDataSet(
                             crop_size,
                             total_categories,
                             trainlabel,
-                            name + event_name + str(key),
-                            save_dir,
                             tshift,
                             normalizeimage,
                             dtype,
@@ -989,3 +984,91 @@ def VolumeMaker(
                     return crop_image, Label
 
     return None, None
+
+
+def load_json(fpath):
+    with open(fpath) as f:
+        return json.load(f)
+
+
+def save_json(data, fpath, **kwargs):
+    with open(fpath, "w") as f:
+        f.write(json.dumps(data, **kwargs))
+
+
+class OneatConfig:
+    def __init__(
+        self,
+        cell_type_name,
+        cell_type_label,
+        cell_position_name,
+        cell_position_label,
+    ):
+        """
+        Initialize the TrainConfig object.
+
+        Args:
+            cell_type_name (list[str]): Names of cell types.
+            cell_type_label (list[int]): Labels corresponding to cell types.
+            cell_position_name (list[str]): Names of cell positions.
+            cell_position_label (list[int]): Labels corresponding to cell positions.
+        """
+        self.cell_type_name = cell_type_name
+        self.cell_type_label = cell_type_label
+        self.cell_position_name = cell_position_name
+        self.cell_position_label = cell_position_label
+
+        # Ensure the lists match in length
+        assert len(cell_type_name) == len(cell_type_label), \
+            "cell_type_name and cell_type_label must have the same length."
+        assert len(cell_position_name) == len(cell_position_label), \
+            "cell_position_name and cell_position_label must have the same length."
+
+    def to_json(self):
+        """
+        Convert the configuration to JSON-like dictionaries.
+
+        Returns:
+            tuple[dict, dict]: A tuple containing:
+                - config: Mapping of cell type names to labels.
+                - configCord: Mapping of cell position names to labels.
+        """
+        config = {name: label for name, label in zip(self.cell_type_name, self.cell_type_label)}
+        configCord = {name: label for name, label in zip(self.cell_position_name, self.cell_position_label)}
+
+        return config, configCord
+
+
+
+def combine_h5_files(file1, file2, output_file):
+    """
+    Combines two HDF5 files into a third file with a similar structure.
+
+    Args:
+        file1 (str): Path to the first input HDF5 file.
+        file2 (str): Path to the second input HDF5 file.
+        output_file (str): Path to the output HDF5 file.
+
+    Returns:
+        None
+    """
+    with h5py.File(file1, 'r') as f1, h5py.File(file2, 'r') as f2, h5py.File(output_file, 'w') as f_out:
+        # Iterate through the groups and datasets in file1
+        for group_name in f1.keys():
+            group1 = f1[group_name]
+            group2 = f2[group_name]
+
+            # Create a group in the output file
+            output_group = f_out.create_group(group_name)
+
+            for dataset_name in group1.keys():
+                data1 = group1[dataset_name][:]
+                data2 = group2[dataset_name][:]
+                
+                # Concatenate data from the two datasets
+                combined_data = np.concatenate([data1, data2], axis=0)
+
+                # Create the dataset in the output file with the combined data
+                output_group.create_dataset(dataset_name, data=combined_data, compression="gzip")
+
+    print(f"Combined HDF5 file saved to {output_file}.")
