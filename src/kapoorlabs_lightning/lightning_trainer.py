@@ -29,6 +29,7 @@ from .pytorch_models import (
     MitosisNet,
     AttentionNet,
     HybridAttentionDenseNet,
+    InceptionNet,
     TrackAsuraTransformer,
     DenseVollNet,
 )
@@ -108,6 +109,8 @@ class MitosisInception:
         n_pos: list = (8,),
         attention_dim: int = 64,
         strategy: str = "auto",
+        attn_heads = 8,
+        seq_len = 25
     ):
         self.npz_file = npz_file
         self.h5_file = h5_file
@@ -149,6 +152,8 @@ class MitosisInception:
         self.eps = eps
         self.attention_dim = attention_dim
         self.scheduler = None
+        self.attn_heads=attn_heads,
+        self.seq_len=seq_len,
         if self.loss_function not in self.LOSS_CHOICES:
             raise ValueError(
                 f"Invalid loss function choice, must be one of {self.LOSS_CHOICES}"
@@ -369,6 +374,21 @@ class MitosisInception:
             attention_dim=self.attention_dim,  # Add this as a parameter in your class
         )
         print(f"Training Attention Model {self.model}")
+
+
+    def setup_inception_qkv_model(self):
+        self.model = InceptionNet(
+            input_channels=self.input_channels,
+            num_classes=self.num_classes,
+            growth_rate=self.growth_rate,
+            block_config=self.block_config,
+            num_init_features=self.num_init_features,
+            bottleneck_size=self.bottleneck_size,
+            kernel_size=self.kernel_size,
+            attn_heads=self.attn_heads,
+            seq_len=self.seq_len,
+        )
+        print(f"Training Inception DenseNet with QKV Model {self.model}")
 
     def setup_hybrid_attention_model(self):
         self.model = HybridAttentionDenseNet(
