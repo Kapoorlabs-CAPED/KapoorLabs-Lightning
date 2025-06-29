@@ -49,6 +49,9 @@ def _time_embed_fourier1d_init(
             .unsqueeze(0)
         )
 
+
+
+
 class TemporalEncoding(nn.Module):
     def __init__(self, num_frequencies: int = 16):
         """Simplified temporal positional encoding for temporal data.
@@ -775,53 +778,55 @@ class TrackAsuraBidirectionalCrossAttention(BidirectionalCrossAttention):
         )
 
 
-class DenseLayer(nn.Module):
-    """ """
 
+# ------------------------------- Dense Layer ------------------------------- #
+
+class DenseLayer(nn.Module):
+    """
+    A single DenseNet-style layer for 1D input with optional bottleneck.
+    Applies (BN → ReLU → [1x1 Conv])? → BN → ReLU → Conv(kernel_size).
+    """
     def __init__(self, input_channels, growth_rate, bottleneck_size, kernel_size):
         super().__init__()
         self.use_bottleneck = bottleneck_size > 0
-        self.num_bottleneck_output_filters = growth_rate * bottleneck_size
+
         if self.use_bottleneck:
-            self.bn2 = nn.BatchNorm1d(input_channels)
-            self.act2 = nn.ReLU(inplace=True)
-            self.conv2 = nn.Conv1d(
-                input_channels,
-                self.num_bottleneck_output_filters,
-                kernel_size=1,
-                stride=1,
+            bottleneck_channels = growth_rate * bottleneck_size
+            self.bn_bottleneck = nn.BatchNorm1d(input_channels)
+            self.act_bottleneck = nn.ReLU(inplace=True)
+            self.conv_bottleneck = nn.Conv1d(
+                input_channels, bottleneck_channels, kernel_size=1, stride=1, bias=False
             )
-        self.bn1 = nn.BatchNorm1d(self.num_bottleneck_output_filters)
-        self.act1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv1d(
-            self.num_bottleneck_output_filters,
+            conv_input_channels = bottleneck_channels
+        else:
+            conv_input_channels = input_channels
+
+        self.bn_main = nn.BatchNorm1d(conv_input_channels)
+        self.act_main = nn.ReLU(inplace=True)
+        self.conv_main = nn.Conv1d(
+            conv_input_channels,
             growth_rate,
             kernel_size=kernel_size,
             stride=1,
-            dilation=1,
             padding=kernel_size // 2,
+            bias=False,
         )
 
     def forward(self, x):
         if self.use_bottleneck:
-            x = self.bn2(x)
-            x = self.act2(x)
-            x = self.conv2(x)
-        x = self.bn1(x)
-        x = self.act1(x)
-        x = self.conv1(x)
+            x = self.conv_bottleneck(self.act_bottleneck(self.bn_bottleneck(x)))
+        x = self.conv_main(self.act_main(self.bn_main(x)))
         return x
 
+# ------------------------------ Dense Block ------------------------------ #
 
 class DenseBlock(nn.ModuleDict):
-    """ """
-
-    def __init__(
-        self, num_layers, input_channels, growth_rate, kernel_size, bottleneck_size
-    ):
+    """
+    A block of DenseLayers with feature concatenation.
+    """
+    def __init__(self, num_layers, input_channels, growth_rate, kernel_size, bottleneck_size):
         super().__init__()
-        self.num_layers = num_layers
-        for i in range(self.num_layers):
+        for i in range(num_layers):
             self.add_module(
                 f"denselayer{i}",
                 DenseLayer(
@@ -835,30 +840,131 @@ class DenseBlock(nn.ModuleDict):
     def forward(self, x):
         layer_outputs = [x]
         for _, layer in self.items():
-            x = layer(x)
-            layer_outputs.append(x)
-            x = torch.cat(layer_outputs, dim=1)
-        return x
+            out = layer(torch.cat(layer_outputs, dim=1))
+            layer_outputs.append(out)
+        return torch.cat(layer_outputs, dim=1)
 
+# ---------------------------- Transition Block ---------------------------- #
 
 class TransitionBlock(nn.Module):
-    """ """
-
+    """
+    Transition block for downsampling: BN → ReLU → 1x1 Conv → AvgPool.
+    """
     def __init__(self, input_channels, out_channels):
         super().__init__()
         self.bn = nn.BatchNorm1d(input_channels)
         self.act = nn.ReLU(inplace=True)
-        self.conv = nn.Conv1d(
-            input_channels, out_channels, kernel_size=1, stride=1, dilation=1
-        )
+        self.conv = nn.Conv1d(input_channels, out_channels, kernel_size=1, stride=1)
         self.pool = nn.AvgPool1d(kernel_size=2, stride=2)
 
     def forward(self, x):
-        x = self.bn(x)
-        x = self.act(x)
-        x = self.conv(x)
-        x = self.pool(x)
+        x = self.pool(self.conv(self.act(self.bn(x))))
         return x
+
+# ---------------------------- Attention Pooling ---------------------------- #
+
+class AttentionPool1d(nn.Module):
+    """
+    Attention-based pooling over 1D sequences with a [CLS]-like token.
+    """
+    def __init__(self, seq_len, embed_dim, num_heads=8, output_dim=None):
+        super().__init__()
+        self.pos_embed = nn.Parameter(torch.randn(seq_len + 1, embed_dim) / embed_dim**0.5)
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.qkv_proj = nn.Linear(embed_dim, embed_dim * 3)
+        self.num_heads = num_heads
+        self.output_proj = nn.Linear(embed_dim, output_dim or embed_dim)
+
+    def forward(self, x):
+        B, T, C = x.shape
+        cls_token = self.cls_token.expand(B, 1, C)
+        x = torch.cat([cls_token, x], dim=1)                  # [B, T+1, C]
+        x = x + self.pos_embed[:T+1]                          # Add positional encoding
+
+        qkv = self.qkv_proj(x).reshape(B, T+1, 3, self.num_heads, C // self.num_heads)
+        q, k, v = qkv.unbind(dim=2)                           # Each: [B, T+1, heads, dim]
+
+        q = q[:, 0:1].transpose(1, 2)                         # [B, heads, 1, dim]
+        k = k.transpose(1, 2)                                 # [B, heads, T+1, dim]
+        v = v.transpose(1, 2)
+
+        attn = (q @ k.transpose(-2, -1)) / C**0.5
+        attn = attn.softmax(dim=-1)
+
+        pooled = (attn @ v).squeeze(2).transpose(1, 2).reshape(B, C)
+        return self.output_proj(pooled)
+
+# ------------------------------- InceptionNet ------------------------------- #
+
+class InceptionNet(nn.Module):
+    """
+    Temporal DenseNet encoder + AttentionPool1d classifier.
+    
+    Input  : [B, T, C_in]   (T = 25)
+    Output : logits [B, num_classes]
+    """
+    def __init__(
+        self,
+        input_channels: int,
+        num_classes: int,
+        growth_rate: int = 32,
+        block_config = (6, 12, 8),
+        num_init_feat: int = 32,
+        bottleneck_size: int = 4,
+        kernel_size: int = 3,
+        attn_heads: int = 8,
+        seq_len: int = 25,
+    ):
+        super().__init__()
+
+        self.conv0 = nn.Sequential(
+            nn.Conv1d(input_channels, num_init_feat, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm1d(num_init_feat),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
+        )
+
+        channels = num_init_feat
+        self.stages = nn.ModuleList()
+        self.trans  = nn.ModuleList()
+
+        for i, n_layers in enumerate(block_config):
+            block = DenseBlock(
+                num_layers=n_layers,
+                input_channels=channels,
+                growth_rate=growth_rate,
+                kernel_size=kernel_size,
+                bottleneck_size=bottleneck_size,
+            )
+            self.stages.append(block)
+            channels += n_layers * growth_rate
+
+            if i != len(block_config) - 1:
+                out_channels = channels // 2
+                self.trans.append(TransitionBlock(channels, out_channels))
+                channels = out_channels
+            else:
+                self.trans.append(None)
+
+        self.attn_pool = AttentionPool1d(
+            seq_len=max(1, seq_len // (2 ** len(block_config))),
+            embed_dim=channels,
+            num_heads=attn_heads,
+        )
+        self.classifier = nn.Linear(channels, num_classes)
+
+    def forward(self, x):  # x: [B, T, C]
+        x = x.permute(0, 2, 1)      # → [B, C, T]
+        x = self.conv0(x)
+
+        for block, trans in zip(self.stages, self.trans):
+            x = block(x)
+            if trans is not None:
+                x = trans(x)
+
+        x = x.permute(0, 2, 1)      # → [B, T, C]
+        x = self.attn_pool(x)       # → [B, C]
+        return self.classifier(x)
 
 
 class HybridAttentionDenseNet(nn.Module):
@@ -1908,4 +2014,6 @@ __all__ = [
     "DGCNN",
     "DeepEmbeddedClustering",
     "ClusteringLayer",
+    "InceptionNet",
+    "AttentionPool1d"
 ]
