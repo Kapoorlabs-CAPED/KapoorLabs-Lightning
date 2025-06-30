@@ -152,8 +152,8 @@ class MitosisInception:
         self.eps = eps
         self.attention_dim = attention_dim
         self.scheduler = None
-        self.attn_heads=attn_heads,
-        self.seq_len=seq_len,
+        self.attn_heads=attn_heads
+        self.seq_len=seq_len
         if self.loss_function not in self.LOSS_CHOICES:
             raise ValueError(
                 f"Invalid loss function choice, must be one of {self.LOSS_CHOICES}"
