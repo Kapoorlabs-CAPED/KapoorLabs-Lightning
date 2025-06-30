@@ -919,7 +919,7 @@ class InceptionNet(nn.Module):
 
         if isinstance(block_config, int):
             block_config = (block_config,)
-
+        print(seq_len, block_config)
         self.conv0 = nn.Sequential(
             nn.Conv1d(input_channels, num_init_features, kernel_size=7, stride=2, padding=3, bias=False),
             nn.BatchNorm1d(num_init_features),
