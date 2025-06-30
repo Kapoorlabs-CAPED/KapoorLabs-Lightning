@@ -909,7 +909,7 @@ class InceptionNet(nn.Module):
         num_classes: int,
         growth_rate: int = 32,
         block_config = (6, 12, 8),
-        num_init_feat: int = 32,
+        num_init_features: int = 32,
         bottleneck_size: int = 4,
         kernel_size: int = 3,
         attn_heads: int = 8,
@@ -918,13 +918,13 @@ class InceptionNet(nn.Module):
         super().__init__()
 
         self.conv0 = nn.Sequential(
-            nn.Conv1d(input_channels, num_init_feat, kernel_size=7, stride=2, padding=3, bias=False),
-            nn.BatchNorm1d(num_init_feat),
+            nn.Conv1d(input_channels, num_init_features, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm1d(num_init_features),
             nn.ReLU(inplace=True),
             nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
         )
 
-        channels = num_init_feat
+        channels = num_init_features
         self.stages = nn.ModuleList()
         self.trans  = nn.ModuleList()
 
