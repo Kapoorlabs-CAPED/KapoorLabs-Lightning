@@ -872,8 +872,9 @@ class AttentionPool1d(nn.Module):
         self.pos_embed = nn.Parameter(torch.randn(seq_len + 1, embed_dim) / embed_dim**0.5)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.qkv_proj = nn.Linear(embed_dim, embed_dim * 3)
+        if not isinstance(num_heads, int):
+            num_heads = num_heads[0]
         self.num_heads = num_heads
-        print(self.num_heads)
         self.output_proj = nn.Linear(embed_dim, output_dim or embed_dim)
 
     def forward(self, x):
