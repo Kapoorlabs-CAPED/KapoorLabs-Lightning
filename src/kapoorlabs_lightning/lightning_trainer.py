@@ -258,42 +258,7 @@ class MitosisInception:
             self.val_loader = self.mitosis_data.val_dataloader()
             print('Data loaded')
 
-    def setup_gbr_vision_h5_datasets(self, crop_size = None):
-        if self.h5_file is not None:
-            train_arrays_key = "train_arrays"
-            train_labels_key = "train_labels"
-
-            val_arrays_key = "val_arrays"
-            val_labels_key = "val_labels"
-
-            self.dataset_train = H5VisionDataset(
-                self.h5_file,
-                train_arrays_key,
-                train_labels_key,
-                num_classes = self.num_classes,
-                crop_size=crop_size
-            )
-
-            self.dataset_val = H5VisionDataset(
-                self.h5_file,
-                val_arrays_key,
-                val_labels_key,
-                num_classes = self.num_classes,
-                crop_size=crop_size
-            )
-
-            self.input_channels = self.dataset_train.input_channels
-
-            self.mitosis_data = LightningData(
-                data_train=self.dataset_train,
-                data_val=self.dataset_val,
-                batch_size=self.batch_size,
-                num_workers=self.num_workers,
-            )
-
-            self.train_loader = self.mitosis_data.train_dataloader()
-            self.val_loader = self.mitosis_data.val_dataloader()
-            print("Data loaded")
+    
 
     def setup_h5_datasets(self):
         if self.h5_file is not None:
@@ -1155,6 +1120,10 @@ class LightningModel(LightningModule):
                 kernel_size = mitosis_data["kernel_size"]
             if "attention_dim" in mitosis_data.keys():
                 attention_dim = mitosis_data["attention_dim"]
+            if "attn_heads" in mitosis_data.keys():
+                attn_heads = mitosis_data["attn_heads"]   
+            if "seq_len" in mitosis_data.keys():
+                seq_len = mitosis_data["seq_len"]    
 
             if ckpt_model_path is None:
                 if local_model_path is None:
@@ -1187,6 +1156,19 @@ class LightningModel(LightningModule):
 
             optimizer = optim_func(lr=learning_rate)
             network = mitosis_model(input_channels, num_classes)
+            if "attn_heads" in mitosis_data.keys():
+                 network = mitosis_model(
+                    input_channels,
+                    num_classes,
+                    growth_rate=growth_rate,
+                    block_config=block_config,
+                    num_init_features=num_init_features,
+                    bottleneck_size=bottleneck_size,
+                    kernel_size=kernel_size,
+                    attn_heads = attn_heads,
+                    seq_len = seq_len
+                 )
+                    
             if "growth_rate" in mitosis_data.keys():
                 network = mitosis_model(
                     input_channels,
