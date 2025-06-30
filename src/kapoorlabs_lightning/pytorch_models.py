@@ -913,10 +913,11 @@ class InceptionNet(nn.Module):
         bottleneck_size: int = 4,
         kernel_size: int = 3,
         attn_heads: int = 8,
-        seq_len: int = 25,
+        seq_len: int = 25
     ):
         super().__init__()
-
+        if not isinstance(seq_len, int):
+            seq_len = seq_len[0]
         if isinstance(block_config, int):
             block_config = (block_config,)
         print(seq_len, block_config)
