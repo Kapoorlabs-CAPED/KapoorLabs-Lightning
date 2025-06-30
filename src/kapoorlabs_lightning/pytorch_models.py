@@ -956,9 +956,8 @@ class InceptionNet(nn.Module):
         )
         self.classifier = nn.Linear(channels, num_classes)
 
-    def forward(self, x):  # x: [B, T, C]
+    def forward(self, x):  # x: [B, C, T]
         
-        print(x.shape)
         x = self.conv0(x)
 
         for block, trans in zip(self.stages, self.trans):
@@ -966,7 +965,7 @@ class InceptionNet(nn.Module):
             if trans is not None:
                 x = trans(x)
 
-       
+        x = x.permute(0, 2, 1)
         x = self.attn_pool(x)       # → [B, C]
         return self.classifier(x)
 
