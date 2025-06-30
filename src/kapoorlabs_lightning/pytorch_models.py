@@ -861,114 +861,138 @@ class TransitionBlock(nn.Module):
         x = self.pool(self.conv(self.act(self.bn(x))))
         return x
 
-# ---------------------------- Attention Pooling ---------------------------- #
-
 class AttentionPool1d(nn.Module):
     """
-    Attention-based pooling over 1D sequences with a [CLS]-like token.
+    Attention-based pooling over 1-D sequences with a learnable [CLS] token.
+    Input : [B, T, C]  →  Output : [B, C_out]   (C must be divisible by num_heads)
     """
-    def __init__(self, seq_len, embed_dim, num_heads=8, output_dim=None):
+    def __init__(self, seq_len: int, embed_dim: int,
+                 num_heads: int = 8, output_dim: int | None = None):
         super().__init__()
-        self.pos_embed = nn.Parameter(torch.randn(seq_len + 1, embed_dim) / embed_dim**0.5)
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.qkv_proj = nn.Linear(embed_dim, embed_dim * 3)
-        if not isinstance(num_heads, int):
-            num_heads = num_heads[0]
+
+        # --- safety check --------------------------------------------------- #
+        if embed_dim % num_heads != 0:
+            raise ValueError(
+                f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})."
+            )
         self.num_heads = num_heads
+        self.head_dim  = embed_dim // num_heads
+        # -------------------------------------------------------------------- #
+
+        self.pos_embed  = nn.Parameter(torch.randn(seq_len + 1, embed_dim) / embed_dim**0.5)
+        self.cls_token  = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.qkv_proj   = nn.Linear(embed_dim, embed_dim * 3, bias=False)
         self.output_proj = nn.Linear(embed_dim, output_dim or embed_dim)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:   # x: [B, T, C]
         B, T, C = x.shape
-        cls_token = self.cls_token.expand(B, 1, C)
-        x = torch.cat([cls_token, x], dim=1)                  # [B, T+1, C]
-        x = x + self.pos_embed[:T+1]                          # Add positional encoding
 
-        qkv = self.qkv_proj(x).reshape(B, T+1, 3, self.num_heads, C // self.num_heads)
-        q, k, v = qkv.unbind(dim=2)                           # Each: [B, T+1, heads, dim]
+        cls = self.cls_token.expand(B, 1, C)
+        x   = torch.cat([cls, x], dim=1) + self.pos_embed[: T + 1]   # [B, T+1, C]
 
-        q = q[:, 0:1].transpose(1, 2)                         # [B, heads, 1, dim]
-        k = k.transpose(1, 2)                                 # [B, heads, T+1, dim]
+        qkv = self.qkv_proj(x).reshape(B, T + 1, 3, self.num_heads, self.head_dim)
+        q, k, v = qkv.unbind(dim=2)                                  # [B, T+1, heads, d]
+
+        q = q[:, 0:1].transpose(1, 2)                                # [B, heads, 1, d]
+        k = k.transpose(1, 2)                                        # [B, heads, T+1, d]
         v = v.transpose(1, 2)
 
-        attn = (q @ k.transpose(-2, -1)) / C**0.5
+        attn = (q @ k.transpose(-2, -1)) / self.head_dim**0.5
         attn = attn.softmax(dim=-1)
 
-        pooled = (attn @ v).squeeze(2).transpose(1, 2).reshape(B, C)
+        pooled = (attn @ v).squeeze(2).transpose(1, 2).reshape(B, C) # [B, C]
         return self.output_proj(pooled)
 
-# ------------------------------- InceptionNet ------------------------------- #
-
+# --------------------------------------------------------------------------- #
+# InceptionNet                                                                #
+# --------------------------------------------------------------------------- #
 class InceptionNet(nn.Module):
     """
     Temporal DenseNet encoder + AttentionPool1d classifier.
-    
-    Input  : [B, T, C_in]   (T = 25)
-    Output : logits [B, num_classes]
+    Accepts either an int or a tuple for `block_config`.
+    Input  : [B, C, T]   (e.g. T = 25)      Output : logits [B, num_classes]
     """
     def __init__(
         self,
         input_channels: int,
         num_classes: int,
         growth_rate: int = 32,
-        block_config = (6, 12, 8),
+        block_config = (6, 12, 8),          # can be int or tuple
         num_init_features: int = 32,
         bottleneck_size: int = 4,
         kernel_size: int = 3,
         attn_heads: int = 8,
-        seq_len: int = 25
+        seq_len: int = 25,
     ):
         super().__init__()
-        if not isinstance(seq_len, int):
-            seq_len = seq_len[0]
+
+        # --------------------- handle flexible args ------------------------ #
         if isinstance(block_config, int):
             block_config = (block_config,)
+        if not isinstance(seq_len, int):
+            seq_len = seq_len[0]
+        # ------------------------------------------------------------------- #
+
+        # --------------------------- stem ---------------------------------- #
         self.conv0 = nn.Sequential(
-            nn.Conv1d(input_channels, num_init_features, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.Conv1d(input_channels, num_init_features,
+                      kernel_size=7, stride=2, padding=3, bias=False),
             nn.BatchNorm1d(num_init_features),
             nn.ReLU(inplace=True),
             nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
         )
 
+        # ------------------ dense/transition stages ------------------------ #
         channels = num_init_features
         self.stages = nn.ModuleList()
         self.trans  = nn.ModuleList()
 
         for i, n_layers in enumerate(block_config):
-            block = DenseBlock(
-                num_layers=n_layers,
-                input_channels=channels,
-                growth_rate=growth_rate,
-                kernel_size=kernel_size,
-                bottleneck_size=bottleneck_size,
+            self.stages.append(
+                DenseBlock(
+                    num_layers=n_layers,
+                    input_channels=channels,
+                    growth_rate=growth_rate,
+                    kernel_size=kernel_size,
+                    bottleneck_size=bottleneck_size,
+                )
             )
-            self.stages.append(block)
             channels += n_layers * growth_rate
 
             if i != len(block_config) - 1:
-                out_channels = channels // 2
-                self.trans.append(TransitionBlock(channels, out_channels))
-                channels = out_channels
+                next_channels = channels // 2
+                self.trans.append(TransitionBlock(channels, next_channels))
+                channels = next_channels
             else:
                 self.trans.append(None)
 
+        # ------------- align channels to be divisible by heads ------------ #
+        if channels % attn_heads != 0:
+            aligned = ((channels + attn_heads - 1) // attn_heads) * attn_heads
+            self.align_proj = nn.Conv1d(channels, aligned, kernel_size=1, bias=False)
+            channels = aligned
+        else:
+            self.align_proj = nn.Identity()
+        # ------------------------------------------------------------------- #
+
+        # ------------------------- attention head -------------------------- #
         self.attn_pool = AttentionPool1d(
             seq_len=max(1, seq_len // (2 ** len(block_config))),
             embed_dim=channels,
-            num_heads=attn_heads
+            num_heads=attn_heads,
         )
         self.classifier = nn.Linear(channels, num_classes)
 
-    def forward(self, x):  # x: [B, C, T]
-        
+    # ----------------------------------------------------------------------- #
+    def forward(self, x: torch.Tensor) -> torch.Tensor:   # x: [B, C, T]
         x = self.conv0(x)
-
         for block, trans in zip(self.stages, self.trans):
             x = block(x)
             if trans is not None:
                 x = trans(x)
 
-        x = x.permute(0, 2, 1)
-        x = self.attn_pool(x)       # → [B, C]
+        x = self.align_proj(x)          # [B, C_aligned, T']
+        x = self.attn_pool(x.permute(0, 2, 1))   # → [B, C]
         return self.classifier(x)
 
 
