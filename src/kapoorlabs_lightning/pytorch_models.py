@@ -952,7 +952,7 @@ class InceptionNet(nn.Module):
         self.attn_pool = AttentionPool1d(
             seq_len=max(1, seq_len // (2 ** len(block_config))),
             embed_dim=channels,
-            num_heads=attn_heads,
+            num_heads=attn_heads
         )
         self.classifier = nn.Linear(channels, num_classes)
 
