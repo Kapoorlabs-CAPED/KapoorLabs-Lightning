@@ -917,7 +917,7 @@ class InceptionNet(nn.Module):
         input_channels: int,
         num_classes: int,
         growth_rate: int = 32,
-        block_config = (6, 12, 8),          # can be int or tuple
+        block_config = (6),          # can be int or tuple
         num_init_features: int = 32,
         bottleneck_size: int = 4,
         kernel_size: int = 3,
