@@ -936,17 +936,17 @@ class InceptionNet(nn.Module):
         # --------------------------- stem ---------------------------------- #
         self.conv0 = nn.Sequential(
             nn.Conv1d(input_channels, num_init_features,
-                      kernel_size=7, stride=2, padding=3, bias=False),
+                      kernel_size=7, bias=False),
             nn.BatchNorm1d(num_init_features),
             nn.ReLU(inplace=True),
-            nn.MaxPool1d(kernel_size=3, stride=2, padding=1),
         )
 
         # ------------------ dense/transition stages ------------------------ #
         channels = num_init_features
         self.stages = nn.ModuleList()
         self.trans  = nn.ModuleList()
-
+        n_transitions = len(block_config) - 1    # 2
+        seq_len_attn = max(1, seq_len // (2**n_transitions)) 
         for i, n_layers in enumerate(block_config):
             self.stages.append(
                 DenseBlock(
@@ -977,7 +977,7 @@ class InceptionNet(nn.Module):
 
         # ------------------------- attention head -------------------------- #
         self.attn_pool = AttentionPool1d(
-            seq_len=max(1, seq_len // (2 ** len(block_config))),
+            seq_len=seq_len_attn,
             embed_dim=channels,
             num_heads=attn_heads,
         )
