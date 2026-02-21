@@ -1257,14 +1257,7 @@ class LightningModel(LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        if not self.automatic_optimization:
-            opt = self.optimizers()
-            loss = self.loss(y_hat, y)
-            opt.zero_grad()
-            self.manual_backward(loss)
-            opt.step()
-        else:
-            loss = self.loss(y_hat, y)
+        loss = self.loss(y_hat, y)
 
         self.log(
             "train_loss",

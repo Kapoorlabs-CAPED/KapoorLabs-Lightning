@@ -1,0 +1,5 @@
+base_data_dir: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/' 
+oneat_timelapse_data_raw : 'oneat_timelapse_nuclei_raw/'
+oneat_timelapse_data_csv : 'oneat_timelapse_nuclei_csv/'
+oneat_timelapse_data_seg : 'oneat_timelapse_nuclei_seg/'
+oneat_h5_file: 'oneat_kapoorlabs'

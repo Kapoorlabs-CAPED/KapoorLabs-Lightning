@@ -1340,7 +1340,7 @@ class DenseVollNet(nn.Module):
         last_activation: str = "softmax",
         pool_first = True
     ):
-        super(DenseVollNet, self).__init__()
+        super().__init__()
         
         # Top module
         stage_number = len(depth)
@@ -1487,7 +1487,7 @@ class DenseNet3D(nn.Module):
     def __init__(self,input_channels, block_config: dict, startfilter,  start_kernel, 
                  mid_kernel, growth_rate=32, bn_size=4,
                  drop_rate=0, pool_first = True):
-        super(DenseNet3D, self).__init__()
+        super().__init__()
         if isinstance(block_config, tuple):
             block_config = {f'block_{i+1}': num_layers for i, num_layers in enumerate(block_config)}
 

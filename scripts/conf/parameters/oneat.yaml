@@ -1,0 +1,30 @@
+startfilter: 64
+start_kernel: 7
+mid_kernel: 3
+learning_rate: 1.0E-3
+batch_size: 32
+epochs: 250
+stage_number: 3
+size_tminus: 1
+size_tplus: 1
+tshift: 0
+imagex: 64
+imagey: 64
+imagez: 8
+depth: {'depth_0': 12, 'depth_1': 24, 'depth_2': 16}
+reduction: 0.5
+n_tiles: [1,4,4]
+event_threshold: [1,0.999]
+event_confidence: [1,0.9]
+file_type: '*.tif'
+nms_space: 10
+nms_time: 2
+normalizeimage: True
+event_name: ['normal', 'mitosis']
+event_label: [0, 1]
+event_position_name : ["x", "y", "z", "t", "h", "w", "d", "c"]
+event_position_label : [0, 1, 2, 3, 4, 5, 6, 7]
+categories_json: 'catagories.json'
+cord_json: 'cord.json'
+oneat_model:
+          _target_: kapoorlabs_lightning.pytorch_models.DenseVollNet
