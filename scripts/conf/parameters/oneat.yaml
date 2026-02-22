@@ -7,7 +7,6 @@ epochs: 250
 stage_number: 3
 size_tminus: 1
 size_tplus: 1
-tshift: 0
 imagex: 64
 imagey: 64
 imagez: 8
@@ -26,5 +25,7 @@ event_position_name : ["x", "y", "z", "t", "h", "w", "d", "c"]
 event_position_label : [0, 1, 2, 3, 4, 5, 6, 7]
 categories_json: 'catagories.json'
 cord_json: 'cord.json'
+train_split: 0.95
+batch_write_size: 100
 oneat_model:
           _target_: kapoorlabs_lightning.pytorch_models.DenseVollNet

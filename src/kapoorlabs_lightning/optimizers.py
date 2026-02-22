@@ -1,9 +1,10 @@
 from typing import Optional
-
+import torch
 from torch import optim
 from torch.nn.modules.module import Module
+from lightly.utils.lars import LARS as LightlyLARS
 
-__all__ = ["Adam", "SGD", "Rprop", "RMSprop"]
+__all__ = ["Adam", "SGD", "Rprop", "RMSprop", "AdamW", "AdamWClipStyle", "LARS"]
 
 
 class _Optimizer(Module):
@@ -84,9 +85,48 @@ class Adam(_Optimizer):
             betas=self.betas,
             eps=self.eps,
             weight_decay=self.weight_decay,
-            amsgrad=self.amsgrad,
+            amsgrad=self.amsgrad
+           
+        )
+class AdamW(_Optimizer):
+    def __init__(
+        self,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=0.01,
+        *,
+        foreach: Optional[bool] = None,
+        maximize: bool = False,
+        capturable: bool = False,
+        differentiable: bool = False,
+        fused: Optional[bool] = None
+    ):
+        super().__init__(
+            lr=lr,
+            betas=betas,
+            eps=eps,
+            weight_decay=weight_decay,
+            foreach=foreach,
+            maximize=maximize,
+            capturable=capturable,
+            differentiable=differentiable,
+            fused=fused,
         )
 
+    def forward(self, params):
+        return optim.AdamW(
+            params,
+            lr=self.lr,
+            betas=self.betas,
+            eps=self.eps,
+            weight_decay=self.weight_decay,
+            foreach=self.foreach,
+            maximize=self.maximize,
+            capturable=self.capturable,
+            differentiable=self.differentiable,
+            fused=self.fused,
+        )
 
 class SGD(_Optimizer):
     def __init__(
@@ -119,9 +159,8 @@ class SGD(_Optimizer):
             momentum=self.momentum,
             dampening=self.dampening,
             weight_decay=self.weight_decay,
-            nesterov=self.nesterov,
+            nesterov=self.nesterov
         )
-
 
 class RMSprop(_Optimizer):
     def __init__(
@@ -136,19 +175,17 @@ class RMSprop(_Optimizer):
         maximize: bool = False,
         differentiable: bool = False,
     ):
-
-        super().__init__(
-            lr=lr,
-            alpha=alpha,
+         
+         super().__init__(lr=lr,
+                          alpha=alpha,
             eps=eps,
             weight_decay=weight_decay,
             momentum=momentum,
             centered=centered,
             foreach=foreach,
             maximize=maximize,
-            differentiable=differentiable,
-        )
-
+            differentiable=differentiable)
+    
     def forward(self, params):
         return optim.RMSprop(
             params,
@@ -160,10 +197,9 @@ class RMSprop(_Optimizer):
             centered=self.centered,
             foreach=self.foreach,
             maximize=self.maximize,
-            differentiable=self.differentiable,
-        )
-
-
+            differentiable=self.differentiable
+        )     
+    
 class Rprop(_Optimizer):
     def __init__(
         self,
@@ -184,5 +220,121 @@ class Rprop(_Optimizer):
 
     def forward(self, params):
         return optim.Rprop(
-            params, lr=self.lr, etas=self.etas, step_sizes=self.step_sizes
+            params,
+            lr=self.lr,
+            etas=self.etas,
+            step_sizes=self.step_sizes
+            
+        )
+        
+class AdamWClipStyle(_Optimizer):
+    def __init__(
+        self,
+        lr=5e-4,
+        betas=(0.9, 0.98),
+        eps=1e-6,
+        weight_decay=0.2,
+        *,
+        foreach: Optional[bool] = None,
+        maximize: bool = False,
+        capturable: bool = False,
+        differentiable: bool = False,
+        fused: Optional[bool] = None,
+    ):
+        super().__init__(
+            lr=lr,
+            betas=betas,
+            eps=eps,
+            weight_decay=weight_decay,
+            foreach=foreach,
+            maximize=maximize,
+            capturable=capturable,
+            differentiable=differentiable,
+            fused=fused,
+        )
+
+    def forward(self, params):
+        # If user passed a model instead of a param list
+        if isinstance(params, torch.nn.Module):
+            decay_params = []
+            no_decay_params = []
+
+            norm_layers = (
+                torch.nn.LayerNorm,
+                torch.nn.BatchNorm1d,
+                torch.nn.BatchNorm2d,
+                torch.nn.BatchNorm3d,
+                torch.nn.GroupNorm,
+                torch.nn.LocalResponseNorm,
+            )
+
+            for module in params.modules():
+                for name, param in module.named_parameters(recurse=False):
+                    if not param.requires_grad:
+                        continue
+                    if name == "bias" or isinstance(module, norm_layers):
+                        no_decay_params.append(param)
+                    else:
+                        decay_params.append(param)
+
+            param_groups = [
+                {"params": decay_params, "weight_decay": self.weight_decay},
+                {"params": no_decay_params, "weight_decay": 0.0},
+            ]
+        else:
+            param_groups = params  # treat as pre-defined param group(s)
+
+        return optim.AdamW(
+            param_groups,
+            lr=self.lr,
+            betas=self.betas,
+            eps=self.eps,
+            weight_decay=0.0,  # Handled via param_groups
+            foreach=self.foreach,
+            maximize=self.maximize,
+            capturable=self.capturable,
+            differentiable=self.differentiable,
+            fused=self.fused,
+        )
+
+
+class LARS(_Optimizer):
+    """
+    LARS optimizer wrapper following the module pattern.
+
+    Layer-wise Adaptive Rate Scaling for large batch training.
+    Recommended for SimCLR with batch sizes >= 256.
+    Uses lightly.utils.lars.LARS under the hood.
+
+    Args:
+        lr: Base learning rate (default: 0.1)
+        momentum: Momentum factor (default: 0.9)
+        weight_decay: Weight decay (default: 1e-6)
+        eta: LARS coefficient (trust coefficient) (default: 0.001)
+        eps: Small constant for numerical stability (default: 1e-8)
+    """
+    def __init__(
+        self,
+        lr=0.1,
+        momentum=0.9,
+        dampening: float = 0,
+        weight_decay=1e-6,
+        eps=1e-8,
+        nesterov=False,
+        trust_coefficient: float = 0.001,
+    ):
+        super().__init__(lr=lr, momentum=momentum, weight_decay=weight_decay, eps=eps, nesterov = nesterov, dampening = dampening)
+        self.trust_coefficient = trust_coefficient
+    def forward(self, params):
+        if isinstance(params, torch.nn.Module):
+            params = params.parameters()
+
+        return LightlyLARS(
+            params,
+            lr=self.lr,
+            momentum=self.momentum,
+            weight_decay=self.weight_decay,
+            nesterov=self.nesterov,
+            trust_coefficient=self.trust_coefficient,
+            eps = self.eps
         )

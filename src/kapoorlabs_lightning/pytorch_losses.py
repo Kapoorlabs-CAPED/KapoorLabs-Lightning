@@ -3,30 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class ChamferLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.use_cuda = torch.cuda.is_available()
-
-    def batch_pairwise_dist(self, x, y):
-        xx = x.pow(2).sum(dim=-1)
-        yy = y.pow(2).sum(dim=-1)
-        zz = torch.bmm(x, y.transpose(2, 1))
-        rx = xx.unsqueeze(1).expand_as(zz.transpose(2, 1))
-        ry = yy.unsqueeze(1).expand_as(zz)
-        P = rx.transpose(2, 1) + ry - 2 * zz
-        return P
-
-    def forward(self, gts, preds):
-        P = self.batch_pairwise_dist(gts, preds)
-        mins, _ = torch.min(P, 1)
-        loss_1 = torch.sum(mins)
-        mins, _ = torch.min(P, 2)
-        loss_2 = torch.sum(mins)
-        return loss_1 + loss_2
-
-
-# Simplified extract functions
 def extract_ground_event_volume_truth(y_true, categories, box_vector):
     """
     Extracts class, position (xyz), dimensions (whd), and confidence from ground truth tensor.
@@ -87,9 +63,6 @@ def calc_loss_xyzwhd(true_box_xyz, pred_box_xyz, true_box_whd, pred_box_whd):
 
 
 def calc_loss_class(true_box_class, pred_box_class, class_weights_dict = None):
-    """
-    Calculates the classification loss using categorical cross-entropy.
-    """
     if class_weights_dict is not None:
         class_weights = torch.tensor(
             [class_weights_dict[i] for i in range(len(class_weights_dict))],
@@ -106,7 +79,6 @@ def calc_loss_class(true_box_class, pred_box_class, class_weights_dict = None):
     return loss_class
 
 
-# Combined loss function
 class VolumeYoloLoss(nn.Module):
     def __init__(self, categories, box_vector, device, class_weights_dict = None):
         super().__init__()
@@ -142,3 +114,6 @@ class VolumeYoloLoss(nn.Module):
 
         combined_loss = loss_xyzwhd + loss_conf + loss_class
         return combined_loss
+
+
+__all__ = ["VolumeYoloLoss"]

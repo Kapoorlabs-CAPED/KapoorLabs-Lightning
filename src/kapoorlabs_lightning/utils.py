@@ -7,10 +7,12 @@ import seaborn as sns
 import pickle
 import matplotlib.pyplot as plt
 import torch
+import h5py
 
 from pathlib import Path
 from omegaconf import OmegaConf
-
+from scipy import spatial
+from skimage import measure
 
 from bokeh.palettes import Category10
 import itertools
@@ -146,124 +148,29 @@ def plot_npz_files(filepaths):
         plt.show()
 
 
-def blockwise_sum(
-    A: torch.Tensor, timepoints: torch.Tensor, dim: int = 0, reduce: str = "sum"
+def normalize_mi_ma(x, mi, ma, eps=1e-20, dtype=np.float32):
+    x = x.astype(dtype)
+    mi = dtype(mi) if np.isscalar(mi) else mi.astype(dtype, copy=False)
+    ma = dtype(ma) if np.isscalar(ma) else ma.astype(dtype, copy=False)
+    eps = dtype(eps) if np.isscalar(eps) else eps.astype(dtype, copy=False)
+
+    x = (x - mi) / (ma - mi + eps)
+
+    return x
+
+
+def percentile_norm(
+    x, pmin=1, pmax=99.8, axis=None, eps=1e-20, dtype=np.float32
 ):
-    if not A.shape[dim] == len(timepoints):
-        raise ValueError(
-            f"Dimension {dim} of A ({A.shape[dim]}) must match length of timepoints"
-            f" ({len(timepoints)})"
-        )
-
-    A = A.transpose(dim, 0)
-
-    if len(timepoints) == 0:
-        logger.warning("Empty timepoints in block_sum. Returning zero tensor.")
-        return A
-    # -1 is the filling value for padded/invalid timepoints
-    min_t = timepoints[timepoints >= 0]
-    if len(min_t) == 0:
-        logger.warning("All timepoints are -1 in block_sum. Returning zero tensor.")
-        return A
-
-    min_t = min_t.min()
-    # after that, valid timepoints start with 1 (padding timepoints will be mapped to 0)
-    ts = torch.clamp(timepoints - min_t + 1, min=0)
-    index = ts.unsqueeze(1).expand(-1, len(ts))
-    blocks = ts.max().long() + 1
-    out = torch.zeros((blocks, A.shape[1]), device=A.device, dtype=A.dtype)
-    out = torch.scatter_reduce(out, 0, index, A, reduce=reduce)
-    B = out[ts]
-    B = B.transpose(0, dim)
-
-    return B
-
-
-def blockwise_causal_norm(
-    A: torch.Tensor,
-    timepoints: torch.Tensor,
-    mode: str = "softmax",
-    mask_invalid: torch.BoolTensor = None,
-    eps: float = 1e-6,
-):
-    """Normalization over the causal dimension of A.
-
-    For each block of constant timepoints, normalize the corresponding block of A
-    such that the sum over the causal dimension is 1.
-
-    Args:
-        A (torch.Tensor): input tensor
-        timepoints (torch.Tensor): timepoints for each element in the causal dimension
-        mode: normalization mode.
-            `linear`: Simple linear normalization.
-            `softmax`: Apply exp to A before normalization.
-            `quiet_softmax`: Apply exp to A before normalization, and add 1 to the denominator of each row/column.
-        mask_invalid: Values that should not influence the normalization.
-        eps (float, optional): epsilon for numerical stability.
-    """
-    assert A.ndim == 2 and A.shape[0] == A.shape[1]
-    A = A.clone()
-
-    if mode in ("softmax", "quiet_softmax"):
-        # Subtract max for numerical stability
-        # https://stats.stackexchange.com/questions/338285/how-does-the-subtraction-of-the-logit-maximum-improve-learning
-        # TODO test without this subtraction
-
-        if mask_invalid is not None:
-            assert mask_invalid.shape == A.shape
-            A[mask_invalid] = -torch.inf
-        # TODO set to min, then to 0 after exp
-
-        # Blockwise max
-        ma0 = blockwise_sum(A, timepoints, dim=0, reduce="amax")
-        ma1 = blockwise_sum(A, timepoints, dim=1, reduce="amax")
-
-        u0 = torch.exp(A - ma0)
-        u1 = torch.exp(A - ma1)
-    elif mode == "linear":
-        A = torch.sigmoid(A)
-        if mask_invalid is not None:
-            assert mask_invalid.shape == A.shape
-            A[mask_invalid] = 0
-
-        u0, u1 = A, A
-        ma0 = ma1 = 0
-    else:
-        raise NotImplementedError(f"Mode {mode} not implemented")
-
-    # get block boundaries and normalize within blocks
-    # bounds = _bounds_from_timepoints(timepoints)
-    # u0_sum = _blockwise_sum_with_bounds(u0, bounds, dim=0) + eps
-    # u1_sum = _blockwise_sum_with_bounds(u1, bounds, dim=1) + eps
-
-    u0_sum = blockwise_sum(u0, timepoints, dim=0) + eps
-    u1_sum = blockwise_sum(u1, timepoints, dim=1) + eps
-
-    if mode == "quiet_softmax":
-        # Add 1 to the denominator of the softmax. With this, the softmax outputs can be all 0, if the logits are all negative.
-        # If the logits are positive, the softmax outputs will sum to 1.
-        # Trick: With maximum subtraction, this is equivalent to adding 1 to the denominator
-        u0_sum += torch.exp(-ma0)
-        u1_sum += torch.exp(-ma1)
-
-    mask0 = timepoints.unsqueeze(0) > timepoints.unsqueeze(1)
-    # mask1 = timepoints.unsqueeze(0) < timepoints.unsqueeze(1)
-    # Entries with t1 == t2 are always masked out in final loss
-    mask1 = ~mask0
-
-    # blockwise diagonal will be normalized along dim=0
-    res = mask0 * u0 / u0_sum + mask1 * u1 / u1_sum
-    res = torch.clamp(res, 0, 1)
-    return res
-
+    mi = np.percentile(x, pmin, axis=axis, keepdims=True)
+    ma = np.percentile(x, pmax, axis=axis, keepdims=True)
+    return normalize_mi_ma(x, mi, ma, eps=eps, dtype=dtype)
 
 
 def save_config_as_json(config, log_path):
     """Save resolved OmegaConf config as JSON to log_path"""
-    # Convert OmegaConf to dict
     config_dict = OmegaConf.to_container(config, resolve=True)
 
-    # Save as JSON
     config_file = Path(log_path) / "training_config.json"
     with open(config_file, 'w') as f:
         json.dump(config_dict, f, indent=2)
@@ -272,14 +179,224 @@ def save_config_as_json(config, log_path):
     return config_dict
 
 
+def create_event_dataset_h5(
+    raw_images,
+    seg_images,
+    csv_files,
+    event_names,
+    h5_output_path,
+    crop_size,
+    train_split=0.95,
+    batch_write_size=100,
+):
+    sizex, sizey, sizez, t_minus, t_plus = crop_size
+
+    event_data = []
+    for csv_file in csv_files:
+        csv_name = os.path.basename(csv_file)
+        for event_idx, event_name in enumerate(event_names):
+            if event_name in csv_name:
+                clicks_df = pd.read_csv(csv_file)
+                for _, row in clicks_df.iterrows():
+                    event_data.append({
+                        'raw_idx': event_idx,
+                        'csv_file': csv_file,
+                        'event_label': event_idx,
+                        'event_name': event_name,
+                        'time': row.get('t', row.get('time', 0)),
+                        'x': row.get('x', 0),
+                        'y': row.get('y', 0),
+                        'z': row.get('z', 0)
+                    })
+
+    np.random.shuffle(event_data)
+    train_size = int(len(event_data) * train_split)
+    train_data = event_data[:train_size]
+    val_data = event_data[train_size:]
+
+    with h5py.File(h5_output_path, 'w') as h5f:
+        train_grp = h5f.create_group('train')
+        val_grp = h5f.create_group('val')
+
+        train_images_list = []
+        train_segs_list = []
+        train_labels_list = []
+
+        val_images_list = []
+        val_segs_list = []
+        val_labels_list = []
+
+        for i, event in enumerate(train_data):
+            result = _extract_event_cube(
+                raw_images[event['raw_idx']],
+                seg_images[event['raw_idx']],
+                event,
+                crop_size
+            )
+            if result is not None:
+                crop_image, crop_seg, label = result
+                train_images_list.append(crop_image)
+                train_segs_list.append(crop_seg)
+                train_labels_list.append(label)
+
+                if len(train_images_list) >= batch_write_size:
+                    _write_batch_to_h5(train_grp, train_images_list, train_segs_list, train_labels_list)
+                    train_images_list = []
+                    train_segs_list = []
+                    train_labels_list = []
+
+        if len(train_images_list) > 0:
+            _write_batch_to_h5(train_grp, train_images_list, train_segs_list, train_labels_list)
+
+        for event in val_data:
+            result = _extract_event_cube(
+                raw_images[event['raw_idx']],
+                seg_images[event['raw_idx']],
+                event,
+                crop_size
+            )
+            if result is not None:
+                crop_image, crop_seg, label = result
+                val_images_list.append(crop_image)
+                val_segs_list.append(crop_seg)
+                val_labels_list.append(label)
+
+                if len(val_images_list) >= batch_write_size:
+                    _write_batch_to_h5(val_grp, val_images_list, val_segs_list, val_labels_list)
+                    val_images_list = []
+                    val_segs_list = []
+                    val_labels_list = []
+
+        if len(val_images_list) > 0:
+            _write_batch_to_h5(val_grp, val_images_list, val_segs_list, val_labels_list)
+
+
+def _extract_event_cube(raw_image, seg_image, event, crop_size):
+    sizex, sizey, sizez, t_minus, t_plus = crop_size
+    time = int(event['time'])
+    x = int(event['x'])
+    y = int(event['y'])
+    z = int(event['z'])
+
+    if time < t_minus or time + t_plus + 1 >= raw_image.shape[0]:
+        return None
+
+    starttime = time - t_minus
+    endtime = time + t_plus + 1
+    temporal_image = raw_image[starttime:endtime, :]
+    temporal_seg = seg_image[starttime:endtime, :]
+
+    currentsegimage = seg_image[time, :].astype('uint16')
+
+    properties = measure.regionprops(currentsegimage)
+    centroids = [prop.centroid for prop in properties]
+    labels = [prop.label for prop in properties]
+
+    if len(centroids) == 0:
+        return None
+
+    tree = spatial.cKDTree(centroids)
+    d_location = (z, y, x)
+    distance_cell_mask, nearest_location = tree.query(d_location)
+
+    if distance_cell_mask < 0.5 * sizex:
+        z = int(centroids[nearest_location][0])
+        y = int(centroids[nearest_location][1])
+        x = int(centroids[nearest_location][2])
+        seg_label = labels[nearest_location]
+        center = (z, y, x)
+    else:
+        center = (z, y, x)
+        if z < currentsegimage.shape[0] and y < currentsegimage.shape[1] and x < currentsegimage.shape[2] and all(i >= 0 for i in d_location):
+            seg_label = currentsegimage[z, y, x]
+        else:
+            seg_label = -1
+
+    height, width, depth = 0, 0, 0
+    for prop in properties:
+        if seg_label > 0 and prop.label == seg_label:
+            minr, minc, mind, maxr, maxc, maxd = prop.bbox
+            height = abs(maxc - minc)
+            width = abs(maxr - minr)
+            depth = abs(maxd - mind)
+            break
+
+    if (x > sizex // 2 and y > sizey // 2 and z > sizez // 2 and
+        x + sizex // 2 < raw_image.shape[3] and
+        y + sizey // 2 < raw_image.shape[2] and
+        z + sizez // 2 < raw_image.shape[1]):
+
+        crop_xminus = x - sizex // 2
+        crop_xplus = x + sizex // 2
+        crop_yminus = y - sizey // 2
+        crop_yplus = y + sizey // 2
+        crop_zminus = z - sizez // 2
+        crop_zplus = z + sizez // 2
+
+        crop_image = temporal_image[
+            :,
+            crop_zminus:crop_zplus,
+            crop_yminus:crop_yplus,
+            crop_xminus:crop_xplus
+        ]
+
+        crop_seg = temporal_seg[
+            :,
+            crop_zminus:crop_zplus,
+            crop_yminus:crop_yplus,
+            crop_xminus:crop_xplus
+        ]
+
+        if crop_image.shape == (t_plus + t_minus + 1, sizez, sizey, sizex):
+            label = event['event_label']
+            return crop_image, crop_seg, label
+
+    return None
+
+
+def _write_batch_to_h5(group, images, segs, labels):
+    if 'images' not in group:
+        group.create_dataset(
+            'images',
+            data=np.array(images),
+            maxshape=(None,) + images[0].shape,
+            chunks=True,
+            compression='gzip'
+        )
+        group.create_dataset(
+            'segmentations',
+            data=np.array(segs),
+            maxshape=(None,) + segs[0].shape,
+            chunks=True,
+            compression='gzip'
+        )
+        group.create_dataset(
+            'labels',
+            data=np.array(labels),
+            maxshape=(None,),
+            chunks=True
+        )
+    else:
+        old_size = group['images'].shape[0]
+        new_size = old_size + len(images)
+        group['images'].resize(new_size, axis=0)
+        group['segmentations'].resize(new_size, axis=0)
+        group['labels'].resize(new_size, axis=0)
+        group['images'][old_size:new_size] = images
+        group['segmentations'][old_size:new_size] = segs
+        group['labels'][old_size:new_size] = labels
+
+
 
 __all__ = [
-    
     "get_most_recent_file",
     "load_checkpoint_model",
     "plot_npz_files_interactive",
     "plot_npz_files",
     "blockwise_causal_norm",
     "blockwise_sum",
-    "save_config_as_json"
+    "save_config_as_json",
+    "create_event_dataset_h5",
+    "percentile_norm",
+    "normalize_mi_ma"
 ]

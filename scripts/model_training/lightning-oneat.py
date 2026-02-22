@@ -31,7 +31,6 @@ def main(config: OneatClass):
     stage_number = config.parameters.stage_number
     size_tminus = config.parameters.size_tminus
     size_tplus = config.parameters.size_tplus
-    tshift = config.parameters.tshift
     imagex = config.parameters.imagex
     imagey = config.parameters.imagey
     imagez = config.parameters.imagez

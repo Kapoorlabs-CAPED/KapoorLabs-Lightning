@@ -33,6 +33,8 @@ class Params:
         event_position_label : List
         categories_json: str
         cord_json: str
+        train_split: float
+        batch_write_size: int
         oneat_model: DenseVollNet
 
 
@@ -49,6 +51,6 @@ class Train_Data_Paths:
 
 
 @dataclass
-class OneatClass:
+class OneatDataClass:
     parameters: Params
     train_data_paths: Train_Data_Paths
