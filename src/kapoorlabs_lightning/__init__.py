@@ -57,7 +57,7 @@ from .oneat_presets import (
     OneatTrainPresetHeavy,
     OneatEvalPreset,
 )
-from .utils import get_most_recent_file, plot_npz_files, plot_npz_files_interactive, create_event_dataset_h5, percentile_norm, normalize_mi_ma
+from .utils import get_most_recent_file, plot_npz_files, plot_npz_files_interactive, create_event_dataset_h5, percentile_norm, normalize_mi_ma, save_config_as_json
 from .pytorch_callbacks import (
     CustomDeviceStatsMonitor,
     ExponentialDecayCallback,
@@ -104,6 +104,7 @@ __all__ = [
     "create_event_dataset_h5",
     "percentile_norm",
     "normalize_mi_ma",
+    "save_config_as_json",
     "OneatAddGaussianNoise",
     "AddPoissonNoise",
     "SpatialGaussianBlur",

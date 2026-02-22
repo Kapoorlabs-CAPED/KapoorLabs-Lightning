@@ -3,24 +3,19 @@ import fcntl
 import shutil
 from lightning.pytorch.utilities.rank_zero import rank_zero_info
 from pathlib import Path
-import numpy as np
 import torch
-import torch.nn.functional as F
-from lightning import Callback, LightningDataModule, LightningModule, Trainer
+from lightning import Callback,  LightningModule, Trainer
 from subprocess import call
-from torch import optim
 from datetime import timedelta
 import logging
 from types import FrameType
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 from torch.nn import CosineSimilarity, BCEWithLogitsLoss, MSELoss
 from torch.nn.modules.loss import CrossEntropyLoss
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from .utils import (
-    get_most_recent_file,
     load_checkpoint_model,
 )
-from . import optimizers, schedulers
 from .pytorch_models import (
     DenseNet,
     MitosisNet,
@@ -30,13 +25,7 @@ from .pytorch_models import (
     DenseVollNet,
 )
 from .pytorch_losses import VolumeYoloLoss
-from .schedulers import (
-    CosineAnnealingScheduler,
-    ExponentialLR,
-    MultiStepLR,
-    ReduceLROnPlateau,
-    WarmCosineAnnealingLR,
-)
+
 from torchvision import transforms
 from .time_series_transforms import (
     get_time_series_transforms,
@@ -63,17 +52,15 @@ from lightning.pytorch.profilers import Profiler
 from lightning.pytorch.strategies import Strategy
 from .pytorch_datasets import H5MitosisDataset, H5VisionDataset, GenericDataModule
 import json
-from .base_module import BaseModule
+from .base_module import BaseModule, _restore_schedulers
+from .classification_module import ClassificationModule
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_callbacks import CheckpointModel, CustomProgressBar
-from .optimizers import Adam, RMSprop
+from .optimizers import Adam, RMSprop, LARS, SGD, AdamWClipStyle, AdamW
 from lightning.pytorch.trainer.connectors.accelerator_connector import (
     _LITERAL_WARN,
     _PRECISION_INPUT,
 )
-from trackastra.data.wrfeat import get_features, build_windows
-from trackastra.utils import normalize
-from trackastra.model.predict import predict_windows
 
 
 class MitosisInception:
@@ -95,9 +82,8 @@ class MitosisInception:
         batch_size: int = 1,
         accelerator="cuda",
         devices=1,
-        loss_function: str = "cross_entropy",
-        scheduler_choice: str = "cosine",
         experiment_name: str = "experiment_name",
+        scheduler: str = None, 
         learning_rate: float = 0.001,
         eta_min: float = 1.0e-8,
         momentum: float = 0.9,
@@ -143,8 +129,7 @@ class MitosisInception:
         self.eta_min = eta_min
         self.slurm_auto_requeue = slurm_auto_requeue
         self.train_precision = train_precision
-        self.loss_function = loss_function
-        self.scheduler_choice = scheduler_choice
+        self.scheduler = scheduler
         self.map_location = "cuda" if torch.cuda.is_available() else "cpu"
         self.momentum = momentum
         self.epsilon = epsilon
@@ -161,7 +146,6 @@ class MitosisInception:
         self.weight_decay = weight_decay
         self.eps = eps
         self.attention_dim = attention_dim
-        self.scheduler = None
         self.attn_heads=attn_heads
         self.seq_len=seq_len
 
@@ -541,32 +525,25 @@ class MitosisInception:
     
         
 
-    def setup_learning_rate_scheduler(self):
+    def setup_learning_rate_scheduler(self, weights_only=False):
         if self.ckpt_path is not None:
-            checkpoint = torch.load(self.ckpt_path, map_location=self.map_location)
-            self.learning_rate = checkpoint["lr_schedulers"][0]["_last_lr"][0]
-            self.optimizer.lr = self.learning_rate
-        if self.scheduler_choice == "cosine":
-            if self.ckpt_path is not None:
-                self.t_max = checkpoint["lr_schedulers"][0]["T_max"]
-                self.eta_min = checkpoint["lr_schedulers"][0]["eta_min"]
-            self.scheduler = CosineAnnealingScheduler(
-                t_max=self.t_max, eta_min=self.eta_min
-            )
-        if self.scheduler_choice == "exponential":
-            self.scheduler = ExponentialLR(gamma=self.gamma)
-        if self.scheduler_choice == "multistep":
-            self.scheduler = MultiStepLR(milestones=self.milestones, gamma=self.gamma)
-        if self.scheduler_choice == "plateau":
-            self.scheduler = ReduceLROnPlateau(
-                factor=self.factor, patience=self.patience, threshold=self.threshold
-            )
-        if self.scheduler_choice == "warmup":
-            self.scheduler = WarmCosineAnnealingLR(
-                t_warmup=self.t_warmup, t_max=self.t_max, eta_min=self.eta_min
+            checkpoint = torch.load(
+                self.ckpt_path,
+                map_location=self.map_location,
+                weights_only=weights_only,
             )
 
-    def setup_lightning_model(self, oneat_accuracy=False):
+            self.scheduler = _restore_schedulers(self.scheduler, checkpoint)
+            try:
+                if "_last_lr" in checkpoint["lr_schedulers"][0].keys():
+                    self.learning_rate = checkpoint["lr_schedulers"][0][
+                        "_last_lr"
+                    ][0]
+                    self.optimizer.lr = self.learning_rate
+            except IndexError:
+                pass
+
+    def setup_oneat_lightning_model(self, oneat_accuracy=False):
         
         self.class_weights_dict = getattr(self.dataset_train, "class_weights_dict", None)
 
@@ -576,16 +553,7 @@ class MitosisInception:
             )
         else:
             self.class_weights = None
-        if self.loss_function == "cross_entropy":
-            self.loss = CrossEntropyLoss(weight=self.class_weights)
-        if self.loss_function == "cosine":
-            self.loss = CosineSimilarity()
-        if self.loss_function == "bce":
-            self.loss = BCEWithLogitsLoss(pos_weight=self.class_weights)
-        if self.loss_function == "mse":
-            self.loss = MSELoss()
-        if self.loss_function == "oneat":
-            self.loss = VolumeYoloLoss(
+        self.loss = VolumeYoloLoss(
                 categories=self.categories,
                 box_vector=self.box_vector,
                 device=self.map_location,
@@ -593,7 +561,7 @@ class MitosisInception:
             )
 
         self.progress = CustomProgressBar()
-        self.lightning_model = LightningModel(
+        self.lightning_model = ClassificationModule(
             self.model,
             self.loss,
             self.optimizer,
@@ -618,10 +586,10 @@ class MitosisInception:
         ) as json_file:
             json.dump(model_hyperparameters, json_file)
 
-    def train(self):
+    def train(self, logger=[], callbacks=[]):
 
         print("Starting training")
-        lightning_special_train = LightningModelTrain(
+        lightning_train = LightningModelTrain(
             self.datamodule.train_dataloader(),
             self.datamodule.val_dataloader(),
             self.lightning_model,
@@ -632,16 +600,13 @@ class MitosisInception:
             strategy=self.strategy,
             gradient_clip_val=self.gradient_clip_val,
             gradient_clip_algorithm=self.gradient_clip_algorithm,
-            callbacks=[
-                self.progress.progress_bar,
-                self.modelcheckpoint.checkpoint_callback,
-            ],
-            logger=self.logger,
+            callbacks=callbacks,
+            logger=logger,
             devices=self.devices,
             precision=self.train_precision,
             slurm_auto_requeue=self.slurm_auto_requeue,
         )
-        lightning_special_train.train_model()
+        lightning_train.train_model()
 
 
 

@@ -5,8 +5,13 @@ from torch import optim
 from collections import OrderedDict
 from lightning import LightningModule
 from kapoorlabs_lightning.utils import get_most_recent_file
-from kapoorlabs_lightning import schedulers
-
+from . import schedulers
+from .schedulers import (
+    CosineAnnealingScheduler,
+    ExponentialLR,
+    MultiStepLR,
+    WarmCosineAnnealingLR,
+)
 
 class BaseModule(LightningModule):
 
@@ -77,83 +82,75 @@ class BaseModule(LightningModule):
             })
         return {"optimizer": optimizer}
 
-    def on_train_epoch_end(self):
-        sch = self.lr_schedulers()
-        learning_rate = self.optimizers().param_groups[0]["lr"]
-        self.log_metrics("learning_rate", learning_rate)
-
-        if isinstance(sch, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            sch.step(self.trainer.callback_metrics.get("validation_loss", 0))
-
-    @classmethod
-    def load_checkpoint(
-        cls,
-        network: nn.Module,
-        checkpoint_path: str = None,
-        checkpoint_dir: str = None,
-        scheduler: schedulers = None,
-        map_location: str = "cuda",
-        **kwargs
-    ):
-        if checkpoint_path is None:
-            if checkpoint_dir is None:
-                raise ValueError("Either checkpoint_path or checkpoint_dir must be provided")
-            checkpoint_path = get_most_recent_file(checkpoint_dir, ".ckpt")
-
-        checkpoint = torch.load(checkpoint_path, map_location=map_location)
-
-
-
-        lightning_model = cls.load_from_checkpoint(
-            checkpoint_path,
-            network=network,
-            scheduler=scheduler,
-            map_location=map_location,
-            **kwargs
+    
+def _restore_schedulers(scheduler, checkpoint):
+    if isinstance(scheduler, WarmCosineAnnealingLR):
+        t_max = checkpoint["lr_schedulers"][0]["_schedulers"][1]["T_max"]
+        eta_min = checkpoint["lr_schedulers"][0]["_schedulers"][1]["eta_min"]
+        t_warmup = checkpoint["lr_schedulers"][0]["_schedulers"][0][
+            "total_iters"
+        ]
+        factor = checkpoint["lr_schedulers"][0]["_schedulers"][0][
+            "start_factor"
+        ]
+        scheduler = WarmCosineAnnealingLR(
+            t_warmup=t_warmup,
+            t_max=t_max,
+            eta_min=eta_min,
+            factor=factor,
         )
+    if isinstance(scheduler, CosineAnnealingScheduler):
+        t_max = checkpoint["lr_schedulers"][0]["_schedulers"][1]["T_max"]
+        eta_min = checkpoint["lr_schedulers"][0]["_schedulers"][1]["eta_min"]
+        scheduler = CosineAnnealingScheduler(t_max=t_max, eta_min=eta_min)
+    if isinstance(scheduler, ExponentialLR):
+        gamma = checkpoint["lr_schedulers"][0]["gamma"]
+        scheduler = scheduler(gamma=gamma)
+    if isinstance(scheduler, MultiStepLR):
+        milestones = checkpoint["lr_schedulers"][0]["milestones"]
+        gamma = checkpoint["lr_schedulers"][0]["gamma"]
+        scheduler = scheduler(milestones=milestones, gamma=gamma)
 
-        return lightning_model, lightning_model.network
+    return scheduler
 
-    @classmethod
-    def extract_json(cls, json_path_or_dict):
-        if json_path_or_dict is None:
-            return None
 
-        if isinstance(json_path_or_dict, dict):
-            return json_path_or_dict
+def parse_checkpoint_json(checkpoint_model_json):
+    """Parse the checkpoint JSON file or dictionary and return data."""
+    assert isinstance(
+        checkpoint_model_json, (str, dict)
+    ), "checkpoint_model_json must be a JSON string or a dictionary"
 
-        if isinstance(json_path_or_dict, str):
-            with open(json_path_or_dict) as f:
-                return json.load(f)
+    if isinstance(checkpoint_model_json, str):
+        with open(checkpoint_model_json) as file:
+            return json.load(file)
+    return checkpoint_model_json
 
-        raise ValueError("json_path_or_dict must be a str path or dict")
 
-    def load_pretrained(self, pretrained_file, strict=True, verbose=True):
-        if isinstance(pretrained_file, (list, tuple)):
-            pretrained_file = pretrained_file[0]
+def load_checkpoint_file(model_path, preffered_checkpoint, map_location, weights_only = False):
+    """Load the checkpoint file and return the checkpoint and its path."""
+    if preffered_checkpoint is None:
+        if os.path.isdir(model_path):
+                preffered_checkpoint = get_most_recent_file(model_path, ".ckpt")
+        elif os.path.isfile(model_path):
+                preffered_checkpoint = model_path
+        else:
+                raise ValueError(f"Invalid model_path: {model_path}. It must be a valid file or directory.")
+        
+    checkpoint = torch.load(preffered_checkpoint, map_location=map_location, weights_only = weights_only)
+    
+    return checkpoint, preffered_checkpoint
 
-        state_dict = torch.load(pretrained_file)["state_dict"]
 
-        if not isinstance(state_dict, dict):
-            state_dict = dict(state_dict)
+def extract_learning_rate(checkpoint):
+    """Extract the learning rate from a checkpoint."""
+    
+    try:
+        return checkpoint["lr_schedulers"][0]["_last_lr"][0]
+    except Exception:
+        return 0.001
 
-        param_dict = dict(self.network.named_parameters())
 
-        loaded_layers = []
-        for layer in param_dict:
-            if strict and "network." + layer not in state_dict:
-                if verbose:
-                    print(f'Could not find weights for layer "{layer}"')
-                continue
-            try:
-                param_dict[layer].data.copy_(state_dict["network." + layer].data)
-                loaded_layers.append(layer)
-            except (RuntimeError, KeyError) as e:
-                print(f"Error at layer {layer}: {e}")
+def restore_scheduler(scheduler, checkpoint):
+    """Restore scheduler from checkpoint."""
+    return _restore_schedulers(scheduler, checkpoint)
 
-        self.network.load_state_dict(param_dict)
-
-        if verbose:
-            print(f"Loaded weights for {len(loaded_layers)} layers")
-
-        return loaded_layers

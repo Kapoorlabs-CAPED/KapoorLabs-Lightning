@@ -1,17 +1,58 @@
+# Model architecture parameters
 startfilter: 64
 start_kernel: 7
 mid_kernel: 3
-learning_rate: 1.0E-3
-batch_size: 32
-epochs: 250
-stage_number: 3
-size_tminus: 1
-size_tplus: 1
 imagex: 64
 imagey: 64
 imagez: 8
 depth: {'depth_0': 12, 'depth_1': 24, 'depth_2': 16}
+growth_rate: 32
+pool_first: True
+
+# Training parameters
+learning_rate: 0.25
+batch_size: 32
+epochs: 250
+num_workers: 4
+devices: 1
+accelerator: 'cuda'
+train_precision: '32-true'
+strategy: 'auto'
+gradient_clip_val: 1.0
+gradient_clip_algorithm: 'norm'
+slurm_auto_requeue: False
+
+# Dataset parameters
+num_classes: 2
+compute_class_weights: True
+
+# Transform parameters
+transform_preset: 'medium'  # Options: light, medium, heavy, eval
+gaussian_noise_std: 0.02
+poisson_noise_p: 0.3
+blur_p: 0.3
+spatial_flip_p: 0.5
+rotation_p: 0.5
+brightness_contrast_p: 0.3
+elastic_p: 0.3
+percentile_norm: True
+pmin: 1.0
+pmax: 99.8
+
+# Optimizer 
+weight_decay: 1.0E-5
+momentum: 0.9
+eta_min: 1.0E-8
+t_warmup: 5
+gamma: 0.94
+
+
+# ONEAT specific parameters
+stage_number: 3
+size_tminus: 1
+size_tplus: 1
 reduction: 0.5
+alpha: 0.01
 n_tiles: [1,4,4]
 event_threshold: [1,0.999]
 event_confidence: [1,0.9]
@@ -21,11 +62,15 @@ nms_time: 2
 normalizeimage: True
 event_name: ['normal', 'mitosis']
 event_label: [0, 1]
-event_position_name : ["x", "y", "z", "t", "h", "w", "d", "c"]
-event_position_label : [0, 1, 2, 3, 4, 5, 6, 7]
+event_position_name: ["x", "y", "z", "t", "h", "w", "d", "c"]
+event_position_label: [0, 1, 2, 3, 4, 5, 6, 7]
 categories_json: 'catagories.json'
 cord_json: 'cord.json'
-train_split: 0.95
+train_split: 0.98
 batch_write_size: 100
 oneat_model:
           _target_: kapoorlabs_lightning.pytorch_models.DenseVollNet
+scheduler: 
+        _target_: kapoorlabs_lightning.schedulers.WarmCosineAnnealingLR
+
+
