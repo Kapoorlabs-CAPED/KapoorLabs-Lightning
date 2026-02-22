@@ -54,8 +54,6 @@ size_tplus: 1
 reduction: 0.5
 alpha: 0.01
 n_tiles: [1,4,4]
-event_threshold: [1,0.999]
-event_confidence: [1,0.9]
 file_type: '*.tif'
 nms_space: 10
 nms_time: 2

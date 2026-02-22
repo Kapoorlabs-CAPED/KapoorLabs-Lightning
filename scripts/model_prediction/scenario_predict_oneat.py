@@ -77,19 +77,24 @@ class Params:
 
 
 @dataclass
-class Train_Data_Paths:
+class Experiment_Data_Paths:
         base_data_dir: str
-        oneat_timelapse_data_raw: str
-        oneat_timelapse_data_csv: str
-        oneat_timelapse_data_seg: str
-        oneat_h5_file: str
+        raw_timelapses: str
+        seg_timelapses: str
+        oneat_predictions: str
+
+
+@dataclass
+class Train_Data_Paths:
         log_path: str
         experiment_name: str
+
 
             
 
 
 @dataclass
-class OneatClass:
+class OneatPredictClass:
     parameters: Params
+    experiment_data_paths: Experiment_Data_Paths
     train_data_paths: Train_Data_Paths

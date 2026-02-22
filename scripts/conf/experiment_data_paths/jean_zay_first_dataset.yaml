@@ -1,0 +1,4 @@
+base_data_dir: '/lustre/fsn1/projects/rech/jsy/uzj81mi/oneat_analysis/' 
+raw_timelapses : 'raw_dataset/'
+seg_timelapses : 'seg_dataset/'
+oneat_predictions: 'oneat_results'

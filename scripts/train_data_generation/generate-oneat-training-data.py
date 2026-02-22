@@ -6,7 +6,7 @@ from tifffile import imread
 
 import hydra
 from hydra.core.config_store import ConfigStore
-from kapoorlabs_lightning.utils import create_event_dataset_h5, percentile_norm
+from kapoorlabs_lightning.utils import create_event_dataset_h5, normalize_in_chunks
 from scenario_generate_oneat import OneatDataClass
 
 
@@ -26,6 +26,8 @@ def main(config: OneatDataClass):
     imagez = config.parameters.imagez
     file_type = config.parameters.file_type
     normalizeimage = config.parameters.normalizeimage
+    pmin = config.parameters.pmin
+    pmax = config.parameters.pmax
     event_name = config.parameters.event_name
     train_split = config.parameters.train_split
     batch_write_size = config.parameters.batch_write_size
@@ -55,7 +57,14 @@ def main(config: OneatDataClass):
         seg_img = imread(seg_file)
 
         if normalizeimage:
-            raw_img = percentile_norm(raw_img, pmin=1, pmax=99.8, dtype=np.float32)
+            print(f"Normalizing {os.path.basename(raw_file)} in chunks...")
+            raw_img = normalize_in_chunks(
+                raw_img,
+                chunk_steps=50,
+                pmin=pmin,
+                pmax=pmax,
+                dtype=np.float32
+            )
 
         raw_images.append(raw_img)
         seg_images.append(seg_img)

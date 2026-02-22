@@ -27,6 +27,8 @@ class Params:
         nms_space: int
         nms_time: int
         normalizeimage: bool
+        pmin: float
+        pmax: float
         event_name: List
         event_label: str
         event_position_name : List

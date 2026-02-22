@@ -8,7 +8,7 @@ from .base_module import (
    
 )
 from .autoencoder_module import  AutoEncoderModule
-from .classification_module import ClassificationModule
+from .oneat_module import ClassificationModule
 
 from .lightning_trainer import (
     MitosisInception,
@@ -26,6 +26,8 @@ from .pytorch_datasets import (
     GenericDataModule,
     H5VisionDataset,
 )
+from .oneat_prediction_dataset import OneatPredictionDataset
+from .nms_utils import nms_space_time, group_detections_by_event
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_models import __all__ as all_pytorch_models
 from .pytorch_transforms import Transforms
@@ -57,7 +59,7 @@ from .oneat_presets import (
     OneatTrainPresetHeavy,
     OneatEvalPreset,
 )
-from .utils import get_most_recent_file, plot_npz_files, plot_npz_files_interactive, create_event_dataset_h5, percentile_norm, normalize_mi_ma, save_config_as_json
+from .utils import get_most_recent_file, plot_npz_files, plot_npz_files_interactive, create_event_dataset_h5, percentile_norm, normalize_mi_ma, save_config_as_json, normalize_in_chunks
 from .pytorch_callbacks import (
     CustomDeviceStatsMonitor,
     ExponentialDecayCallback,
@@ -105,6 +107,7 @@ __all__ = [
     "percentile_norm",
     "normalize_mi_ma",
     "save_config_as_json",
+    "normalize_in_chunks",
     "OneatAddGaussianNoise",
     "AddPoissonNoise",
     "SpatialGaussianBlur",
@@ -130,5 +133,8 @@ __all__ = [
     "H5VisionDataset",
     "GenericDataset",
     "GenericDataModule",
+    "OneatPredictionDataset",
+    "nms_space_time",
+    "group_detections_by_event",
 ]
 __all__.extend(all_pytorch_models)

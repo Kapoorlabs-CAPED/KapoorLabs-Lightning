@@ -53,7 +53,7 @@ from lightning.pytorch.strategies import Strategy
 from .pytorch_datasets import H5MitosisDataset, H5VisionDataset, GenericDataModule
 import json
 from .base_module import BaseModule, _restore_schedulers
-from .classification_module import ClassificationModule
+from .oneat_module import ClassificationModule
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_callbacks import CheckpointModel, CustomProgressBar
 from .optimizers import Adam, RMSprop, LARS, SGD, AdamWClipStyle, AdamW

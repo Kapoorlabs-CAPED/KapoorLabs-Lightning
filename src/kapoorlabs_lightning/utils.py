@@ -167,6 +167,47 @@ def percentile_norm(
     return normalize_mi_ma(x, mi, ma, eps=eps, dtype=dtype)
 
 
+def normalize_in_chunks(
+    image, chunk_steps=50, pmin=1, pmax=99.8, dtype=np.float32
+):
+    """
+    Normalize a TZYX image in chunks along the T (time) dimension.
+
+    Args:
+        image (np.ndarray): The original TZYX image.
+        chunk_steps (int): The number of timesteps to process at a time.
+        pmin (float): The lower percentile for normalization.
+        pmax (float): The upper percentile for normalization.
+        dtype (np.dtype): The data type to cast the normalized image.
+
+    Returns:
+        np.ndarray: The normalized image with the same shape as the input.
+    """
+    # Get the shape of the original image (T, Z, Y, X)
+    T = image.shape[0]
+
+    # Create an empty array to hold the normalized image
+    normalized_image = np.empty_like(image, dtype=dtype)
+
+    # Process the image in chunks of `chunk_steps` along the T (time) axis
+    for t in range(0, T, chunk_steps):
+        # Determine the chunk slice, ensuring we don't go out of bounds
+        t_end = min(t + chunk_steps, T)
+
+        # Extract the chunk of timesteps to normalize
+        chunk = image[t:t_end]
+
+        # Normalize this chunk
+        chunk_normalized = percentile_norm(
+            chunk, pmin=pmin, pmax=pmax, dtype=dtype
+        )
+
+        # Replace the corresponding portion with the normalized chunk
+        normalized_image[t:t_end] = chunk_normalized
+
+    return normalized_image
+
+
 def save_config_as_json(config, log_path):
     """Save resolved OmegaConf config as JSON to log_path"""
     config_dict = OmegaConf.to_container(config, resolve=True)
@@ -189,7 +230,7 @@ def create_event_dataset_h5(
     train_split=0.95,
     batch_write_size=100,
 ):
-    sizex, sizey, sizez, t_minus, t_plus = crop_size
+   
 
     event_data = []
     for csv_file in csv_files:
@@ -290,7 +331,6 @@ def _extract_event_cube(raw_image, seg_image, event, crop_size):
 
     properties = measure.regionprops(currentsegimage)
     centroids = [prop.centroid for prop in properties]
-    labels = [prop.label for prop in properties]
 
     if len(centroids) == 0:
         return None
@@ -303,53 +343,38 @@ def _extract_event_cube(raw_image, seg_image, event, crop_size):
         z = int(centroids[nearest_location][0])
         y = int(centroids[nearest_location][1])
         x = int(centroids[nearest_location][2])
-        seg_label = labels[nearest_location]
-        center = (z, y, x)
-    else:
-        center = (z, y, x)
-        if z < currentsegimage.shape[0] and y < currentsegimage.shape[1] and x < currentsegimage.shape[2] and all(i >= 0 for i in d_location):
-            seg_label = currentsegimage[z, y, x]
-        else:
-            seg_label = -1
+       
+   
 
-    height, width, depth = 0, 0, 0
-    for prop in properties:
-        if seg_label > 0 and prop.label == seg_label:
-            minr, minc, mind, maxr, maxc, maxd = prop.bbox
-            height = abs(maxc - minc)
-            width = abs(maxr - minr)
-            depth = abs(maxd - mind)
-            break
+        if (x > sizex // 2 and y > sizey // 2 and z > sizez // 2 and
+            x + sizex // 2 < raw_image.shape[3] and
+            y + sizey // 2 < raw_image.shape[2] and
+            z + sizez // 2 < raw_image.shape[1]):
 
-    if (x > sizex // 2 and y > sizey // 2 and z > sizez // 2 and
-        x + sizex // 2 < raw_image.shape[3] and
-        y + sizey // 2 < raw_image.shape[2] and
-        z + sizez // 2 < raw_image.shape[1]):
+            crop_xminus = x - sizex // 2
+            crop_xplus = x + sizex // 2
+            crop_yminus = y - sizey // 2
+            crop_yplus = y + sizey // 2
+            crop_zminus = z - sizez // 2
+            crop_zplus = z + sizez // 2
 
-        crop_xminus = x - sizex // 2
-        crop_xplus = x + sizex // 2
-        crop_yminus = y - sizey // 2
-        crop_yplus = y + sizey // 2
-        crop_zminus = z - sizez // 2
-        crop_zplus = z + sizez // 2
+            crop_image = temporal_image[
+                :,
+                crop_zminus:crop_zplus,
+                crop_yminus:crop_yplus,
+                crop_xminus:crop_xplus
+            ]
 
-        crop_image = temporal_image[
-            :,
-            crop_zminus:crop_zplus,
-            crop_yminus:crop_yplus,
-            crop_xminus:crop_xplus
-        ]
+            crop_seg = temporal_seg[
+                :,
+                crop_zminus:crop_zplus,
+                crop_yminus:crop_yplus,
+                crop_xminus:crop_xplus
+            ]
 
-        crop_seg = temporal_seg[
-            :,
-            crop_zminus:crop_zplus,
-            crop_yminus:crop_yplus,
-            crop_xminus:crop_xplus
-        ]
-
-        if crop_image.shape == (t_plus + t_minus + 1, sizez, sizey, sizex):
-            label = event['event_label']
-            return crop_image, crop_seg, label
+            if crop_image.shape == (t_plus + t_minus + 1, sizez, sizey, sizex):
+                label = event['event_label']
+                return crop_image, crop_seg, label
 
     return None
 
