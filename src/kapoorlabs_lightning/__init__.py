@@ -8,14 +8,12 @@ from .base_module import (
    
 )
 from .autoencoder_module import  AutoEncoderModule
-from .oneat_module import ClassificationModule
+from .oneat_module import OneatActionModule
 
 from .lightning_trainer import (
     MitosisInception,
 )
 
-LightningModel = ClassificationModule
-AutoLightningModel = AutoEncoderModule
 
 from .pytorch_datasets import (
     PointCloudDataset,
@@ -75,13 +73,9 @@ from .optimizers import Adam, RMSprop, Rprop, SGD, LARS, AdamWClipStyle
 
 __all__ = [
     "BaseModule",
-    "ClassificationModule",
+    "OneatActionModule",
     "AutoEncoderModule",
-    "AutoLightningModel",
-    "AutoLightningTrain",
     "CustomNPZLogger",
-    "LightningModel",
-    "LightningTrain",
     "PointCloudDataset",
     "PyntCloud",
     "Transforms",

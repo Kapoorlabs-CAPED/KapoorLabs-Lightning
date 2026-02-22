@@ -7,7 +7,7 @@ import torch
 from glob import glob
 import pandas as pd
 from kapoorlabs_lightning.utils import load_checkpoint_model
-from kapoorlabs_lightning.oneat_module import ClassificationModule
+from kapoorlabs_lightning.oneat_module import OneatActionModule
 from kapoorlabs_lightning.oneat_prediction_dataset import OneatPredictionDataset
 from kapoorlabs_lightning.nms_utils import nms_space_time, group_detections_by_event
 from torch.utils.data import DataLoader
@@ -65,7 +65,7 @@ def main(config: OneatPredictClass):
     Path(predictions_dir).mkdir(exist_ok=True, parents=True)
 
     # Load model from checkpoint using Lightning
-    lightning_model = ClassificationModule.load_from_checkpoint(
+    lightning_model = OneatActionModule.load_from_checkpoint(
         ckpt_path,
         map_location='cpu',
         imagex=imagex,

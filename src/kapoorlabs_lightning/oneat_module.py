@@ -4,11 +4,10 @@ from torch import optim
 from torchmetrics import Accuracy, MeanSquaredError, MeanAbsoluteError
 from .base_module import BaseModule
 from kapoorlabs_lightning import schedulers
-from .utils import percentile_norm, normalize_in_chunks
 from scipy.ndimage import center_of_mass
 
 
-class ClassificationModule(BaseModule):
+class OneatActionModule(BaseModule):
 
     def __init__(
         self,
