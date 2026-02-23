@@ -570,8 +570,7 @@ class MitosisInception:
 
         print("Starting training")
         lightning_train = LightningModelTrain(
-            self.datamodule.train_dataloader(),
-            self.datamodule.val_dataloader(),
+            self.datamodule,
             self.lightning_model,
             epochs=self.epochs,
             accelerator=self.accelerator,
@@ -588,105 +587,6 @@ class MitosisInception:
         )
         lightning_train.train_model()
 
-
-
-class LightningModelTrain:
-    def __init__(
-        self,
-        train_dataloader: DataLoader,
-        val_dataloader: DataLoader,
-        model: LightningModule,
-        callbacks: List[Callback] = None,
-        logger: Logger = None,
-        ckpt_path: str = None,
-        min_epochs: int = 1,
-        epochs: int = 10,
-        accelerator: str = "cuda",
-        devices: int = 1,
-        num_nodes: int = 1,
-        strategy: str = "auto",
-        enable_checkpointing: bool = True,
-        rank_zero_only: bool = False,
-        log_every_n_steps: int = 20,
-        default_root_dir: str = None,
-        slurm_auto_requeue: bool = True,
-        use_slurm: bool = True,
-        precision: _PRECISION_INPUT = "32-true",
-        deterministic: Optional[Union[bool, _LITERAL_WARN]] = None,
-        gradient_clip_val: Optional[Union[int, float]] = None,
-        gradient_clip_algorithm: Optional[str] = None,
-    ):
-        self.train_dataloader = train_dataloader
-        self.val_dataloader = val_dataloader
-        self.model = model
-        self.callbacks = callbacks
-        self.logger = logger
-        self.slurm_auto_requeue = slurm_auto_requeue
-        self.ckpt_path = ckpt_path
-        self.min_epochs = min_epochs
-        self.epochs = epochs
-        self.accelerator = accelerator
-        self.devices = devices
-        self.strategy = strategy
-        self.num_nodes = num_nodes
-        self.enable_checkpointing = enable_checkpointing
-        self.rank_zero_only = rank_zero_only
-        self.log_every_n_steps = log_every_n_steps
-        self.default_root_dir = default_root_dir
-        self.precision = precision
-        self.deterministic = deterministic
-        self.use_slurm = use_slurm
-        self.gradient_clip_algorithm = gradient_clip_algorithm
-        self.gradient_clip_val = gradient_clip_val
-
-    def train_model(self):
-        if self.ckpt_path is not None:
-            if not os.path.isfile(self.ckpt_path):
-                self.ckpt_path = None
-        if self.use_slurm:
-            if self.slurm_auto_requeue:
-                plugins = [SLURMEnvironment(requeue_signal=signal.SIGTERM)]
-            else:
-                plugins = [SLURMEnvironment(auto_requeue=False)]
-        else:
-            plugins = []
-
-        self.trainer = LightningTrainer(
-            accelerator=self.accelerator,
-            devices=self.devices,
-            strategy=self.strategy,
-            logger=self.logger,
-            num_nodes=self.num_nodes,
-            callbacks=self.callbacks,
-            min_epochs=self.min_epochs,
-            max_epochs=self.epochs,
-            default_root_dir=self.default_root_dir,
-            enable_checkpointing=self.enable_checkpointing,
-            log_every_n_steps=self.log_every_n_steps,
-            num_sanity_val_steps=0,
-            deterministic=self.deterministic,
-            precision=self.precision,
-            plugins=plugins,
-            gradient_clip_val=self.gradient_clip_val,
-            gradient_clip_algorithm=self.gradient_clip_algorithm,
-        )
-
-        self.trainer.fit(
-            self.model,
-            train_dataloaders=self.train_dataloader,
-            val_dataloaders=self.val_dataloader,
-            ckpt_path=self.ckpt_path,
-        )
-
-        self.trainer.validate(
-            model=self.model,
-            dataloaders=self.val_dataloader,
-            ckpt_path=self.ckpt_path,
-            verbose=True,
-        )
-
-    def callback_metrics(self):
-        return self.trainer.callback_metrics
 
 
 class LightningTrainer(Trainer):
