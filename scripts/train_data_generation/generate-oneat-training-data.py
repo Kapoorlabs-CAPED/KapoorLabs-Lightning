@@ -8,104 +8,12 @@ import pandas as pd
 
 import hydra
 from hydra.core.config_store import ConfigStore
-from kapoorlabs_lightning.utils import normalize_in_chunks
+from kapoorlabs_lightning.utils import normalize_in_chunks, _extract_event_cube, _write_batch_to_h5
 from scenario_generate_oneat import OneatDataClass
 
 
 configstore = ConfigStore.instance()
 configstore.store(name="OneatDataClass", node=OneatDataClass)
-
-
-def extract_event_cube(raw_image, seg_image, event, crop_size):
-    """Extract a cube around an event with fixed output shape."""
-    sizex, sizey, sizez, t_minus, t_plus = crop_size
-    time = int(event['time'])
-    x = int(event['x'])
-    y = int(event['y'])
-    z = int(event['z'])
-
-    # Check temporal bounds
-    if time < t_minus or time + t_plus + 1 > raw_image.shape[0]:
-        return None
-
-    # Target output shape
-    n_time = t_minus + t_plus + 1
-    target_shape = (n_time, sizez, sizey, sizex)
-
-    # Initialize output arrays with zeros (padding)
-    crop_raw = np.zeros(target_shape, dtype=raw_image.dtype)
-    crop_seg = np.zeros(target_shape, dtype=seg_image.dtype)
-
-    # Extract temporal window
-    t_start = time - t_minus
-    t_end = time + t_plus + 1
-
-    # Calculate spatial bounds with clamping
-    z_start = z - sizez // 2
-    z_end = z_start + sizez
-    y_start = y - sizey // 2
-    y_end = y_start + sizey
-    x_start = x - sizex // 2
-    x_end = x_start + sizex
-
-    # Clamp to image bounds
-    z_start_src = max(0, z_start)
-    z_end_src = min(raw_image.shape[1], z_end)
-    y_start_src = max(0, y_start)
-    y_end_src = min(raw_image.shape[2], y_end)
-    x_start_src = max(0, x_start)
-    x_end_src = min(raw_image.shape[3], x_end)
-
-    # Calculate destination indices in padded array
-    z_start_dst = z_start_src - z_start
-    z_end_dst = z_start_dst + (z_end_src - z_start_src)
-    y_start_dst = y_start_src - y_start
-    y_end_dst = y_start_dst + (y_end_src - y_start_src)
-    x_start_dst = x_start_src - x_start
-    x_end_dst = x_start_dst + (x_end_src - x_start_src)
-
-    # Copy data into padded arrays
-    crop_raw[:, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst] = \
-        raw_image[t_start:t_end, z_start_src:z_end_src, y_start_src:y_end_src, x_start_src:x_end_src]
-
-    crop_seg[:, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst] = \
-        seg_image[t_start:t_end, z_start_src:z_end_src, y_start_src:y_end_src, x_start_src:x_end_src]
-
-    return crop_raw, crop_seg, event['event_label']
-
-
-def write_batch_to_h5(group, images, segs, labels):
-    """Write a batch of data to H5 group."""
-    if 'images' not in group:
-        group.create_dataset(
-            'images',
-            data=np.array(images),
-            maxshape=(None,) + images[0].shape,
-            chunks=True,
-            compression='gzip'
-        )
-        group.create_dataset(
-            'segmentations',
-            data=np.array(segs),
-            maxshape=(None,) + segs[0].shape,
-            chunks=True,
-            compression='gzip'
-        )
-        group.create_dataset(
-            'labels',
-            data=np.array(labels),
-            maxshape=(None,),
-            chunks=True
-        )
-    else:
-        old_size = group['images'].shape[0]
-        new_size = old_size + len(images)
-        group['images'].resize(new_size, axis=0)
-        group['segmentations'].resize(new_size, axis=0)
-        group['labels'].resize(new_size, axis=0)
-        group['images'][old_size:new_size] = images
-        group['segmentations'][old_size:new_size] = segs
-        group['labels'][old_size:new_size] = labels
 
 
 @hydra.main(
@@ -224,44 +132,53 @@ def main(config: OneatDataClass):
 
                 print(f"  Loading {os.path.basename(raw_file)}...")
 
-                # Load ONE image at a time
-                raw_img = imread(raw_file)
-                seg_img = imread(seg_file)
+                try:
+                    # Load ONE image at a time
+                    raw_img = imread(raw_file)
+                    seg_img = imread(seg_file)
 
-                if normalizeimage:
-                    raw_img = normalize_in_chunks(
-                        raw_img,
-                        chunk_steps=50,
-                        pmin=pmin,
-                        pmax=pmax,
-                        dtype=np.float32
-                    )
+                    if normalizeimage:
+                        raw_img = normalize_in_chunks(
+                            raw_img,
+                            chunk_steps=50,
+                            pmin=pmin,
+                            pmax=pmax,
+                            dtype=np.float32
+                        )
 
-                # Extract all events from this image
-                for event in events_by_image[img_idx]:
-                    result = extract_event_cube(raw_img, seg_img, event, crop_size)
-                    if result is not None:
-                        crop_image, crop_seg, label = result
-                        batch_images.append(crop_image)
-                        batch_segs.append(crop_seg)
-                        batch_labels.append(label)
+                    # Extract all events from this image
+                    for event in events_by_image[img_idx]:
+                        try:
+                            result = _extract_event_cube(raw_img, seg_img, event, crop_size)
+                            if result is not None:
+                                crop_image, crop_seg, label = result
+                                batch_images.append(crop_image)
+                                batch_segs.append(crop_seg)
+                                batch_labels.append(label)
 
-                        # Flush batch when it reaches size
-                        if len(batch_images) >= batch_write_size:
-                            write_batch_to_h5(split_grp, batch_images, batch_segs, batch_labels)
-                            total_processed += len(batch_images)
-                            print(f"    Flushed {len(batch_images)} samples (total: {total_processed})")
-                            batch_images = []
-                            batch_segs = []
-                            batch_labels = []
+                                # Flush batch when it reaches size
+                                if len(batch_images) >= batch_write_size:
+                                    _write_batch_to_h5(split_grp, batch_images, batch_segs, batch_labels)
+                                    total_processed += len(batch_images)
+                                    print(f"    Flushed {len(batch_images)} samples (total: {total_processed})")
+                                    batch_images = []
+                                    batch_segs = []
+                                    batch_labels = []
+                        except Exception as e:
+                            print(f"    ⚠️  Failed to extract event at T={event['time']}, skipping: {e}")
+                            continue
 
-                # Delete image from memory immediately
-                del raw_img
-                del seg_img
+                    # Delete image from memory immediately
+                    del raw_img
+                    del seg_img
+
+                except Exception as e:
+                    print(f"  ⚠️  Failed to load {os.path.basename(raw_file)}, BURNING IT: {e}")
+                    continue
 
             # Flush remaining batch
             if len(batch_images) > 0:
-                write_batch_to_h5(split_grp, batch_images, batch_segs, batch_labels)
+                _write_batch_to_h5(split_grp, batch_images, batch_segs, batch_labels)
                 total_processed += len(batch_images)
                 print(f"    Flushed final {len(batch_images)} samples (total: {total_processed})")
 

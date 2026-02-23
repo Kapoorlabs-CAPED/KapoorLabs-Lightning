@@ -341,70 +341,64 @@ def create_event_dataset_h5(
 
 
 def _extract_event_cube(raw_image, seg_image, event, crop_size):
+    """Extract a cube around an event with fixed output shape."""
     sizex, sizey, sizez, t_minus, t_plus = crop_size
     time = int(event['time'])
     x = int(event['x'])
     y = int(event['y'])
     z = int(event['z'])
 
-    if time < t_minus or time + t_plus + 1 >= raw_image.shape[0]:
+    # Check temporal bounds - need enough frames before and after
+    t_start = time - t_minus
+    t_end = time + t_plus + 1
+
+    if t_start < 0 or t_end > raw_image.shape[0]:
         return None
 
-    starttime = time - t_minus
-    endtime = time + t_plus + 1
-    temporal_image = raw_image[starttime:endtime, :]
-    temporal_seg = seg_image[starttime:endtime, :]
+    # Target output shape
+    n_time = t_minus + t_plus + 1
+    target_shape = (n_time, sizez, sizey, sizex)
 
-    currentsegimage = seg_image[time, :].astype('uint16')
+    # Initialize output arrays with zeros (padding)
+    crop_raw = np.zeros(target_shape, dtype=raw_image.dtype)
+    crop_seg = np.zeros(target_shape, dtype=seg_image.dtype)
 
-    properties = measure.regionprops(currentsegimage)
-    centroids = [prop.centroid for prop in properties]
+    # Extract temporal window
+    t_start = time - t_minus
+    t_end = time + t_plus + 1
 
-    if len(centroids) == 0:
-        return None
+    # Calculate spatial bounds with clamping
+    z_start = z - sizez // 2
+    z_end = z_start + sizez
+    y_start = y - sizey // 2
+    y_end = y_start + sizey
+    x_start = x - sizex // 2
+    x_end = x_start + sizex
 
-    tree = spatial.cKDTree(centroids)
-    d_location = (z, y, x)
-    distance_cell_mask, nearest_location = tree.query(d_location)
+    # Clamp to image bounds
+    z_start_src = max(0, z_start)
+    z_end_src = min(raw_image.shape[1], z_end)
+    y_start_src = max(0, y_start)
+    y_end_src = min(raw_image.shape[2], y_end)
+    x_start_src = max(0, x_start)
+    x_end_src = min(raw_image.shape[3], x_end)
 
-    if distance_cell_mask < 0.5 * sizex:
-        z = int(centroids[nearest_location][0])
-        y = int(centroids[nearest_location][1])
-        x = int(centroids[nearest_location][2])
-       
-   
+    # Calculate destination indices in padded array
+    z_start_dst = z_start_src - z_start
+    z_end_dst = z_start_dst + (z_end_src - z_start_src)
+    y_start_dst = y_start_src - y_start
+    y_end_dst = y_start_dst + (y_end_src - y_start_src)
+    x_start_dst = x_start_src - x_start
+    x_end_dst = x_start_dst + (x_end_src - x_start_src)
 
-        if (x > sizex // 2 and y > sizey // 2 and z > sizez // 2 and
-            x + sizex // 2 < raw_image.shape[3] and
-            y + sizey // 2 < raw_image.shape[2] and
-            z + sizez // 2 < raw_image.shape[1]):
+    # Copy data into padded arrays
+    crop_raw[:, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst] = \
+        raw_image[t_start:t_end, z_start_src:z_end_src, y_start_src:y_end_src, x_start_src:x_end_src]
 
-            crop_xminus = x - sizex // 2
-            crop_xplus = x + sizex // 2
-            crop_yminus = y - sizey // 2
-            crop_yplus = y + sizey // 2
-            crop_zminus = z - sizez // 2
-            crop_zplus = z + sizez // 2
+    crop_seg[:, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst] = \
+        seg_image[t_start:t_end, z_start_src:z_end_src, y_start_src:y_end_src, x_start_src:x_end_src]
 
-            crop_image = temporal_image[
-                :,
-                crop_zminus:crop_zplus,
-                crop_yminus:crop_yplus,
-                crop_xminus:crop_xplus
-            ]
-
-            crop_seg = temporal_seg[
-                :,
-                crop_zminus:crop_zplus,
-                crop_yminus:crop_yplus,
-                crop_xminus:crop_xplus
-            ]
-
-            if crop_image.shape == (t_plus + t_minus + 1, sizez, sizey, sizex):
-                label = event['event_label']
-                return crop_image, crop_seg, label
-
-    return None
+    return crop_raw, crop_seg, event['event_label']
 
 
 def _write_batch_to_h5(group, images, segs, labels):
