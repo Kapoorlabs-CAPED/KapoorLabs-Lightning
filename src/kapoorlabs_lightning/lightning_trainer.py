@@ -360,13 +360,12 @@ class MitosisInception:
         self,
         compute_class_weights=True,
     ):
-        """
-        Setup vision H5 datasets using pre-configured transforms.
+            """
+            Setup vision H5 datasets using pre-configured transforms.
 
-        Note: Call one of the setup_oneat_transforms_* methods first to configure transforms.
-        If no transforms are set, datasets will be created without transforms.
-        """
-        if self.h5_file is not None:
+            Note: Call one of the setup_oneat_transforms_* methods first to configure transforms.
+            If no transforms are set, datasets will be created without transforms.
+            """
             train_transform = self.train_transforms if hasattr(self, 'train_transforms') else None
             val_transform = self.val_transforms if hasattr(self, 'val_transforms') else None
 
@@ -385,6 +384,8 @@ class MitosisInception:
                 num_classes=self.num_classes,
                 compute_class_weights=False,
             )
+            
+            
 
             self.datamodule = GenericDataModule(
                 dataset_train=self.dataset_train,
@@ -394,6 +395,9 @@ class MitosisInception:
                 num_workers_train=self.num_workers,
                 num_workers_val=self.num_workers,
             )
+
+            # Get input channels from the first dimension of image shape (T, Z, Y, X)
+            self.input_channels = self.dataset_train.images_dataset.shape[1]
 
             if compute_class_weights:
                 self.class_weights_dict = self.dataset_train.get_class_weights()
