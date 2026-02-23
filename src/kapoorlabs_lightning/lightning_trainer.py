@@ -19,8 +19,6 @@ from .utils import (
 from .pytorch_models import (
     DenseNet,
     MitosisNet,
-    AttentionNet,
-    HybridAttentionDenseNet,
     InceptionNet,
     DenseVollNet,
 )
@@ -447,15 +445,7 @@ class MitosisInception:
 
         print(f"Training Vision Inception Model {self.model}")
 
-    def setup_attention_model(self):
-
-        self.model = AttentionNet(
-            input_channels=self.input_channels,
-            num_classes=self.num_classes,
-            attention_dim=self.attention_dim,  
-        )
-        print(f"Training Attention Model {self.model}")
-
+   
 
     def setup_inception_qkv_model(self):
         self.model = InceptionNet(
@@ -471,20 +461,7 @@ class MitosisInception:
         )
         print(f"Training Inception DenseNet with QKV Model {self.model}")
 
-    def setup_hybrid_attention_model(self):
-        self.model = HybridAttentionDenseNet(
-            input_channels=self.input_channels,
-            num_classes=self.num_classes,
-            growth_rate=self.growth_rate,
-            block_config=self.block_config,
-            num_init_features=self.num_init_features,
-            bottleneck_size=self.bottleneck_size,
-            kernel_size=self.kernel_size,
-            attention_dim=self.attention_dim,
-            n_pos=self.n_pos,
-        )
-        print(f"Training Hybrid DenseNet with Attention Model {self.model}")
-
+    
     def setup_mitosisnet_model(self):
         self.model = MitosisNet(
             self.input_channels,
