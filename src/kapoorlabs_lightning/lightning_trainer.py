@@ -9,9 +9,7 @@ from subprocess import call
 from datetime import timedelta
 import logging
 from types import FrameType
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union
-from torch.nn import CosineSimilarity, BCEWithLogitsLoss, MSELoss
-from torch.nn.modules.loss import CrossEntropyLoss
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union, Set
 from torch.utils.data import DataLoader
 from .utils import (
     load_checkpoint_model,
