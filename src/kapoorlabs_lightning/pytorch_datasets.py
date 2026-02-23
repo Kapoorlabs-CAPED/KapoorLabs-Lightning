@@ -145,8 +145,18 @@ class H5VisionDataset(Dataset):
 
     def _compute_class_weights(self):
         all_labels = self.labels_dataset[:]
-        class_counts = np.bincount(all_labels, minlength=self.num_classes)
-        total_samples = len(all_labels)
+
+        # Handle YOLO labels: [x,y,z,t,h,w,d,c] + [one-hot categories]
+        # box_vector = 8, so categories start at index 8
+        if all_labels.ndim > 1:
+            box_vector_len = 8
+            one_hot_categories = all_labels[:, box_vector_len:]
+            class_indices = np.argmax(one_hot_categories, axis=1)
+        else:
+            class_indices = all_labels
+
+        class_counts = np.bincount(class_indices.astype(int), minlength=self.num_classes)
+        total_samples = len(class_indices)
         class_weights = total_samples / (self.num_classes * np.maximum(class_counts, 1))
         class_weights_dict = {class_idx: weight for class_idx, weight in enumerate(class_weights)}
         return class_weights_dict
