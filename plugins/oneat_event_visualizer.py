@@ -289,7 +289,7 @@ def plugin_wrapper_oneat_visualizer():
                     points_array,
                     name=f"{selected_event} Events",
                     face_color="red",
-                    edge_color="white",
+                    border_color="white",
                     size=5,
                 )
 
@@ -351,7 +351,7 @@ def plugin_wrapper_oneat_visualizer():
                             points_array,
                             name=f"{current_event_name} Events (Updated)",
                             face_color="red",
-                            edge_color="white",
+                            border_color="white",
                             size=5,
                         )
 
