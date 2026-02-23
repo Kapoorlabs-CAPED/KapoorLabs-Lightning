@@ -1,0 +1,10 @@
+name: oneat-event-visualizer
+display_name: ONEAT Event Visualizer
+contributions:
+  commands:
+    - id: oneat-event-visualizer.visualizer
+      python_name: oneat_event_visualizer:oneat_visualizer_widget
+      title: ONEAT Event Visualizer & Annotator
+  widgets:
+    - command: oneat-event-visualizer.visualizer
+      display_name: ONEAT Events
