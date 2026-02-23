@@ -15,7 +15,7 @@ import pandas as pd
 from magicgui import magicgui
 from magicgui import widgets as mw
 from psygnal import Signal
-from qtpy.QtWidgets import QVBoxLayout, QWidget
+from qtpy.QtWidgets import QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem
 from tifffile import imread
 from glob import glob
 
@@ -32,6 +32,7 @@ def plugin_wrapper_oneat_visualizer():
     raw_files = []
     seg_files = []
     is_loading = False
+    table_widget = None
 
     def abspath(root, relpath):
         root = Path(root)
@@ -74,6 +75,28 @@ def plugin_wrapper_oneat_visualizer():
                 df[col] = 0
 
         return df
+
+    def update_table(data_df):
+        """Update the table widget with current event data"""
+        nonlocal table_widget
+
+        if table_widget is None:
+            table_widget = QTableWidget()
+            table_widget.setWindowTitle("Event Annotations")
+
+        table_widget.clear()
+        table_widget.setRowCount(len(data_df))
+        table_widget.setColumnCount(4)
+        table_widget.setHorizontalHeaderLabels(['T', 'Z', 'Y', 'X'])
+
+        for row_idx, (_, row) in enumerate(data_df.iterrows()):
+            table_widget.setItem(row_idx, 0, QTableWidgetItem(str(int(row['t']))))
+            table_widget.setItem(row_idx, 1, QTableWidgetItem(str(int(row['z']))))
+            table_widget.setItem(row_idx, 2, QTableWidgetItem(str(int(row['y']))))
+            table_widget.setItem(row_idx, 3, QTableWidgetItem(str(int(row['x']))))
+
+        table_widget.show()
+        table_widget.raise_()
 
     def change_handler(*widgets, init=False, debug=DEBUG):
         def decorator_change_handler(handler):
@@ -283,13 +306,24 @@ def plugin_wrapper_oneat_visualizer():
             # Add points from CSV
             if len(current_csv_data) > 0:
                 points_array = current_csv_data[['t', 'z', 'y', 'x']].values
+                print(f"Adding {len(points_array)} points to viewer")
+                print(f"Image shape: {current_raw_image.shape}")
+                print(f"Points range: T={points_array[:, 0].min()}-{points_array[:, 0].max()}, "
+                      f"Z={points_array[:, 1].min()}-{points_array[:, 1].max()}, "
+                      f"Y={points_array[:, 2].min()}-{points_array[:, 2].max()}, "
+                      f"X={points_array[:, 3].min()}-{points_array[:, 3].max()}")
+
                 plugin.viewer.value.add_points(
                     points_array,
                     name=f"{selected_event} Events",
                     face_color="red",
                     border_color="white",
-                    size=5,
+                    size=10,
+                    ndim=4,
                 )
+
+            # Update table
+            update_table(current_csv_data)
 
             # Show annotation controls
             plugin.add_point_mode.visible = True
@@ -350,8 +384,12 @@ def plugin_wrapper_oneat_visualizer():
                             name=f"{current_event_name} Events (Updated)",
                             face_color="red",
                             border_color="white",
-                            size=5,
+                            size=10,
+                            ndim=4,
                         )
+
+                        # Update table
+                        update_table(combined_df)
 
                 plugin._mouse_callback_registered = True
 
@@ -361,13 +399,13 @@ def plugin_wrapper_oneat_visualizer():
     @change_handler(plugin.raw_image_selector, plugin.seg_image_selector, plugin.event_selector)
     def _on_selection_changed(value):
         """Auto-load when raw image or event type changes"""
-        if len(raw_files) > 0 and plugin.raw_image_selector.visible:
+        if not is_loading and len(raw_files) > 0 and plugin.raw_image_selector.visible:
             _load_current_selection()
 
     @change_handler(plugin.save_csv_button)
     def _on_save_csv_clicked(value):
         """Save updated CSV with new points"""
-        nonlocal clicked_points
+        nonlocal clicked_points, current_csv_data
 
         if len(clicked_points) == 0:
             plugin.status_label.value = "No new points to save"
@@ -405,6 +443,10 @@ def plugin_wrapper_oneat_visualizer():
 
         plugin.status_label.value = f"Saved {len(combined_df)} points to {os.path.basename(output_csv)}"
         print(f"Saved CSV: {output_csv}")
+
+        # Update current CSV data and table
+        current_csv_data = combined_df.copy()
+        update_table(current_csv_data)
 
         # Reset clicked points
         clicked_points = []
