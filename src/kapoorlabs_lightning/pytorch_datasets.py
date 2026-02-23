@@ -132,7 +132,7 @@ class H5VisionDataset(Dataset):
 
     def __getitem__(self, idx):
         image = torch.from_numpy(self.images_dataset[idx]).float()
-        label = torch.from_numpy(np.asarray(self.labels_dataset[idx])).long()
+        label = torch.from_numpy(np.asarray(self.labels_dataset[idx])).float()
 
         if self.transforms is not None:
             image = self.transforms(image)
