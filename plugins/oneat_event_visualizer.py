@@ -218,22 +218,33 @@ def plugin_wrapper_oneat_visualizer():
         nonlocal current_raw_image, current_seg_image, current_csv_data, current_event_name, clicked_points
 
         # Get selected files
-        raw_idx = plugin.raw_image_selector.current_index
-        seg_idx = plugin.seg_image_selector.current_index
+        raw_selected = plugin.raw_image_selector.value
+        seg_selected = plugin.seg_image_selector.value
         selected_event = plugin.event_selector.value
 
-        if raw_idx < 0 or raw_idx >= len(raw_files):
+        if not raw_selected:
+            return
+
+        # Find raw file path
+        raw_path = None
+        for f in raw_files:
+            if os.path.basename(f) == raw_selected:
+                raw_path = f
+                break
+
+        if not raw_path:
             return
 
         # Load raw image
-        raw_path = raw_files[raw_idx]
         current_raw_image = imread(raw_path)
 
         # Load seg image if selected
         current_seg_image = None
-        if seg_files and seg_idx > 0:  # 0 is "None"
-            seg_path = seg_files[seg_idx - 1]
-            current_seg_image = imread(seg_path)
+        if seg_selected and seg_selected != "None":
+            for f in seg_files:
+                if os.path.basename(f) == seg_selected:
+                    current_seg_image = imread(f)
+                    break
 
         # Load CSV for this image and event
         raw_basename = os.path.basename(raw_path)
