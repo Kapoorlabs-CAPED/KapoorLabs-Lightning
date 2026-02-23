@@ -48,6 +48,8 @@ def main(config: OneatClass):
     imagex = config.parameters.imagex
     imagey = config.parameters.imagey
     imagez = config.parameters.imagez
+    size_tminus = config.parameters.size_tminus
+    size_tplus = config.parameters.size_tplus
     depth = config.parameters.depth
     growth_rate = config.parameters.growth_rate
     pool_first = config.parameters.pool_first
@@ -107,7 +109,8 @@ def main(config: OneatClass):
         scheduler = scheduler
     )
 
-    input_shape = (imagez, imagex, imagey)
+    n_time = size_tminus + size_tplus + 1
+    input_shape = (n_time, imagez, imagey, imagex)
     categories = num_classes
     box_vector = len(event_position_label) 
 
