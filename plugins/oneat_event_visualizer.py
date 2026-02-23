@@ -177,7 +177,7 @@ def plugin_wrapper_oneat_visualizer():
     # Now define the change handlers AFTER the magicgui function
     @change_handler(plugin.load_data_button)
     def _on_load_data_clicked(value):
-        nonlocal raw_files, seg_files, csv_files
+        nonlocal raw_files, seg_files
 
         # Get directories
         raw_directory = str(plugin.raw_dir.value)
