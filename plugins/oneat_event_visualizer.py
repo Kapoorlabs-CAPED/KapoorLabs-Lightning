@@ -153,7 +153,6 @@ def plugin_wrapper_oneat_visualizer():
             label="Status:",
             value="",
         ),
-        progress_bar=dict(label=" ", min=0, max=0, visible=False),
         layout="vertical",
         persist=True,
         call_button=False,
@@ -171,7 +170,6 @@ def plugin_wrapper_oneat_visualizer():
         add_point_mode,
         save_csv_button,
         status_label,
-        progress_bar: mw.ProgressBar,
     ) -> List[napari.types.LayerDataTuple]:
         pass
 
