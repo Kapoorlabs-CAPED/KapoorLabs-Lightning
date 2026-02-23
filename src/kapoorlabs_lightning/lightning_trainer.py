@@ -144,6 +144,7 @@ class MitosisInception:
         self.attention_dim = attention_dim
         self.attn_heads=attn_heads
         self.seq_len=seq_len
+        self.ckpt_path = load_checkpoint_model(self.log_path)
 
     def setup_oneat_transforms_light(
         self,
