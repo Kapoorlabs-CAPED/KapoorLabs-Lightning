@@ -160,7 +160,8 @@ def plugin_wrapper_oneat_visualizer():
         pass
 
     # Mouse callback for adding points
-    @plugin.viewer.value.mouse_double_click_callbacks.append
+    mouse_callback_registered = False
+
     def get_event(viewer, event):
         nonlocal clicked_points, current_csv_data, current_event_name
 
@@ -243,7 +244,12 @@ def plugin_wrapper_oneat_visualizer():
 
     @change_handler(plugin_data.load_data_button)
     def _on_load_data_clicked(value):
-        nonlocal raw_files, seg_files
+        nonlocal raw_files, seg_files, mouse_callback_registered
+
+        # Register mouse callback if not already done
+        if not mouse_callback_registered and plugin.viewer.value is not None:
+            plugin.viewer.value.mouse_double_click_callbacks.append(get_event)
+            mouse_callback_registered = True
 
         # Get directories
         raw_directory = str(plugin_data.raw_dir.value) if plugin_data.raw_dir.value else None
