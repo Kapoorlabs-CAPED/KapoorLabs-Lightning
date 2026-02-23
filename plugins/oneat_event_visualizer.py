@@ -313,58 +313,62 @@ def plugin_wrapper_oneat_visualizer():
 
         plugin.status_label.value = f"Loaded {image_name} with {len(current_csv_data)} {selected_event} events"
 
-    @plugin.viewer.value.mouse_double_click_callbacks.append
-    def get_event(viewer, event):
-        """Handle double-click to add points"""
-        nonlocal clicked_points
+        # Register mouse callback if not already registered
+        if not hasattr(plugin, '_mouse_callback_registered'):
+            @plugin.viewer.value.mouse_double_click_callbacks.append
+            def get_event(viewer, event):
+                """Handle double-click to add points"""
+                nonlocal clicked_points
 
-        if not plugin.add_point_mode.value:
-            return
+                if not plugin.add_point_mode.value:
+                    return
 
-        clicked_location = event.position
+                clicked_location = event.position
 
-        # Extract coordinates based on dimensionality
-        if len(clicked_location) == 4:  # TZYX
-            t, z, y, x = [int(coord) for coord in clicked_location]
-        elif len(clicked_location) == 3:  # TYX
-            t, y, x = [int(coord) for coord in clicked_location]
-            z = 0
-        else:
-            plugin.status_label.value = "Error: Unsupported image dimensionality"
-            return
+                # Extract coordinates based on dimensionality
+                if len(clicked_location) == 4:  # TZYX
+                    t, z, y, x = [int(coord) for coord in clicked_location]
+                elif len(clicked_location) == 3:  # TYX
+                    t, y, x = [int(coord) for coord in clicked_location]
+                    z = 0
+                else:
+                    plugin.status_label.value = "Error: Unsupported image dimensionality"
+                    return
 
-        # Add to clicked points
-        new_point = {'t': t, 'z': z, 'y': y, 'x': x}
-        clicked_points.append(new_point)
+                # Add to clicked points
+                new_point = {'t': t, 'z': z, 'y': y, 'x': x}
+                clicked_points.append(new_point)
 
-        print(f"Added point: t={t}, z={z}, y={y}, x={x}")
-        plugin.status_label.value = f"Added point at t={t}, z={z}, y={y}, x={x} ({len(clicked_points)} new points)"
+                print(f"Added point: t={t}, z={z}, y={y}, x={x}")
+                plugin.status_label.value = f"Added point at t={t}, z={z}, y={y}, x={x} ({len(clicked_points)} new points)"
 
-        # Update points layer
-        if len(clicked_points) > 0:
-            # Combine existing CSV data with new points
-            if len(current_csv_data) > 0:
-                combined_df = pd.concat([
-                    current_csv_data,
-                    pd.DataFrame(clicked_points)
-                ], ignore_index=True)
-            else:
-                combined_df = pd.DataFrame(clicked_points)
+                # Update points layer
+                if len(clicked_points) > 0:
+                    # Combine existing CSV data with new points
+                    if len(current_csv_data) > 0:
+                        combined_df = pd.concat([
+                            current_csv_data,
+                            pd.DataFrame(clicked_points)
+                        ], ignore_index=True)
+                    else:
+                        combined_df = pd.DataFrame(clicked_points)
 
-            # Remove old points layer
-            for layer in plugin.viewer.value.layers:
-                if isinstance(layer, napari.layers.Points):
-                    plugin.viewer.value.layers.remove(layer)
+                    # Remove old points layer
+                    for layer in plugin.viewer.value.layers:
+                        if isinstance(layer, napari.layers.Points):
+                            plugin.viewer.value.layers.remove(layer)
 
-            # Add updated points
-            points_array = combined_df[['t', 'z', 'y', 'x']].values
-            plugin.viewer.value.add_points(
-                points_array,
-                name=f"{current_event_name} Events (Updated)",
-                face_color="red",
-                edge_color="white",
-                size=5,
-            )
+                    # Add updated points
+                    points_array = combined_df[['t', 'z', 'y', 'x']].values
+                    plugin.viewer.value.add_points(
+                        points_array,
+                        name=f"{current_event_name} Events (Updated)",
+                        face_color="red",
+                        edge_color="white",
+                        size=5,
+                    )
+
+            plugin._mouse_callback_registered = True
 
     @change_handler(plugin.save_csv_button)
     def _on_save_csv_clicked(value):
