@@ -17,42 +17,59 @@ configstore.store(name="OneatDataClass", node=OneatDataClass)
 
 
 def extract_event_cube(raw_image, seg_image, event, crop_size):
-    """Extract a cube around an event."""
+    """Extract a cube around an event with fixed output shape."""
     sizex, sizey, sizez, t_minus, t_plus = crop_size
     time = int(event['time'])
     x = int(event['x'])
     y = int(event['y'])
     z = int(event['z'])
 
-    if time < t_minus or time + t_plus + 1 >= raw_image.shape[0]:
+    # Check temporal bounds
+    if time < t_minus or time + t_plus + 1 > raw_image.shape[0]:
         return None
+
+    # Target output shape
+    n_time = t_minus + t_plus + 1
+    target_shape = (n_time, sizez, sizey, sizex)
+
+    # Initialize output arrays with zeros (padding)
+    crop_raw = np.zeros(target_shape, dtype=raw_image.dtype)
+    crop_seg = np.zeros(target_shape, dtype=seg_image.dtype)
 
     # Extract temporal window
     t_start = time - t_minus
     t_end = time + t_plus + 1
 
-    # Extract spatial crop
-    z_start = max(0, z - sizez // 2)
-    z_end = min(raw_image.shape[1], z + sizez // 2)
-    y_start = max(0, y - sizey // 2)
-    y_end = min(raw_image.shape[2], y + sizey // 2)
-    x_start = max(0, x - sizex // 2)
-    x_end = min(raw_image.shape[3], x + sizex // 2)
+    # Calculate spatial bounds with clamping
+    z_start = z - sizez // 2
+    z_end = z_start + sizez
+    y_start = y - sizey // 2
+    y_end = y_start + sizey
+    x_start = x - sizex // 2
+    x_end = x_start + sizex
 
-    crop_raw = raw_image[t_start:t_end, z_start:z_end, y_start:y_end, x_start:x_end]
-    crop_seg = seg_image[t_start:t_end, z_start:z_end, y_start:y_end, x_start:x_end]
+    # Clamp to image bounds
+    z_start_src = max(0, z_start)
+    z_end_src = min(raw_image.shape[1], z_end)
+    y_start_src = max(0, y_start)
+    y_end_src = min(raw_image.shape[2], y_end)
+    x_start_src = max(0, x_start)
+    x_end_src = min(raw_image.shape[3], x_end)
 
-    # Pad if needed
-    target_shape = (t_end - t_start, sizez, sizey, sizex)
-    if crop_raw.shape != target_shape:
-        padded_raw = np.zeros(target_shape, dtype=crop_raw.dtype)
-        padded_seg = np.zeros(target_shape, dtype=crop_seg.dtype)
+    # Calculate destination indices in padded array
+    z_start_dst = z_start_src - z_start
+    z_end_dst = z_start_dst + (z_end_src - z_start_src)
+    y_start_dst = y_start_src - y_start
+    y_end_dst = y_start_dst + (y_end_src - y_start_src)
+    x_start_dst = x_start_src - x_start
+    x_end_dst = x_start_dst + (x_end_src - x_start_src)
 
-        padded_raw[:crop_raw.shape[0], :crop_raw.shape[1], :crop_raw.shape[2], :crop_raw.shape[3]] = crop_raw
-        padded_seg[:crop_seg.shape[0], :crop_seg.shape[1], :crop_seg.shape[2], :crop_seg.shape[3]] = crop_seg
+    # Copy data into padded arrays
+    crop_raw[:, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst] = \
+        raw_image[t_start:t_end, z_start_src:z_end_src, y_start_src:y_end_src, x_start_src:x_end_src]
 
-        crop_raw = padded_raw
-        crop_seg = padded_seg
+    crop_seg[:, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst] = \
+        seg_image[t_start:t_end, z_start_src:z_end_src, y_start_src:y_end_src, x_start_src:x_end_src]
 
     return crop_raw, crop_seg, event['event_label']
 
