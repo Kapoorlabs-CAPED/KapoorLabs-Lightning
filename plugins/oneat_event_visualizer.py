@@ -85,15 +85,22 @@ def plugin_wrapper_oneat_visualizer():
             table_widget.setWindowTitle("Event Annotations")
 
         table_widget.clear()
-        table_widget.setRowCount(len(data_df))
         table_widget.setColumnCount(4)
         table_widget.setHorizontalHeaderLabels(['T', 'Z', 'Y', 'X'])
 
-        for row_idx, (_, row) in enumerate(data_df.iterrows()):
-            table_widget.setItem(row_idx, 0, QTableWidgetItem(str(int(row['t']))))
-            table_widget.setItem(row_idx, 1, QTableWidgetItem(str(int(row['z']))))
-            table_widget.setItem(row_idx, 2, QTableWidgetItem(str(int(row['y']))))
-            table_widget.setItem(row_idx, 3, QTableWidgetItem(str(int(row['x']))))
+        if len(data_df) == 0:
+            table_widget.setRowCount(1)
+            table_widget.setItem(0, 0, QTableWidgetItem("No events"))
+            table_widget.setItem(0, 1, QTableWidgetItem("-"))
+            table_widget.setItem(0, 2, QTableWidgetItem("-"))
+            table_widget.setItem(0, 3, QTableWidgetItem("-"))
+        else:
+            table_widget.setRowCount(len(data_df))
+            for row_idx, (_, row) in enumerate(data_df.iterrows()):
+                table_widget.setItem(row_idx, 0, QTableWidgetItem(str(int(row['t']))))
+                table_widget.setItem(row_idx, 1, QTableWidgetItem(str(int(row['z']))))
+                table_widget.setItem(row_idx, 2, QTableWidgetItem(str(int(row['y']))))
+                table_widget.setItem(row_idx, 3, QTableWidgetItem(str(int(row['x']))))
 
         table_widget.show()
         table_widget.raise_()
@@ -199,7 +206,7 @@ def plugin_wrapper_oneat_visualizer():
     # Now define the change handlers AFTER the magicgui function
     @change_handler(plugin.load_data_button)
     def _on_load_data_clicked(value):
-        nonlocal raw_files, seg_files
+        nonlocal raw_files, seg_files, is_loading
 
         # Get directories
         raw_directory = str(plugin.raw_dir.value)
@@ -217,21 +224,27 @@ def plugin_wrapper_oneat_visualizer():
             plugin.status_label.value = "Error: No .tif files found in raw directory"
             return
 
-        # Update selectors
-        plugin.raw_image_selector.choices = [os.path.basename(f) for f in raw_files]
-        if seg_files:
-            plugin.seg_image_selector.choices = ["None"] + [os.path.basename(f) for f in seg_files]
-        else:
-            plugin.seg_image_selector.choices = ["None"]
+        # Block change events while updating choices
+        is_loading = True
 
-        # Show widgets
-        plugin.raw_image_selector.visible = True
-        plugin.seg_image_selector.visible = True
-        plugin.event_selector.visible = True
+        try:
+            # Update selectors
+            plugin.raw_image_selector.choices = [os.path.basename(f) for f in raw_files]
+            if seg_files:
+                plugin.seg_image_selector.choices = ["None"] + [os.path.basename(f) for f in seg_files]
+            else:
+                plugin.seg_image_selector.choices = ["None"]
 
-        plugin.status_label.value = f"Loaded: {len(raw_files)} raw images"
+            # Show widgets
+            plugin.raw_image_selector.visible = True
+            plugin.seg_image_selector.visible = True
+            plugin.event_selector.visible = True
 
-        # Auto-load first image if available
+            plugin.status_label.value = f"Loaded: {len(raw_files)} raw images"
+        finally:
+            is_loading = False
+
+        # Now trigger load after choices are set
         if len(raw_files) > 0:
             _load_current_selection()
 
@@ -284,11 +297,18 @@ def plugin_wrapper_oneat_visualizer():
             csv_pattern = f"oneat_{selected_event}_{image_name}.csv"
             csv_path = os.path.join(csv_directory, csv_pattern)
 
+            print(f"Looking for CSV: {csv_path}")
+            print(f"CSV exists: {os.path.exists(csv_path)}")
+
             if os.path.exists(csv_path):
                 current_csv_data = load_csv_file(csv_path, selected_event)
+                print(f"Loaded CSV with {len(current_csv_data)} events")
+                if len(current_csv_data) > 0:
+                    print(f"First few rows:\n{current_csv_data.head()}")
             else:
                 # Create empty dataframe if no matching CSV
                 current_csv_data = pd.DataFrame(columns=['t', 'z', 'y', 'x'])
+                print(f"No CSV found, created empty DataFrame")
 
             current_event_name = selected_event
             clicked_points = []
