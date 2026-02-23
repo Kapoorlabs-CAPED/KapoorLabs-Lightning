@@ -37,6 +37,7 @@ def plugin_wrapper_oneat_visualizer():
     clicked_points = []
     raw_files = []
     seg_files = []
+    is_loading = False
 
     def abspath(root, relpath):
         root = Path(root)
@@ -244,7 +245,7 @@ def plugin_wrapper_oneat_visualizer():
 
     @change_handler(plugin_data.load_data_button)
     def _on_load_data_clicked(value):
-        nonlocal raw_files, seg_files, mouse_callback_registered
+        nonlocal raw_files, seg_files, mouse_callback_registered, is_loading
 
         # Register mouse callback if not already done
         if not mouse_callback_registered and plugin.viewer.value is not None:
@@ -271,85 +272,94 @@ def plugin_wrapper_oneat_visualizer():
             plugin.status_label.value = "Error: No .tif files found in raw directory"
             return
 
-        # Update selectors
-        plugin_select.raw_image_selector.choices = [os.path.basename(f) for f in raw_files]
-        if seg_files:
-            plugin_select.seg_image_selector.choices = ["None"] + [os.path.basename(f) for f in seg_files]
-        else:
-            plugin_select.seg_image_selector.choices = ["None"]
+        # Block recursive loading while updating choices
+        is_loading = True
+        try:
+            # Update selectors
+            plugin_select.raw_image_selector.choices = [os.path.basename(f) for f in raw_files]
+            if seg_files:
+                plugin_select.seg_image_selector.choices = ["None"] + [os.path.basename(f) for f in seg_files]
+            else:
+                plugin_select.seg_image_selector.choices = ["None"]
 
-        plugin.status_label.value = f"Loaded: {len(raw_files)} raw images"
+            plugin.status_label.value = f"Loaded: {len(raw_files)} raw images"
+        finally:
+            is_loading = False
 
         # Auto-load first image
         _load_current_selection()
 
     def _load_current_selection():
         """Load currently selected raw image, seg image, and CSV"""
-        nonlocal current_raw_image, current_seg_image, current_csv_data, current_event_name, clicked_points
+        nonlocal current_raw_image, current_seg_image, current_csv_data, current_event_name, clicked_points, is_loading
 
-        if len(raw_files) == 0:
+        if is_loading or len(raw_files) == 0:
             return
 
-        raw_selected = plugin_select.raw_image_selector.value
-        seg_selected = plugin_select.seg_image_selector.value
-        selected_event = plugin.event_selector.value
+        is_loading = True
+        try:
+            raw_selected = plugin_select.raw_image_selector.value
+            seg_selected = plugin_select.seg_image_selector.value
+            selected_event = plugin.event_selector.value
 
-        if not raw_selected:
-            return
+            if not raw_selected:
+                return
 
-        # Find raw file path
-        raw_path = None
-        for f in raw_files:
-            if os.path.basename(f) == raw_selected:
-                raw_path = f
-                break
-
-        if not raw_path:
-            return
-
-        # Load raw image
-        current_raw_image = imread(raw_path)
-
-        # Load seg image if selected
-        current_seg_image = None
-        if seg_selected and seg_selected != "None":
-            for f in seg_files:
-                if os.path.basename(f) == seg_selected:
-                    current_seg_image = imread(f)
+            # Find raw file path
+            raw_path = None
+            for f in raw_files:
+                if os.path.basename(f) == raw_selected:
+                    raw_path = f
                     break
 
-        # Load CSV
-        raw_basename = os.path.basename(raw_path)
-        image_name = os.path.splitext(raw_basename)[0]
-        csv_directory = str(plugin_data.csv_dir.value)
-        csv_pattern = f"oneat_{selected_event}_{image_name}.csv"
-        csv_path = os.path.join(csv_directory, csv_pattern)
+            if not raw_path:
+                return
 
-        print(f"Looking for CSV: {csv_path}")
+            # Load raw image
+            current_raw_image = imread(raw_path)
 
-        if os.path.exists(csv_path):
-            current_csv_data = pd.read_csv(csv_path)
-            # Normalize column names to lowercase (agnostic to input case)
-            current_csv_data.columns = [col.lower() for col in current_csv_data.columns]
-            # Rename time column if needed
-            if 'time' in current_csv_data.columns:
-                current_csv_data = current_csv_data.rename(columns={'time': 't'})
-            print(f"Loaded CSV with {len(current_csv_data)} events")
-        else:
-            current_csv_data = pd.DataFrame(columns=['t', 'z', 'y', 'x'])
-            print(f"No CSV found, created empty DataFrame")
+            # Load seg image if selected
+            current_seg_image = None
+            if seg_selected and seg_selected != "None":
+                for f in seg_files:
+                    if os.path.basename(f) == seg_selected:
+                        current_seg_image = imread(f)
+                        break
 
-        current_event_name = selected_event
-        clicked_points = []
+            # Load CSV
+            raw_basename = os.path.basename(raw_path)
+            image_name = os.path.splitext(raw_basename)[0]
+            csv_directory = str(plugin_data.csv_dir.value)
+            csv_pattern = f"oneat_{selected_event}_{image_name}.csv"
+            csv_path = os.path.join(csv_directory, csv_pattern)
 
-        # Update viewer
-        _update_viewer()
+            print(f"Looking for CSV: {csv_path}")
 
-        # Update table
-        _update_table()
+            if os.path.exists(csv_path):
+                current_csv_data = pd.read_csv(csv_path)
+                # Normalize column names to lowercase (agnostic to input case)
+                current_csv_data.columns = [col.lower() for col in current_csv_data.columns]
+                # Rename time column if needed
+                if 'time' in current_csv_data.columns:
+                    current_csv_data = current_csv_data.rename(columns={'time': 't'})
+                print(f"Loaded CSV with {len(current_csv_data)} events")
+            else:
+                current_csv_data = pd.DataFrame(columns=['t', 'z', 'y', 'x'])
+                print(f"No CSV found, created empty DataFrame")
 
-        csv_status = "existing" if os.path.exists(csv_path) else "new"
-        plugin.status_label.value = f"{image_name} - {selected_event} ({len(current_csv_data)} events, {csv_status})"
+            current_event_name = selected_event
+            clicked_points = []
+
+            # Update viewer
+            _update_viewer()
+
+            # Update table
+            _update_table()
+
+            csv_status = "existing" if os.path.exists(csv_path) else "new"
+            plugin.status_label.value = f"{image_name} - {selected_event} ({len(current_csv_data)} events, {csv_status})"
+        finally:
+            is_loading = False
 
     def _update_viewer():
         """Update napari viewer with current images and points"""
@@ -383,7 +393,7 @@ def plugin_wrapper_oneat_visualizer():
     @change_handler(plugin_select.raw_image_selector, plugin_select.seg_image_selector, plugin.event_selector)
     def _on_selection_changed(value):
         """Auto-load when selections change"""
-        if len(raw_files) > 0:
+        if not is_loading and len(raw_files) > 0:
             _load_current_selection()
 
     @change_handler(plugin_select.save_csv_button)
