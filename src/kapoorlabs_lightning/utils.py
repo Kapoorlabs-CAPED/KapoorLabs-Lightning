@@ -460,25 +460,29 @@ def _extract_event_cube(raw_image, seg_image, event, crop_size, num_classes=2):
 
 
 def _write_batch_to_h5(group, images, segs, labels):
+    images_arr = np.array(images)
+    segs_arr = np.array(segs)
+    labels_arr = np.array(labels)
+
     if 'images' not in group:
         group.create_dataset(
             'images',
-            data=np.array(images),
-            maxshape=(None,) + images[0].shape,
+            data=images_arr,
+            maxshape=(None,) + images_arr.shape[1:],
             chunks=True,
             compression='gzip'
         )
         group.create_dataset(
             'segmentations',
-            data=np.array(segs),
-            maxshape=(None,) + segs[0].shape,
+            data=segs_arr,
+            maxshape=(None,) + segs_arr.shape[1:],
             chunks=True,
             compression='gzip'
         )
         group.create_dataset(
             'labels',
-            data=np.array(labels),
-            maxshape=(None,),
+            data=labels_arr,
+            maxshape=(None,) + labels_arr.shape[1:],
             chunks=True
         )
     else:
@@ -487,9 +491,9 @@ def _write_batch_to_h5(group, images, segs, labels):
         group['images'].resize(new_size, axis=0)
         group['segmentations'].resize(new_size, axis=0)
         group['labels'].resize(new_size, axis=0)
-        group['images'][old_size:new_size] = images
-        group['segmentations'][old_size:new_size] = segs
-        group['labels'][old_size:new_size] = labels
+        group['images'][old_size:new_size] = images_arr
+        group['segmentations'][old_size:new_size] = segs_arr
+        group['labels'][old_size:new_size] = labels_arr
 
 
 
