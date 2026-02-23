@@ -229,26 +229,54 @@ def create_event_dataset_h5(
     crop_size,
     train_split=0.95,
     batch_write_size=100,
+    raw_files=None,
 ):
-   
+
+    # Build mapping from image basename to index
+    if raw_files is None:
+        raw_files = [f"image_{i}" for i in range(len(raw_images))]
+
+    image_name_to_idx = {}
+    for idx, raw_file in enumerate(raw_files):
+        basename = os.path.basename(raw_file)
+        image_name = os.path.splitext(basename)[0]
+        image_name_to_idx[image_name] = idx
 
     event_data = []
     for csv_file in csv_files:
         csv_name = os.path.basename(csv_file)
+
+        # Find which event and image this CSV corresponds to
+        # CSV format: oneat_{event}_{image_name}.csv
+        matched = False
         for event_idx, event_name in enumerate(event_names):
             if event_name in csv_name:
-                clicks_df = pd.read_csv(csv_file)
-                for _, row in clicks_df.iterrows():
-                    event_data.append({
-                        'raw_idx': event_idx,
-                        'csv_file': csv_file,
-                        'event_label': event_idx,
-                        'event_name': event_name,
-                        'time': row.get('t', row.get('time', 0)),
-                        'x': row.get('x', 0),
-                        'y': row.get('y', 0),
-                        'z': row.get('z', 0)
-                    })
+                # Extract image name from CSV: oneat_{event}_{image_name}.csv
+                prefix = f"oneat_{event_name}_"
+                if csv_name.startswith(prefix):
+                    image_name = csv_name[len(prefix):].replace('.csv', '')
+
+                    # Find raw image index
+                    if image_name in image_name_to_idx:
+                        raw_idx = image_name_to_idx[image_name]
+                        clicks_df = pd.read_csv(csv_file)
+
+                        for _, row in clicks_df.iterrows():
+                            event_data.append({
+                                'raw_idx': raw_idx,
+                                'csv_file': csv_file,
+                                'event_label': event_idx,
+                                'event_name': event_name,
+                                'time': row.get('t', row.get('time', 0)),
+                                'x': row.get('x', 0),
+                                'y': row.get('y', 0),
+                                'z': row.get('z', 0)
+                            })
+                        matched = True
+                        break
+
+        if not matched:
+            print(f"Warning: Could not match CSV {csv_name} to any raw image")
 
     np.random.shuffle(event_data)
     train_size = int(len(event_data) * train_split)

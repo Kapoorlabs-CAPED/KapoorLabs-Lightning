@@ -78,7 +78,8 @@ def main(config: OneatDataClass):
         h5_output_path=h5_output_path,
         crop_size=crop_size,
         train_split=train_split,
-        batch_write_size=batch_write_size
+        batch_write_size=batch_write_size,
+        raw_files=raw_files
     )
 
     print(f"H5 dataset created successfully at {h5_output_path}")

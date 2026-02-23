@@ -31,6 +31,7 @@ def plugin_wrapper_oneat_visualizer():
     clicked_points = []
     raw_files = []
     seg_files = []
+    is_loading = False
 
     def abspath(root, relpath):
         root = Path(root)
@@ -215,7 +216,11 @@ def plugin_wrapper_oneat_visualizer():
 
     def _load_current_selection():
         """Load currently selected raw image, seg image, and CSV"""
-        nonlocal current_raw_image, current_seg_image, current_csv_data, current_event_name, clicked_points
+        nonlocal current_raw_image, current_seg_image, current_csv_data, current_event_name, clicked_points, is_loading
+
+        # Prevent recursive loading
+        if is_loading:
+            return
 
         # Get selected files
         raw_selected = plugin.raw_image_selector.value
@@ -235,119 +240,125 @@ def plugin_wrapper_oneat_visualizer():
         if not raw_path:
             return
 
-        # Load raw image
-        current_raw_image = imread(raw_path)
+        is_loading = True
 
-        # Load seg image if selected
-        current_seg_image = None
-        if seg_selected and seg_selected != "None":
-            for f in seg_files:
-                if os.path.basename(f) == seg_selected:
-                    current_seg_image = imread(f)
-                    break
+        try:
+            # Load raw image
+            current_raw_image = imread(raw_path)
 
-        # Load CSV for this image and event
-        raw_basename = os.path.basename(raw_path)
-        image_name = os.path.splitext(raw_basename)[0]
-        csv_directory = str(plugin.csv_dir.value)
+            # Load seg image if selected
+            current_seg_image = None
+            if seg_selected and seg_selected != "None":
+                for f in seg_files:
+                    if os.path.basename(f) == seg_selected:
+                        current_seg_image = imread(f)
+                        break
 
-        # Look for matching CSV file
-        csv_pattern = f"{image_name}_oneat_{selected_event}.csv"
-        csv_path = os.path.join(csv_directory, csv_pattern)
+            # Load CSV for this image and event
+            raw_basename = os.path.basename(raw_path)
+            image_name = os.path.splitext(raw_basename)[0]
+            csv_directory = str(plugin.csv_dir.value)
 
-        if os.path.exists(csv_path):
-            current_csv_data = load_csv_file(csv_path, selected_event)
-        else:
-            # Create empty dataframe if no matching CSV
-            current_csv_data = pd.DataFrame(columns=['t', 'z', 'y', 'x'])
+            # Look for matching CSV file - pattern: oneat_{event}_{image_name}.csv
+            csv_pattern = f"oneat_{selected_event}_{image_name}.csv"
+            csv_path = os.path.join(csv_directory, csv_pattern)
 
-        current_event_name = selected_event
-        clicked_points = []
+            if os.path.exists(csv_path):
+                current_csv_data = load_csv_file(csv_path, selected_event)
+            else:
+                # Create empty dataframe if no matching CSV
+                current_csv_data = pd.DataFrame(columns=['t', 'z', 'y', 'x'])
 
-        # Clear existing layers
-        plugin.viewer.value.layers.clear()
+            current_event_name = selected_event
+            clicked_points = []
 
-        # Add raw image
-        plugin.viewer.value.add_image(current_raw_image, name="Raw Image", colormap="gray")
+            # Clear existing layers
+            plugin.viewer.value.layers.clear()
 
-        # Add seg image if available
-        if current_seg_image is not None:
-            plugin.viewer.value.add_labels(current_seg_image, name="Segmentation")
+            # Add raw image
+            plugin.viewer.value.add_image(current_raw_image, name="Raw Image", colormap="gray")
 
-        # Add points from CSV
-        if len(current_csv_data) > 0:
-            points_array = current_csv_data[['t', 'z', 'y', 'x']].values
-            plugin.viewer.value.add_points(
-                points_array,
-                name=f"{selected_event} Events",
-                face_color="red",
-                edge_color="white",
-                size=5,
-            )
+            # Add seg image if available
+            if current_seg_image is not None:
+                plugin.viewer.value.add_labels(current_seg_image, name="Segmentation")
 
-        # Show annotation controls
-        plugin.add_point_mode.visible = True
-        plugin.save_csv_button.visible = True
+            # Add points from CSV
+            if len(current_csv_data) > 0:
+                points_array = current_csv_data[['t', 'z', 'y', 'x']].values
+                plugin.viewer.value.add_points(
+                    points_array,
+                    name=f"{selected_event} Events",
+                    face_color="red",
+                    edge_color="white",
+                    size=5,
+                )
 
-        csv_status = "existing CSV" if os.path.exists(csv_path) else "new CSV (will be created on save)"
-        plugin.status_label.value = f"Loaded {image_name} - {selected_event} ({len(current_csv_data)} events, {csv_status})"
+            # Show annotation controls
+            plugin.add_point_mode.visible = True
+            plugin.save_csv_button.visible = True
 
-        # Register mouse callback if not already registered
-        if not hasattr(plugin, '_mouse_callback_registered'):
-            @plugin.viewer.value.mouse_double_click_callbacks.append
-            def get_event(viewer, event):
-                """Handle double-click to add points"""
-                nonlocal clicked_points
+            csv_status = "existing CSV" if os.path.exists(csv_path) else "new CSV (will be created on save)"
+            plugin.status_label.value = f"Loaded {image_name} - {selected_event} ({len(current_csv_data)} events, {csv_status})"
 
-                if not plugin.add_point_mode.value:
-                    return
+            # Register mouse callback if not already registered
+            if not hasattr(plugin, '_mouse_callback_registered'):
+                @plugin.viewer.value.mouse_double_click_callbacks.append
+                def get_event(viewer, event):
+                    """Handle double-click to add points"""
+                    nonlocal clicked_points, current_csv_data, current_event_name
 
-                clicked_location = event.position
+                    if not plugin.add_point_mode.value:
+                        return
 
-                # Extract coordinates based on dimensionality
-                if len(clicked_location) == 4:  # TZYX
-                    t, z, y, x = [int(coord) for coord in clicked_location]
-                elif len(clicked_location) == 3:  # TYX
-                    t, y, x = [int(coord) for coord in clicked_location]
-                    z = 0
-                else:
-                    plugin.status_label.value = "Error: Unsupported image dimensionality"
-                    return
+                    clicked_location = event.position
 
-                # Add to clicked points
-                new_point = {'t': t, 'z': z, 'y': y, 'x': x}
-                clicked_points.append(new_point)
-
-                print(f"Added point: t={t}, z={z}, y={y}, x={x}")
-                plugin.status_label.value = f"Added point at t={t}, z={z}, y={y}, x={x} ({len(clicked_points)} new points)"
-
-                # Update points layer
-                if len(clicked_points) > 0:
-                    # Combine existing CSV data with new points
-                    if len(current_csv_data) > 0:
-                        combined_df = pd.concat([
-                            current_csv_data,
-                            pd.DataFrame(clicked_points)
-                        ], ignore_index=True)
+                    # Extract coordinates based on dimensionality
+                    if len(clicked_location) == 4:  # TZYX
+                        t, z, y, x = [int(coord) for coord in clicked_location]
+                    elif len(clicked_location) == 3:  # TYX
+                        t, y, x = [int(coord) for coord in clicked_location]
+                        z = 0
                     else:
-                        combined_df = pd.DataFrame(clicked_points)
+                        plugin.status_label.value = "Error: Unsupported image dimensionality"
+                        return
 
-                    # Remove old points layer
-                    for layer in plugin.viewer.value.layers:
-                        if isinstance(layer, napari.layers.Points):
-                            plugin.viewer.value.layers.remove(layer)
+                    # Add to clicked points
+                    new_point = {'t': t, 'z': z, 'y': y, 'x': x}
+                    clicked_points.append(new_point)
 
-                    # Add updated points
-                    points_array = combined_df[['t', 'z', 'y', 'x']].values
-                    plugin.viewer.value.add_points(
-                        points_array,
-                        name=f"{current_event_name} Events (Updated)",
-                        face_color="red",
-                        edge_color="white",
-                        size=5,
-                    )
+                    print(f"Added point: t={t}, z={z}, y={y}, x={x}")
+                    plugin.status_label.value = f"Added point at t={t}, z={z}, y={y}, x={x} ({len(clicked_points)} new points)"
 
-            plugin._mouse_callback_registered = True
+                    # Update points layer
+                    if len(clicked_points) > 0:
+                        # Combine existing CSV data with new points
+                        if len(current_csv_data) > 0:
+                            combined_df = pd.concat([
+                                current_csv_data,
+                                pd.DataFrame(clicked_points)
+                            ], ignore_index=True)
+                        else:
+                            combined_df = pd.DataFrame(clicked_points)
+
+                        # Remove old points layer
+                        for layer in plugin.viewer.value.layers:
+                            if isinstance(layer, napari.layers.Points):
+                                plugin.viewer.value.layers.remove(layer)
+
+                        # Add updated points
+                        points_array = combined_df[['t', 'z', 'y', 'x']].values
+                        plugin.viewer.value.add_points(
+                            points_array,
+                            name=f"{current_event_name} Events (Updated)",
+                            face_color="red",
+                            edge_color="white",
+                            size=5,
+                        )
+
+                plugin._mouse_callback_registered = True
+
+        finally:
+            is_loading = False
 
     @change_handler(plugin.raw_image_selector, plugin.seg_image_selector, plugin.event_selector)
     def _on_selection_changed(value):
@@ -365,16 +376,18 @@ def plugin_wrapper_oneat_visualizer():
             return
 
         # Get current image name
-        raw_idx = plugin.raw_image_selector.current_index
-        raw_path = raw_files[raw_idx]
-        raw_basename = os.path.basename(raw_path)
-        image_name = os.path.splitext(raw_basename)[0]
+        raw_selected = plugin.raw_image_selector.value
+        if not raw_selected:
+            plugin.status_label.value = "Error: No image selected"
+            return
 
-        # Create output CSV filename
+        image_name = os.path.splitext(raw_selected)[0]
+
+        # Create output CSV filename - pattern: oneat_{event}_{image_name}.csv
         csv_directory = str(plugin.csv_dir.value)
         output_csv = os.path.join(
             csv_directory,
-            f"{image_name}_oneat_{current_event_name}.csv"
+            f"oneat_{current_event_name}_{image_name}.csv"
         )
 
         # Combine existing and new points
