@@ -38,7 +38,7 @@ def main(config: OneatDataClass):
     raw_data_dir = os.path.join(base_data_dir, config.train_data_paths.oneat_timelapse_data_raw)
     csv_data_dir = os.path.join(base_data_dir, config.train_data_paths.oneat_timelapse_data_csv)
     seg_data_dir = os.path.join(base_data_dir, config.train_data_paths.oneat_timelapse_data_seg)
-    h5_output_path = os.path.join(base_data_dir, config.train_data_paths.oneat_h5_file + '.h5')
+    h5_output_path = os.path.join(base_data_dir, config.train_data_paths.oneat_h5_file)
 
     crop_size = (imagex, imagey, imagez, size_tminus, size_tplus)
     num_classes = len(event_names)
