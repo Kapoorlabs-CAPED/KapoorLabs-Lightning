@@ -1,5 +1,6 @@
 from pathlib import Path
 import hydra
+import os
 from hydra.core.config_store import ConfigStore
 from kapoorlabs_lightning.lightning_trainer import MitosisInception
 from scenario_train_oneat import OneatClass
@@ -67,7 +68,8 @@ def main(config: OneatClass):
     compute_class_weights = config.parameters.compute_class_weights
     log_path = config.train_data_paths.log_path
     experiment_name = config.train_data_paths.experiment_name
-    h5_file = config.train_data_paths.oneat_h5_file
+    base_data_dir = config.train_data_paths.base_data_dir
+    h5_file = os.path.join( base_data_dir , config.train_data_paths.oneat_h5_file)
 
     Path(log_path).mkdir(exist_ok=True, parents=True)
     save_config_as_json(config, log_path)
