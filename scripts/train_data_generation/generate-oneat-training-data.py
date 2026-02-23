@@ -41,6 +41,7 @@ def main(config: OneatDataClass):
     h5_output_path = os.path.join(base_data_dir, config.train_data_paths.oneat_h5_file + '.h5')
 
     crop_size = (imagex, imagey, imagez, size_tminus, size_tplus)
+    num_classes = len(event_names)
 
     raw_files = sorted(glob.glob(os.path.join(raw_data_dir, file_type)))
     seg_files = sorted(glob.glob(os.path.join(seg_data_dir, file_type)))
@@ -149,7 +150,7 @@ def main(config: OneatDataClass):
                     # Extract all events from this image
                     for event in events_by_image[img_idx]:
                         try:
-                            result = _extract_event_cube(raw_img, seg_img, event, crop_size)
+                            result = _extract_event_cube(raw_img, seg_img, event, crop_size, num_classes=num_classes)
                             if result is not None:
                                 crop_image, crop_seg, label = result
                                 batch_images.append(crop_image)

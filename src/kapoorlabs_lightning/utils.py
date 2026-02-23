@@ -340,15 +340,25 @@ def create_event_dataset_h5(
             _write_batch_to_h5(val_grp, val_images_list, val_segs_list, val_labels_list)
 
 
-def _extract_event_cube(raw_image, seg_image, event, crop_size):
-    """Extract a cube around an event with fixed output shape."""
+def _extract_event_cube(raw_image, seg_image, event, crop_size, num_classes=2):
+    """
+    Extract a cube around an event with fixed output shape and compute YOLO labels.
+
+    Returns:
+        crop_raw: (T, Z, Y, X) raw image crop
+        crop_seg: (T, Z, Y, X) segmentation crop
+        yolo_label: array of [x, y, z, h, w, d, conf] + [one-hot class (num_classes)]
+    """
+    from skimage import measure
+
     sizex, sizey, sizez, t_minus, t_plus = crop_size
     time = int(event['time'])
     x = int(event['x'])
     y = int(event['y'])
     z = int(event['z'])
+    event_label = int(event['event_label'])
 
-    # Check temporal bounds - need enough frames before and after
+    # Check temporal bounds
     t_start = time - t_minus
     t_end = time + t_plus + 1
 
@@ -362,10 +372,6 @@ def _extract_event_cube(raw_image, seg_image, event, crop_size):
     # Initialize output arrays with zeros (padding)
     crop_raw = np.zeros(target_shape, dtype=raw_image.dtype)
     crop_seg = np.zeros(target_shape, dtype=seg_image.dtype)
-
-    # Extract temporal window
-    t_start = time - t_minus
-    t_end = time + t_plus + 1
 
     # Calculate spatial bounds with clamping
     z_start = z - sizez // 2
@@ -398,7 +404,59 @@ def _extract_event_cube(raw_image, seg_image, event, crop_size):
     crop_seg[:, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst] = \
         seg_image[t_start:t_end, z_start_src:z_end_src, y_start_src:y_end_src, x_start_src:x_end_src]
 
-    return crop_raw, crop_seg, event['event_label']
+    # Compute box_vector from segmentation at the event timepoint (middle of crop)
+    mid_t = t_minus  # middle timepoint in the crop
+    seg_at_event = crop_seg[mid_t]  # (Z, Y, X)
+
+    # Find the cell label at the event location (center of crop)
+    center_z, center_y, center_x = sizez // 2, sizey // 2, sizex // 2
+    cell_label = seg_at_event[center_z, center_y, center_x]
+
+    # If no cell at center, find nearest cell
+    if cell_label == 0:
+        nonzero_coords = np.argwhere(seg_at_event > 0)
+        if len(nonzero_coords) > 0:
+            center = np.array([center_z, center_y, center_x])
+            distances = np.linalg.norm(nonzero_coords - center, axis=1)
+            closest_idx = np.argmin(distances)
+            closest_coord = nonzero_coords[closest_idx]
+            cell_label = seg_at_event[closest_coord[0], closest_coord[1], closest_coord[2]]
+
+    # xyz is always 0.5 (center of crop)
+    box_x, box_y, box_z = 0.5, 0.5, 0.5
+    # t is always 0.5 (center of temporal window)
+    box_t = 0.5
+
+    # Compute hwd from regionprops
+    if cell_label > 0:
+        cell_mask = (seg_at_event == cell_label).astype(np.uint16)
+        props = measure.regionprops(cell_mask)
+
+        if len(props) > 0:
+            prop = props[0]
+            # bbox is (min_z, min_y, min_x, max_z, max_y, max_x)
+            bbox = prop.bbox
+            # Dimensions normalized to crop size
+            box_d = (bbox[3] - bbox[0]) / sizez  # depth (z)
+            box_h = (bbox[4] - bbox[1]) / sizey  # height (y)
+            box_w = (bbox[5] - bbox[2]) / sizex  # width (x)
+        else:
+            box_d, box_h, box_w = 0.1, 0.1, 0.1
+    else:
+        box_d, box_h, box_w = 0.1, 0.1, 0.1
+
+    # Confidence is always 1 for ground truth
+    conf = 1.0
+
+    # Create one-hot encoded class
+    one_hot_class = np.zeros(num_classes, dtype=np.float32)
+    one_hot_class[event_label] = 1.0
+
+    # YOLO label format: [x, y, z, t, h, w, d, c] + [one-hot class]
+    box_vector = np.array([box_x, box_y, box_z, box_t, box_h, box_w, box_d, conf], dtype=np.float32)
+    yolo_label = np.concatenate([box_vector, one_hot_class])
+
+    return crop_raw, crop_seg, yolo_label
 
 
 def _write_batch_to_h5(group, images, segs, labels):

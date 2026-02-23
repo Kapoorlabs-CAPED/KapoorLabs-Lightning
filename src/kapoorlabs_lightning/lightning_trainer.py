@@ -20,7 +20,7 @@ from .pytorch_models import (
     InceptionNet,
     DenseVollNet,
 )
-from .pytorch_losses import VolumeYoloLoss
+from .pytorch_losses import VolumeYoloLoss, OneatClassificationLoss
 
 from torchvision import transforms
 from .time_series_transforms import (

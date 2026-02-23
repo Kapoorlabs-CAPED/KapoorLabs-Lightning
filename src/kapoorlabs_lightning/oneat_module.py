@@ -86,28 +86,37 @@ class OneatActionModule(BaseModule):
 
     def _log_accuracy(self, accuracy, prefix):
         if self.oneat_accuracy:
-            class_accuracy, xyz_accuracy, hwd_accuracy, confidence_accuracy = accuracy
+            class_accuracy, xyzt_accuracy, hwd_accuracy, confidence_accuracy = accuracy
             self.log_metrics(f"{prefix}_class_accuracy", class_accuracy)
-            self.log_metrics(f"{prefix}_xyz_accuracy", xyz_accuracy)
+            self.log_metrics(f"{prefix}_xyzt_accuracy", xyzt_accuracy)
             self.log_metrics(f"{prefix}_hwd_accuracy", hwd_accuracy)
             self.log_metrics(f"{prefix}_confidence_accuracy", confidence_accuracy)
         else:
             self.log_metrics(f"{prefix}_accuracy", accuracy)
 
     def compute_accuracy(self, outputs, labels):
-        if self.oneat_accuracy:
-            outputs = outputs.reshape(labels.shape)
-            predicted_classes = outputs[:, : self.num_classes]
-            true_classes = labels[:, : self.num_classes]
-            predicted_xyz = outputs[:, self.num_classes : self.num_classes + 3]
-            true_xyz = labels[:, self.num_classes : self.num_classes + 3]
-            predicted_hwd = outputs[:, self.num_classes + 3 : self.num_classes + 6]
-            true_hwd = labels[:, self.num_classes + 3 : self.num_classes + 6]
-            predicted_confidence = outputs[:, self.num_classes + 6]
-            true_confidence = labels[:, self.num_classes + 6]
+        # Squeeze spatial dimensions from outputs if present
+        if outputs.dim() > 2:
+            outputs = outputs.squeeze(-1).squeeze(-1).squeeze(-1)
 
-            predicted_class_indices = torch.argmax(predicted_classes, dim=1)
-            true_class_indices = torch.argmax(true_classes, dim=1)
+        # box_vector = 8: [x, y, z, t, h, w, d, c], then categories
+        box_vector_len = 8
+
+        # Extract class predictions and true classes (after box_vector)
+        predicted_classes = outputs[:, box_vector_len:]
+        true_classes = labels[:, box_vector_len:]
+
+        predicted_class_indices = torch.argmax(predicted_classes, dim=1)
+        true_class_indices = torch.argmax(true_classes, dim=1)
+
+        if self.oneat_accuracy:
+            # Full ONEAT accuracy with box metrics
+            predicted_xyzt = outputs[:, :4]
+            true_xyzt = labels[:, :4]
+            predicted_hwd = outputs[:, 4:7]
+            true_hwd = labels[:, 4:7]
+            predicted_confidence = outputs[:, 7]
+            true_confidence = labels[:, 7]
 
             class_accuracy_metric = Accuracy(
                 task="multiclass", num_classes=self.num_classes
@@ -116,8 +125,8 @@ class OneatActionModule(BaseModule):
                 predicted_class_indices, true_class_indices
             )
 
-            xyz_accuracy_metric = MeanSquaredError().to(self.device)
-            xyz_accuracy = 1.0 - xyz_accuracy_metric(predicted_xyz, true_xyz)
+            xyzt_accuracy_metric = MeanSquaredError().to(self.device)
+            xyzt_accuracy = 1.0 - xyzt_accuracy_metric(predicted_xyzt, true_xyzt)
 
             hwd_accuracy_metric = MeanSquaredError().to(self.device)
             hwd_accuracy = 1.0 - hwd_accuracy_metric(predicted_hwd, true_hwd)
@@ -127,12 +136,13 @@ class OneatActionModule(BaseModule):
                 predicted_confidence, true_confidence
             )
 
-            return (class_accuracy, xyz_accuracy, hwd_accuracy, confidence_accuracy)
+            return (class_accuracy, xyzt_accuracy, hwd_accuracy, confidence_accuracy)
         else:
+            # Simple classification accuracy
             accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(
                 self.device
             )
-            return accuracy(outputs, labels)
+            return accuracy(predicted_class_indices, true_class_indices)
 
     def predict_step(self, batch, batch_idx):
         """
