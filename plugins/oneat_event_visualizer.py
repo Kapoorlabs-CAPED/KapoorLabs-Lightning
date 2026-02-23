@@ -31,8 +31,6 @@ def plugin_wrapper_oneat_visualizer():
     clicked_points = []
     raw_files = []
     seg_files = []
-    csv_files = []
-    event_names = []
 
     def abspath(root, relpath):
         root = Path(root)
@@ -75,22 +73,6 @@ def plugin_wrapper_oneat_visualizer():
                 df[col] = 0
 
         return df
-
-    def get_event_names_from_csvs(csv_files):
-        """Extract event names from CSV filenames"""
-        event_set = set()
-        for csv_file in csv_files:
-            basename = os.path.basename(csv_file)
-            # Expected format: filename_oneat_eventname.csv
-            if '_oneat_' in basename:
-                event_name = basename.split('_oneat_')[-1].replace('.csv', '')
-                event_set.add(event_name)
-            else:
-                # Fallback: use filename without extension
-                event_name = os.path.splitext(basename)[0]
-                event_set.add(event_name)
-
-        return sorted(list(event_set))
 
     def change_handler(*widgets, init=False, debug=DEBUG):
         def decorator_change_handler(handler):
@@ -150,12 +132,8 @@ def plugin_wrapper_oneat_visualizer():
         event_selector=dict(
             widget_type="RadioButtons",
             label="Select Event Type",
-            choices=[],
-            visible=False,
-        ),
-        load_images_button=dict(
-            widget_type="PushButton",
-            text="Load Images & Events",
+            choices=[("mitosis", "mitosis"), ("normal", "normal")],
+            value="mitosis",
             visible=False,
         ),
         add_point_mode=dict(
@@ -189,7 +167,6 @@ def plugin_wrapper_oneat_visualizer():
         raw_image_selector,
         seg_image_selector,
         event_selector,
-        load_images_button,
         add_point_mode,
         save_csv_button,
         status_label,
@@ -200,7 +177,7 @@ def plugin_wrapper_oneat_visualizer():
     # Now define the change handlers AFTER the magicgui function
     @change_handler(plugin.load_data_button)
     def _on_load_data_clicked(value):
-        nonlocal raw_files, seg_files, csv_files, event_names
+        nonlocal raw_files, seg_files, csv_files
 
         # Get directories
         raw_directory = str(plugin.raw_dir.value)
@@ -213,18 +190,10 @@ def plugin_wrapper_oneat_visualizer():
             seg_files = sorted(glob(os.path.join(seg_directory, "*.tif")))
         else:
             seg_files = []
-        csv_files = sorted(glob(os.path.join(csv_directory, "*.csv")))
 
         if len(raw_files) == 0:
             plugin.status_label.value = "Error: No .tif files found in raw directory"
             return
-
-        if len(csv_files) == 0:
-            plugin.status_label.value = "Error: No .csv files found in CSV directory"
-            return
-
-        # Extract event names from CSV files
-        event_names = get_event_names_from_csvs(csv_files)
 
         # Update selectors
         plugin.raw_image_selector.choices = [os.path.basename(f) for f in raw_files]
@@ -232,18 +201,20 @@ def plugin_wrapper_oneat_visualizer():
             plugin.seg_image_selector.choices = ["None"] + [os.path.basename(f) for f in seg_files]
         else:
             plugin.seg_image_selector.choices = ["None"]
-        plugin.event_selector.choices = [(name, name) for name in event_names]
 
         # Show widgets
         plugin.raw_image_selector.visible = True
         plugin.seg_image_selector.visible = True
         plugin.event_selector.visible = True
-        plugin.load_images_button.visible = True
 
-        plugin.status_label.value = f"Loaded: {len(raw_files)} raw images, {len(csv_files)} CSV files, {len(event_names)} events"
+        plugin.status_label.value = f"Loaded: {len(raw_files)} raw images"
 
-    @change_handler(plugin.load_images_button)
-    def _on_load_images_clicked(value):
+        # Auto-load first image if available
+        if len(raw_files) > 0:
+            _load_current_selection()
+
+    def _load_current_selection():
+        """Load currently selected raw image, seg image, and CSV"""
         nonlocal current_raw_image, current_seg_image, current_csv_data, current_event_name, clicked_points
 
         # Get selected files
@@ -252,7 +223,6 @@ def plugin_wrapper_oneat_visualizer():
         selected_event = plugin.event_selector.value
 
         if raw_idx < 0 or raw_idx >= len(raw_files):
-            plugin.status_label.value = "Error: Invalid raw image selection"
             return
 
         # Load raw image
@@ -268,17 +238,14 @@ def plugin_wrapper_oneat_visualizer():
         # Load CSV for this image and event
         raw_basename = os.path.basename(raw_path)
         image_name = os.path.splitext(raw_basename)[0]
+        csv_directory = str(plugin.csv_dir.value)
 
-        # Find matching CSV file
-        matching_csv = None
-        for csv_file in csv_files:
-            csv_basename = os.path.basename(csv_file)
-            if image_name in csv_basename and selected_event in csv_basename:
-                matching_csv = csv_file
-                break
+        # Look for matching CSV file
+        csv_pattern = f"{image_name}_oneat_{selected_event}.csv"
+        csv_path = os.path.join(csv_directory, csv_pattern)
 
-        if matching_csv:
-            current_csv_data = load_csv_file(matching_csv, selected_event)
+        if os.path.exists(csv_path):
+            current_csv_data = load_csv_file(csv_path, selected_event)
         else:
             # Create empty dataframe if no matching CSV
             current_csv_data = pd.DataFrame(columns=['t', 'z', 'y', 'x'])
@@ -311,7 +278,8 @@ def plugin_wrapper_oneat_visualizer():
         plugin.add_point_mode.visible = True
         plugin.save_csv_button.visible = True
 
-        plugin.status_label.value = f"Loaded {image_name} with {len(current_csv_data)} {selected_event} events"
+        csv_status = "existing CSV" if os.path.exists(csv_path) else "new CSV (will be created on save)"
+        plugin.status_label.value = f"Loaded {image_name} - {selected_event} ({len(current_csv_data)} events, {csv_status})"
 
         # Register mouse callback if not already registered
         if not hasattr(plugin, '_mouse_callback_registered'):
@@ -369,6 +337,12 @@ def plugin_wrapper_oneat_visualizer():
                     )
 
             plugin._mouse_callback_registered = True
+
+    @change_handler(plugin.raw_image_selector, plugin.seg_image_selector, plugin.event_selector)
+    def _on_selection_changed(value):
+        """Auto-load when raw image or event type changes"""
+        if len(raw_files) > 0 and plugin.raw_image_selector.visible:
+            _load_current_selection()
 
     @change_handler(plugin.save_csv_button)
     def _on_save_csv_clicked(value):
