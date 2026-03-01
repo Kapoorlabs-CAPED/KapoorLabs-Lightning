@@ -119,25 +119,28 @@ def calc_loss_class(true_box_class, pred_box_class, class_weights_dict = None):
 
 
 class VolumeYoloLoss(nn.Module):
-    def __init__(self, categories, box_vector, device, class_weights_dict=None):
+    def __init__(self, categories, box_vector, device, class_weights_dict=None, return_components=False):
         super().__init__()
         self.categories = categories
         self.box_vector = box_vector
         self.device = device
         self.class_weights_dict = class_weights_dict
+        self.return_components = return_components
 
     def forward(self, y_pred, y_true):
         """
         Args:
-            y_pred: Model predictions (batch, categories + box_vector, 1, 1, 1) or (batch, categories + box_vector)
-            y_true: Ground truth YOLO labels (batch, categories + box_vector)
+            y_pred: Model predictions (batch, box_vector + categories, 1, 1, 1) or (batch, box_vector + categories)
+            y_true: Ground truth YOLO labels (batch, box_vector + categories)
+        Returns:
+            If return_components=False: combined_loss
+            If return_components=True: (combined_loss, loss_xyzt_hwd, loss_conf, loss_class)
         """
         # Squeeze spatial dimensions from predictions if present
         if y_pred.dim() > 2:
             y_pred = y_pred.squeeze(-1).squeeze(-1).squeeze(-1)
 
         y_true = y_true.to(y_pred.device)
-        y_pred = y_pred.to(y_pred.device)
 
         (
             true_box_class,
@@ -152,6 +155,11 @@ class VolumeYoloLoss(nn.Module):
             pred_box_conf,
         ) = extract_ground_event_volume_pred(y_pred, self.categories, self.box_vector)
 
+        # Apply sigmoid to predicted box values (xyzt, hwd, conf) to bound them to [0, 1]
+        pred_box_xyzt = torch.sigmoid(pred_box_xyzt)
+        pred_box_hwd = torch.sigmoid(pred_box_hwd)
+        pred_box_conf = torch.sigmoid(pred_box_conf)
+
         loss_xyzt_hwd = calc_loss_xyzt_hwd(
             true_box_xyzt, pred_box_xyzt, true_box_hwd, pred_box_hwd
         )
@@ -159,6 +167,9 @@ class VolumeYoloLoss(nn.Module):
         loss_conf = compute_conf_loss_volume(true_box_conf, pred_box_conf)
 
         combined_loss = loss_xyzt_hwd + loss_conf + loss_class
+
+        if self.return_components:
+            return combined_loss, loss_xyzt_hwd, loss_conf, loss_class
         return combined_loss
 
 

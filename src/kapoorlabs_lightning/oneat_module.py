@@ -57,9 +57,15 @@ class OneatActionModule(BaseModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        loss = self.loss(y_hat, y)
 
+        # Get loss with components
+        loss, loss_xyzt_hwd, loss_conf, loss_class = self.loss_func(y_hat, y)
+
+        # Log all loss components
         self.log_metrics("train_loss", loss)
+        self.log_metrics("train_loss_xyzt_hwd", loss_xyzt_hwd)
+        self.log_metrics("train_loss_conf", loss_conf)
+        self.log_metrics("train_loss_class", loss_class)
 
         current_lr = self.optimizers().param_groups[0]["lr"]
         self.log_metrics("learning_rate", current_lr)
@@ -70,7 +76,7 @@ class OneatActionModule(BaseModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        self._shared_eval(batch, batch_idx, "validation")
+        self._shared_eval(batch, batch_idx, "val")
 
     def test_step(self, batch, batch_idx):
         self._shared_eval(batch, batch_idx, "test")
@@ -78,10 +84,17 @@ class OneatActionModule(BaseModule):
     def _shared_eval(self, batch, batch_idx, prefix):
         x, y = batch
         y_hat = self(x)
-        loss = self.loss(y_hat, y)
-        accuracy = self.compute_accuracy(y_hat, y)
 
+        # Get loss with components
+        loss, loss_xyzt_hwd, loss_conf, loss_class = self.loss_func(y_hat, y)
+
+        # Log all loss components
         self.log_metrics(f"{prefix}_loss", loss)
+        self.log_metrics(f"{prefix}_loss_xyzt_hwd", loss_xyzt_hwd)
+        self.log_metrics(f"{prefix}_loss_conf", loss_conf)
+        self.log_metrics(f"{prefix}_loss_class", loss_class)
+
+        accuracy = self.compute_accuracy(y_hat, y)
         self._log_accuracy(accuracy, prefix)
 
     def _log_accuracy(self, accuracy, prefix):

@@ -537,7 +537,8 @@ class MitosisInception:
                 categories=self.categories,
                 box_vector=self.box_vector,
                 device=self.map_location,
-                class_weights_dict=self.class_weights_dict
+                class_weights_dict=self.class_weights_dict,
+                return_components=True
             )
 
         self.progress = CustomProgressBar()
