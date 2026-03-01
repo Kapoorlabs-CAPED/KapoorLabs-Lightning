@@ -82,7 +82,7 @@ def generate_plots(model_dir):
         return False
 
 
-def check_and_process():
+def check_and_process(force_all=False):
     """Check all model folders and process new checkpoints."""
     state = load_state()
     updated = False
@@ -107,8 +107,8 @@ def check_and_process():
         # Check if this checkpoint was already processed
         prev_mtime = state.get(folder_name, {}).get("mtime", 0)
 
-        if ckpt_mtime > prev_mtime:
-            print(f"[NEW]  {folder_name} - new checkpoint detected")
+        if force_all or ckpt_mtime > prev_mtime:
+            print(f"[PLOT] {folder_name}")
 
             if generate_plots(model_dir):
                 state[folder_name] = {
@@ -140,10 +140,14 @@ def main():
     print("Press Ctrl+C to stop\n")
 
     try:
+        # First run: plot everything
+        print("First run - plotting all models...")
+        check_and_process(force_all=True)
+
         while True:
-            check_and_process()
             print(f"\nNext check in {CHECK_INTERVAL//60} minutes...")
             time.sleep(CHECK_INTERVAL)
+            check_and_process(force_all=False)
 
     except KeyboardInterrupt:
         print("\n\nMonitoring stopped by user")
