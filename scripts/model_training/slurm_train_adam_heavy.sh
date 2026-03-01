@@ -1,0 +1,28 @@
+#!/bin/bash
+#SBATCH --job-name=oneat_adam_heavy
+#SBATCH --output=oneat_adam_heavy_%j.out
+#SBATCH --error=oneat_adam_heavy_%j.err
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:A100:1
+#SBATCH --partition=grete:shared
+#SBATCH --mem=32G
+
+# No time restriction (infinite/max allowed by cluster)
+
+# Load modules (adjust as needed for your HPC)
+module purge
+module load cuda
+module load miniforge3
+
+# Activate conda environment
+source activate torchenv
+
+
+# Run training with Adam optimizer and heavy transform preset
+srun --unbuffered python lightning-oneat-adam.py \
+    parameters.learning_rate=1.0e-3 \
+    parameters.transform_preset=heavy \
+    train_data_paths.log_path='/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_heavy/' \
+    train_data_paths.experiment_name='adam_heavy_aug'
