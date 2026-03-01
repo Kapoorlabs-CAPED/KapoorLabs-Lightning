@@ -1,4 +1,4 @@
 defaults:
     - _self_
-    - train_data_paths: jeanzay.yaml
+    - train_data_paths: gwdg.yaml
     - parameters: oneat.yaml
