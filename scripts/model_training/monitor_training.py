@@ -89,8 +89,8 @@ def generate_plots(model_dir, output_subdir):
         return False
 
 
-def git_push_updates():
-    """Git add, commit, and push updates."""
+def git_commit_updates():
+    """Git add and commit updates (no push - do manually)."""
     try:
         os.chdir(PLOTS_OUTPUT_DIR.parent)
 
@@ -113,10 +113,8 @@ def git_push_updates():
         commit_msg = f"plot update {timestamp}"
         subprocess.run(["git", "commit", "-m", commit_msg], check=True)
 
-        # Git push
-        subprocess.run(["git", "push"], check=True)
-
-        print(f"Successfully pushed: {commit_msg}")
+        print(f"Committed: {commit_msg}")
+        print("(Push manually when you have internet)")
         return True
 
     except subprocess.CalledProcessError as e:
@@ -167,11 +165,11 @@ def check_and_process():
 
     save_state(state)
 
-    # Push to git if there were updates
+    # Commit to git if there were updates
     if updated:
         print(f"\n{'='*60}")
-        print("Pushing updates to git...")
-        git_push_updates()
+        print("Committing updates to git...")
+        git_commit_updates()
 
     return updated
 
