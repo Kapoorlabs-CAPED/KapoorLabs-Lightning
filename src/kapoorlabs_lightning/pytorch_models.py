@@ -375,7 +375,6 @@ class DenseVollNet(nn.Module):
         growth_rate: int = 32, 
         bn_size: int = 4, 
         depth: dict = {'depth_0': 6, 'depth_1': 12, 'depth_2': 24, 'depth_3': 16},
-        last_activation: str = "softmax",
         pool_first = True
     ):
         super().__init__()
@@ -434,7 +433,6 @@ class DenseVollNet(nn.Module):
             padding='valid'
         )
 
-        self.last_activation = last_activation
 
     def forward(self, x):
         # Top DenseNet-like Block
@@ -451,8 +449,7 @@ class DenseVollNet(nn.Module):
         output_cat = self.conv3d_cat(input_cat)
         output_box = self.conv3d_box(input_box)
         # Apply activations
-        if self.last_activation == "softmax":
-            output_cat = F.softmax(output_cat, dim=1)
+        output_cat = F.softmax(output_cat, dim=1)
         output_box = torch.sigmoid(output_box)
 
         # Concatenate along the channel dimension

@@ -27,7 +27,6 @@ class _Schedulers(Module):
         cooldown=0,
         min_lr=0,
         eps=1e-8,
-        verbose=False,
         start_factor=1.0 / 3,
         end_factor=1.0,
         total_iters=5,
@@ -50,7 +49,6 @@ class _Schedulers(Module):
         self.cooldown = cooldown
         self.min_lr = min_lr
         self.eps = eps
-        self.verbose = verbose
         self.start_factor = start_factor
         self.end_factor = end_factor
         self.total_iters = total_iters
@@ -70,7 +68,7 @@ class CosineScheduler(_Schedulers):
 
     def forward(self, optimizer):
         return optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, self.restart_epochs, verbose=True
+            optimizer, self.restart_epochs
         )
 
 
@@ -90,7 +88,7 @@ class ExponentialLR(_Schedulers):
         super().__init__(gamma=gamma)
 
     def forward(self, optimizer):
-        return optim.lr_scheduler.ExponentialLR(optimizer, self.gamma, verbose=True)
+        return optim.lr_scheduler.ExponentialLR(optimizer, self.gamma)
 
 
 class SameLR(_Schedulers):
@@ -112,11 +110,11 @@ class WarmCosineAnnealingLR(_Schedulers):
                 optimizer, start_factor=self.factor, total_iters=self.t_warmup
             ),
             optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, self.t_max, eta_min=self.eta_min, verbose=True
+                optimizer, self.t_max, eta_min=self.eta_min
             ),
         ]
         return optim.lr_scheduler.SequentialLR(
-            optimizer, schedulers, milestones, verbose=True
+            optimizer, schedulers, milestones
         )
 
 
@@ -126,15 +124,15 @@ class CosineAnnealingScheduler(_Schedulers):
 
     def forward(self, optimizer):
         return optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, self.t_max, eta_min=self.eta_min, verbose=True
+            optimizer, self.t_max, eta_min=self.eta_min
         )
 
 
 class MultiStepLR(_Schedulers):
-    def __init__(self, milestones, gamma=0.1, last_epoch=-1, verbose=True):
+    def __init__(self, milestones, gamma=0.1, last_epoch=-1):
 
         super().__init__(
-            milestones=milestones, gamma=gamma, last_epoch=last_epoch, verbose=verbose
+            milestones=milestones, gamma=gamma, last_epoch=last_epoch
         )
 
     def forward(self, optimizer):
@@ -143,7 +141,6 @@ class MultiStepLR(_Schedulers):
             milestones=self.milestones,
             gamma=self.gamma,
             last_epoch=self.last_epoch,
-            verbose=self.verbose,
         )
 
 
@@ -158,7 +155,6 @@ class ReduceLROnPlateau(_Schedulers):
         cooldown=0,
         min_lr=0,
         eps=1e-8,
-        verbose=False,
     ):
         super().__init__(
             mode=mode,
@@ -169,7 +165,6 @@ class ReduceLROnPlateau(_Schedulers):
             cooldown=cooldown,
             min_lr=min_lr,
             eps=eps,
-            verbose=verbose,
         )
 
     def forward(self, optimizer):
@@ -178,7 +173,6 @@ class ReduceLROnPlateau(_Schedulers):
             mode=self.mode,
             factor=self.factor,
             patience=self.patience,
-            verbose=self.verbose,
             threshold=self.threshold,
             threshold_mode=self.threshold_mode,
             cooldown=self.cooldown,
@@ -188,12 +182,11 @@ class ReduceLROnPlateau(_Schedulers):
 
 
 class ConstantLR(_Schedulers):
-    def __init__(self, factor=1.0 / 3, total_iters=5, last_epoch=-1, verbose=False):
+    def __init__(self, factor=1.0 / 3, total_iters=5, last_epoch=-1):
         super().__init__(
             factor=factor,
             total_iters=total_iters,
-            last_epoch=last_epoch,
-            verbose=verbose,
+            last_epoch=last_epoch
         )
 
     def forward(self, optimizer):
@@ -212,15 +205,13 @@ class LinearLR(_Schedulers):
         end_factor=1.0,
         total_iters=5,
         last_epoch=-1,
-        verbose=False,
     ):
         super().__init__(
             self,
             start_factor=start_factor,
             end_factor=end_factor,
             total_iters=total_iters,
-            last_epoch=last_epoch,
-            verbose=verbose,
+            last_epoch=last_epoch
         )
 
     def forward(self, optimizer):
