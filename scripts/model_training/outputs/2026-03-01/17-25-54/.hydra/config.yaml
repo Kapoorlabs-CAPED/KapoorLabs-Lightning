@@ -1,0 +1,95 @@
+train_data_paths:
+  base_data_dir: /projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_training/
+  oneat_timelapse_data_raw: oneat_timelapse_nuclei_raw/
+  oneat_timelapse_data_csv: oneat_timelapse_nuclei_csv/
+  oneat_timelapse_data_seg: oneat_timelapse_nuclei_seg/
+  oneat_h5_file: oneat_kapoorlabs.h5
+  log_path: /projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model/
+  experiment_name: med_aug
+parameters:
+  startfilter: 64
+  start_kernel: 7
+  mid_kernel: 3
+  imagex: 64
+  imagey: 64
+  imagez: 8
+  depth:
+    depth_0: 12
+    depth_1: 24
+    depth_2: 16
+  growth_rate: 32
+  pool_first: true
+  learning_rate: 0.25
+  batch_size: 32
+  epochs: 250
+  num_workers: 4
+  devices: 1
+  accelerator: cuda
+  train_precision: 32-true
+  strategy: auto
+  gradient_clip_val: null
+  gradient_clip_algorithm: null
+  slurm_auto_requeue: false
+  num_classes: 2
+  compute_class_weights: true
+  transform_preset: medium
+  gaussian_noise_std: 0.02
+  poisson_noise_p: 0.3
+  blur_p: 0.3
+  spatial_flip_p: 0.5
+  rotation_p: 0.5
+  brightness_contrast_p: 0.3
+  elastic_p: 0.3
+  percentile_norm: true
+  pmin: 1.0
+  pmax: 99.8
+  weight_decay: 1.0e-05
+  momentum: 0.9
+  eta_min: 1.0e-08
+  t_warmup: 5
+  gamma: 0.94
+  stage_number: 3
+  size_tminus: 1
+  size_tplus: 1
+  reduction: 0.5
+  alpha: 0.01
+  n_tiles:
+  - 1
+  - 4
+  - 4
+  file_type: '*.tif'
+  nms_space: 10
+  nms_time: 2
+  normalizeimage: true
+  event_name:
+  - normal
+  - mitosis
+  event_label:
+  - 0
+  - 1
+  event_position_name:
+  - x
+  - 'y'
+  - z
+  - t
+  - h
+  - w
+  - d
+  - c
+  event_position_label:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  categories_json: catagories.json
+  cord_json: cord.json
+  train_split: 0.98
+  batch_write_size: 100
+  oneat_model:
+    _target_: kapoorlabs_lightning.pytorch_models.DenseVollNet
+  scheduler:
+    _target_: kapoorlabs_lightning.schedulers.WarmCosineAnnealingLR
