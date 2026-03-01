@@ -1,32 +1,32 @@
 {
   "oneat_mitosis_model": {
-    "mtime": 1772388940.2950757,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model/epoch=158-step=12402.ckpt",
-    "processed_at": "2026-03-01T19:15:46.527285"
+    "mtime": 1772389266.7341013,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model/epoch=168-step=13182.ckpt",
+    "processed_at": "2026-03-01T19:21:10.771432"
   },
   "oneat_mitosis_model_light": {
-    "mtime": 1772388930.5094516,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_light/epoch=176-step=13806.ckpt",
-    "processed_at": "2026-03-01T19:15:50.506395"
+    "mtime": 1772389252.7805068,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_light/epoch=188-step=14742.ckpt",
+    "processed_at": "2026-03-01T19:21:14.819728"
   },
   "oneat_mitosis_model_heavy": {
-    "mtime": 1772388948.7810314,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_heavy/epoch=131-step=10296.ckpt",
-    "processed_at": "2026-03-01T19:15:54.334788"
+    "mtime": 1772389272.694322,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_heavy/epoch=141-step=11076.ckpt",
+    "processed_at": "2026-03-01T19:21:18.845548"
   },
   "oneat_mitosis_model_adam": {
-    "mtime": 1772388929.070598,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam/epoch=123-step=9672.ckpt",
-    "processed_at": "2026-03-01T19:15:57.929218"
+    "mtime": 1772389255.9317067,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam/epoch=135-step=10608.ckpt",
+    "processed_at": "2026-03-01T19:21:22.507204"
   },
   "oneat_mitosis_model_adam_light": {
-    "mtime": 1772388946.340383,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_light/epoch=125-step=9828.ckpt",
-    "processed_at": "2026-03-01T19:16:01.615053"
+    "mtime": 1772389271.992476,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_light/epoch=137-step=10764.ckpt",
+    "processed_at": "2026-03-01T19:21:28.488980"
   },
   "oneat_mitosis_model_adam_heavy": {
-    "mtime": 1772388960.452354,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_heavy/epoch=127-step=9984.ckpt",
-    "processed_at": "2026-03-01T19:16:05.226184"
+    "mtime": 1772389285.619013,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_heavy/epoch=139-step=10920.ckpt",
+    "processed_at": "2026-03-01T19:21:32.370032"
   }
 }
