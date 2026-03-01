@@ -20,7 +20,7 @@ module load miniforge3
 source activate torchenv
 
 # Run training with heavy transform preset
-python lightning-oneat.py \
+srun --unbuffered python lightning-oneat.py \
     parameters.transform_preset=heavy \
     train_data_paths.log_path='/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_heavy/' \
     train_data_paths.experiment_name='heavy_aug'

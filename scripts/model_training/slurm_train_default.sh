@@ -21,4 +21,4 @@ source activate torchenv
 
 
 # Run training with default parameters
-python lightning-oneat.py
+srun --unbuffered python lightning-oneat.py
