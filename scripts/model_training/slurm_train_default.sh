@@ -14,13 +14,11 @@
 # Load modules (adjust as needed for your HPC)
 module purge
 module load cuda
-module load anaconda3
+module load miniforge3
 
 # Activate conda environment
-source activate capedenv
+source activate torchenv
 
-# Change to script directory
-cd /lustre/fswork/projects/rech/jsy/uzj81mi/KapoorLabs-Lightning/scripts/model_training
 
 # Run training with default parameters
 python lightning-oneat.py

@@ -14,16 +14,13 @@
 # Load modules (adjust as needed for your HPC)
 module purge
 module load cuda
-module load anaconda3
+module load miniforge3
 
 # Activate conda environment
-source activate capedenv
-
-# Change to script directory
-cd /lustre/fswork/projects/rech/jsy/uzj81mi/KapoorLabs-Lightning/scripts/model_training
+source activate torchenv
 
 # Run training with heavy transform preset
 python lightning-oneat.py \
     parameters.transform_preset=heavy \
-    train_data_paths.log_path='/lustre/fsn1/projects/rech/jsy/uzj81mi/oneat_mitosis_model_heavy/' \
+    train_data_paths.log_path='/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_heavy/' \
     train_data_paths.experiment_name='heavy_aug'
