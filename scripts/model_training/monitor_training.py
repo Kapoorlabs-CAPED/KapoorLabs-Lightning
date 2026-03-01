@@ -26,9 +26,6 @@ MODEL_FOLDERS = [
     "oneat_mitosis_model_adam_heavy",
 ]
 
-# Output directory for plots (relative to script location)
-PLOTS_OUTPUT_DIR = Path(__file__).parent / "training_plots"
-
 
 def load_state():
     """Load the state of processed checkpoints."""
@@ -63,23 +60,21 @@ def get_latest_npz(model_dir):
     return max(npz_files, key=lambda x: x.stat().st_mtime)
 
 
-def generate_plots(model_dir, output_subdir):
-    """Generate plots for a model directory."""
+def generate_plots(model_dir):
+    """Generate plots for a model directory. Saves plots in the model directory."""
     npz_file = get_latest_npz(model_dir)
     if npz_file is None:
         print(f"  No .npz file found in {model_dir.name}")
         return False
 
-    output_dir = PLOTS_OUTPUT_DIR / output_subdir
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     print(f"  Generating plots from {npz_file.name}")
     try:
+        # Save plots in the model directory itself (same as original train_metrics.py)
         plot_npz_files_interactive(
             [npz_file],
             save_plots=True,
             show_plots=False,
-            page_output_dir=str(output_dir)
+            page_output_dir=model_dir.name
         )
         return True
     except Exception as e:
@@ -115,7 +110,7 @@ def check_and_process():
         if ckpt_mtime > prev_mtime:
             print(f"[NEW]  {folder_name} - new checkpoint detected")
 
-            if generate_plots(model_dir, folder_name):
+            if generate_plots(model_dir):
                 state[folder_name] = {
                     "mtime": ckpt_mtime,
                     "checkpoint": ckpt_path,
@@ -140,13 +135,9 @@ def main():
     print("="*60)
     print(f"Monitoring {len(MODEL_FOLDERS)} model folders")
     print(f"Check interval: {CHECK_INTERVAL} seconds ({CHECK_INTERVAL//60} minutes)")
-    print(f"Plots output: {PLOTS_OUTPUT_DIR}")
     print(f"State file: {STATE_FILE}")
     print("="*60)
     print("Press Ctrl+C to stop\n")
-
-    # Create output directory
-    PLOTS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
         while True:
