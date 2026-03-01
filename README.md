@@ -1,6 +1,5 @@
 # KapoorLabs-Lightning
 
-
 # Developed by KapoorLabs
 
 
@@ -21,13 +20,55 @@ This product is a testament to our expertise at KapoorLabs, where we specialize 
 
 
 
-## Lightning modules for KapoorLabs specific projects
+## Lightning Modules for KapoorLabs Projects
+
+PyTorch Lightning framework for training deep learning models on microscopy data, with specialized support for:
+- **ONEAT**: Spatio-temporal event detection in 3D+T microscopy data
+- **Point Cloud Processing**: Autoencoder models for cell shape analysis
+- **Classification**: General-purpose 3D image classification
 
 ----------------------------------
 
-This [caped] package was generated with [Cookiecutter] using [@caped]'s [cookiecutter-template] template.
+## Key Features
 
+- **Modular Architecture**: Base, Classification, AutoEncoder, and ONEAT-specific Lightning modules
+- **YOLO-style Detection**: VolumeYoloLoss for multi-task learning (classification + localization)
+- **H5 Dataset Support**: Memory-efficient streaming from HDF5 files with YOLO labels
+- **Segmentation-Guided Prediction**: Uses instance segmentation to locate cells, carves patches from raw image, classifies each cell, and records global coordinates for positive events
+- **Transform Presets**: Light, Medium, Heavy augmentation pipelines for microscopy data
+- **Multiple Optimizers**: Adam, SGD, LARS, AdamW with learning rate schedulers
+- **SLURM Integration**: Auto-requeue support for HPC clusters
+- **Hydra Configuration**: YAML-based experiment configuration
 
+## Package Structure
+
+```
+kapoorlabs_lightning/
+├── Lightning Modules
+│   ├── base_module.py          # BaseModule - common functionality
+│   ├── autoencoder_module.py   # AutoEncoderModule - reconstruction tasks
+│   └── oneat_module.py         # OneatActionModule - event detection
+├── Models
+│   ├── pytorch_models.py       # DenseVollNet, DenseNet, InceptionNet
+│   └── pytorch_losses.py       # VolumeYoloLoss, OneatClassificationLoss
+├── Data
+│   ├── pytorch_datasets.py        # H5VisionDataset (training), PointCloudDataset
+│   └── oneat_prediction_dataset.py # OneatPredictionDataset (seg-guided inference)
+├── Transforms
+│   ├── oneat_transforms.py     # Microscopy-specific augmentations
+│   ├── oneat_presets.py        # Light/Medium/Heavy presets
+│   └── time_series_transforms.py
+├── Training
+│   ├── lightning_trainer.py    # MitosisInception trainer class
+│   ├── optimizers.py           # Adam, SGD, LARS, AdamW
+│   └── schedulers.py           # Cosine, WarmCosine, Step
+├── Utilities
+│   ├── utils.py                # H5 creation, normalization, plotting
+│   ├── nms_utils.py            # Space-time NMS
+│   └── pytorch_callbacks.py    # Checkpointing, progress bars
+└── Logging
+    └── pytorch_loggers.py      # CustomNPZLogger for metrics
+```
 
 ## Installation
 
@@ -41,6 +82,56 @@ To install latest development version :
 
     pip install git+https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning.git
 
+## Documentation
+
+- [ONEAT Training Guide](README_ONEAT.md) - Complete workflow for event detection
+- [Lightning Modules](src/kapoorlabs_lightning/README_litmodules.md) - Module architecture details
+
+## Quick Start
+
+### ONEAT Event Detection
+
+```python
+from kapoorlabs_lightning import MitosisInception
+
+# Initialize trainer
+trainer = MitosisInception(
+    h5_file="training_data.h5",
+    num_classes=2,
+    epochs=100,
+    batch_size=32,
+    learning_rate=1e-3,
+)
+
+# Setup model and training
+trainer.setup_densenet_vision_model(
+    input_shape=(3, 8, 64, 64),  # (T, Z, Y, X)
+    categories=2,
+    box_vector=8,
+)
+trainer.setup_oneat_transforms_medium()
+trainer.setup_vision_h5_datasets()
+trainer.setup_adam()
+trainer.setup_oneat_lightning_model()
+trainer.train()
+```
+
+### Classification Module
+
+```python
+from kapoorlabs_lightning import BaseModule
+from kapoorlabs_lightning.pytorch_models import DenseNet3D
+
+network = DenseNet3D(input_channels=1, num_classes=3)
+loss_func = torch.nn.CrossEntropyLoss()
+optim_func = lambda params: torch.optim.Adam(params, lr=0.001)
+
+model = BaseModule(
+    network=network,
+    loss_func=loss_func,
+    optim_func=optim_func,
+)
+```
 
 ## Contributing
 

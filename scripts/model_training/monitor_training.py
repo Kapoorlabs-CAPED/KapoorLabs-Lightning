@@ -5,9 +5,7 @@ Monitors model folders for new checkpoints and generates plots.
 Runs continuously, checking every 5 minutes.
 """
 
-import os
 import time
-import subprocess
 import json
 from pathlib import Path
 from datetime import datetime
@@ -89,39 +87,6 @@ def generate_plots(model_dir, output_subdir):
         return False
 
 
-def git_commit_updates():
-    """Git add and commit updates (no push - do manually)."""
-    try:
-        os.chdir(PLOTS_OUTPUT_DIR.parent)
-
-        # Check if there are changes
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True
-        )
-
-        if not result.stdout.strip():
-            print("No changes to commit")
-            return False
-
-        # Git add
-        subprocess.run(["git", "add", "."], check=True)
-
-        # Git commit
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        commit_msg = f"plot update {timestamp}"
-        subprocess.run(["git", "commit", "-m", commit_msg], check=True)
-
-        print(f"Committed: {commit_msg}")
-        print("(Push manually when you have internet)")
-        return True
-
-    except subprocess.CalledProcessError as e:
-        print(f"Git error: {e}")
-        return False
-
-
 def check_and_process():
     """Check all model folders and process new checkpoints."""
     state = load_state()
@@ -164,12 +129,6 @@ def check_and_process():
             print(f"[OK]   {folder_name} - no new checkpoint")
 
     save_state(state)
-
-    # Commit to git if there were updates
-    if updated:
-        print(f"\n{'='*60}")
-        print("Committing updates to git...")
-        git_commit_updates()
 
     return updated
 
