@@ -113,12 +113,27 @@ def git_push_updates():
         commit_msg = f"plot update {timestamp}"
         subprocess.run(["git", "commit", "-m", commit_msg], check=True)
 
-        # Git push
-        subprocess.run(["git", "push"], check=True)
+        # Git push with timeout (60 seconds)
+        print("Pushing to remote (timeout: 60s)...")
+        result = subprocess.run(
+            ["git", "push"],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
 
-        print(f"Successfully pushed: {commit_msg}")
+        if result.returncode == 0:
+            print(f"Successfully pushed: {commit_msg}")
+        else:
+            print(f"Push failed: {result.stderr}")
+            print("Changes are committed locally. You may need to push manually.")
+
         return True
 
+    except subprocess.TimeoutExpired:
+        print("Git push timed out (60s). Check your credentials or network.")
+        print("Changes are committed locally. Push manually with: git push")
+        return False
     except subprocess.CalledProcessError as e:
         print(f"Git error: {e}")
         return False
