@@ -112,11 +112,20 @@ class OneatActionModule(BaseModule):
         if outputs.dim() > 2:
             outputs = outputs.squeeze(-1).squeeze(-1).squeeze(-1)
 
-        # box_vector = 8: [x, y, z, t, h, w, d, c], then categories
+        # Model output format: [categories (softmax), box_vector (sigmoid)]
+        # GT label format: [box_vector, categories (one-hot)]
         box_vector_len = 8
 
-        # Extract class predictions and true classes (after box_vector)
-        predicted_classes = outputs[:, box_vector_len:]
+        # Extract predictions: categories first, then box_vector
+        predicted_classes = outputs[:, :self.num_classes]
+        predicted_xyzt = outputs[:, self.num_classes:self.num_classes + 4]
+        predicted_hwd = outputs[:, self.num_classes + 4:self.num_classes + 7]
+        predicted_confidence = outputs[:, self.num_classes + 7]
+
+        # Extract GT: box_vector first, then categories
+        true_xyzt = labels[:, :4]
+        true_hwd = labels[:, 4:7]
+        true_confidence = labels[:, 7]
         true_classes = labels[:, box_vector_len:]
 
         predicted_class_indices = torch.argmax(predicted_classes, dim=1)
@@ -124,13 +133,6 @@ class OneatActionModule(BaseModule):
 
         if self.oneat_accuracy:
             # Full ONEAT accuracy with box metrics
-            predicted_xyzt = outputs[:, :4]
-            true_xyzt = labels[:, :4]
-            predicted_hwd = outputs[:, 4:7]
-            true_hwd = labels[:, 4:7]
-            predicted_confidence = outputs[:, 7]
-            true_confidence = labels[:, 7]
-
             class_accuracy_metric = Accuracy(
                 task="multiclass", num_classes=self.num_classes
             ).to(self.device)

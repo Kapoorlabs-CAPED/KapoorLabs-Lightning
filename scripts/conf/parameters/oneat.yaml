@@ -18,16 +18,16 @@ devices: 1
 accelerator: 'cuda'
 train_precision: '32-true'
 strategy: 'auto'
-gradient_clip_val: 1.0
-gradient_clip_algorithm: 'norm'
-slurm_auto_requeue: False
+gradient_clip_val: null
+gradient_clip_algorithm: null
+slurm_auto_requeue: True
 
 # Dataset parameters
 num_classes: 2
 compute_class_weights: True
 
 # Transform parameters
-transform_preset: 'medium'  # Options: light, medium, heavy, eval
+transform_preset: 'medium'  # Options: light, medium, heavy
 gaussian_noise_std: 0.02
 poisson_noise_p: 0.3
 blur_p: 0.3

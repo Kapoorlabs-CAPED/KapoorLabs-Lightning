@@ -41,7 +41,7 @@ class OneatClassificationLoss(nn.Module):
 def extract_ground_event_volume_truth(y_true, categories, box_vector):
     """
     Extracts class, position (xyzt), dimensions (hwd), and confidence from ground truth tensor.
-    Format: [x, y, z, t, h, w, d, c] + [one-hot categories]
+    GT Format: [x, y, z, t, h, w, d, c] + [one-hot categories]
 
     Args:
         y_true (torch.Tensor): Ground truth tensor (batch, box_vector + categories)
@@ -50,7 +50,7 @@ def extract_ground_event_volume_truth(y_true, categories, box_vector):
     Returns:
         tuple: (true_box_class, true_box_xyzt, true_box_hwd, true_box_conf)
     """
-    # Box vector comes first, then categories
+    # GT format: box_vector first, then categories
     true_box_xyzt = y_true[..., :4]  # x, y, z, t
     true_box_hwd = y_true[..., 4:7]  # h, w, d
     true_box_conf = y_true[..., 7]   # c (confidence)
@@ -62,20 +62,20 @@ def extract_ground_event_volume_truth(y_true, categories, box_vector):
 def extract_ground_event_volume_pred(y_pred, categories, box_vector):
     """
     Extracts class, position (xyzt), dimensions (hwd), and confidence from the predicted tensor.
-    Format: [x, y, z, t, h, w, d, c] + [one-hot categories]
+    Model output format: [categories (softmax)] + [x, y, z, t, h, w, d, c (sigmoid)]
 
     Args:
-        y_pred (torch.Tensor): Predicted tensor (batch, box_vector + categories)
+        y_pred (torch.Tensor): Predicted tensor (batch, categories + box_vector)
         categories (int): Number of categories/classes.
         box_vector (int): Length of the box vector (8: x,y,z,t,h,w,d,c).
     Returns:
         tuple: (pred_box_class, pred_box_xyzt, pred_box_hwd, pred_box_conf)
     """
-    # Box vector comes first, then categories
-    pred_box_xyzt = y_pred[..., :4]  # x, y, z, t
-    pred_box_hwd = y_pred[..., 4:7]  # h, w, d
-    pred_box_conf = y_pred[..., 7]   # c (confidence)
-    pred_box_class = y_pred[..., box_vector:]
+    # Model output format: categories first, then box_vector
+    pred_box_class = y_pred[..., :categories]
+    pred_box_xyzt = y_pred[..., categories:categories + 4]  # x, y, z, t
+    pred_box_hwd = y_pred[..., categories + 4:categories + 7]  # h, w, d
+    pred_box_conf = y_pred[..., categories + 7]   # c (confidence)
 
     return pred_box_class, pred_box_xyzt, pred_box_hwd, pred_box_conf
 
@@ -101,7 +101,11 @@ def calc_loss_xyzt_hwd(true_box_xyzt, pred_box_xyzt, true_box_hwd, pred_box_hwd)
     return loss_total
 
 
-def calc_loss_class(true_box_class, pred_box_class, class_weights_dict = None):
+def calc_loss_class(true_box_class, pred_box_class, class_weights_dict=None):
+    """
+    Calculate N-class cross entropy loss.
+    Since model already applies softmax, we use NLLLoss with log probabilities.
+    """
     if class_weights_dict is not None:
         class_weights = torch.tensor(
             [class_weights_dict[i] for i in range(len(class_weights_dict))],
@@ -111,10 +115,15 @@ def calc_loss_class(true_box_class, pred_box_class, class_weights_dict = None):
     else:
         class_weights = None
 
+    # Get true class indices from one-hot
     true_class_indices = torch.argmax(true_box_class, dim=-1)
-    loss_class = F.cross_entropy(
-        pred_box_class, true_class_indices, reduction="mean", weight=class_weights
-    )
+
+    # Convert softmax probabilities to log probabilities for NLLLoss
+    log_probs = torch.log(pred_box_class + 1e-8)
+
+    # NLLLoss expects (N, C) log probabilities and (N,) class indices
+    loss_class = F.nll_loss(log_probs, true_class_indices, weight=class_weights, reduction="mean")
+
     return loss_class
 
 
@@ -155,10 +164,8 @@ class VolumeYoloLoss(nn.Module):
             pred_box_conf,
         ) = extract_ground_event_volume_pred(y_pred, self.categories, self.box_vector)
 
-        # Apply sigmoid to predicted box values (xyzt, hwd, conf) to bound them to [0, 1]
-        pred_box_xyzt = torch.sigmoid(pred_box_xyzt)
-        pred_box_hwd = torch.sigmoid(pred_box_hwd)
-        pred_box_conf = torch.sigmoid(pred_box_conf)
+        # Note: Model already applies sigmoid to box values and softmax to categories
+        # So we don't apply activations here
 
         loss_xyzt_hwd = calc_loss_xyzt_hwd(
             true_box_xyzt, pred_box_xyzt, true_box_hwd, pred_box_hwd
