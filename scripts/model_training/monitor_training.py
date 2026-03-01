@@ -89,8 +89,8 @@ def generate_plots(model_dir, output_subdir):
         return False
 
 
-def git_push_updates():
-    """Git add, commit, and push updates."""
+def git_commit_updates():
+    """Git add and commit updates (no push - do manually)."""
     try:
         os.chdir(PLOTS_OUTPUT_DIR.parent)
 
@@ -113,27 +113,10 @@ def git_push_updates():
         commit_msg = f"plot update {timestamp}"
         subprocess.run(["git", "commit", "-m", commit_msg], check=True)
 
-        # Git push with timeout (60 seconds)
-        print("Pushing to remote (timeout: 60s)...")
-        result = subprocess.run(
-            ["git", "push"],
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
-
-        if result.returncode == 0:
-            print(f"Successfully pushed: {commit_msg}")
-        else:
-            print(f"Push failed: {result.stderr}")
-            print("Changes are committed locally. You may need to push manually.")
-
+        print(f"Committed: {commit_msg}")
+        print("(Push manually when you have internet)")
         return True
 
-    except subprocess.TimeoutExpired:
-        print("Git push timed out (60s). Check your credentials or network.")
-        print("Changes are committed locally. Push manually with: git push")
-        return False
     except subprocess.CalledProcessError as e:
         print(f"Git error: {e}")
         return False
@@ -182,11 +165,11 @@ def check_and_process():
 
     save_state(state)
 
-    # Push to git if there were updates
+    # Commit to git if there were updates
     if updated:
         print(f"\n{'='*60}")
-        print("Pushing updates to git...")
-        git_push_updates()
+        print("Committing updates to git...")
+        git_commit_updates()
 
     return updated
 
