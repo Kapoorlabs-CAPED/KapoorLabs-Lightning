@@ -542,6 +542,10 @@ class MitosisInception:
             )
 
         self.progress = CustomProgressBar()
+
+        # Get eval transforms for prediction (same as validation)
+        eval_transforms = getattr(self, 'val_transforms', None)
+
         self.lightning_model = OneatActionModule(
             self.model,
             self.loss,
@@ -549,6 +553,7 @@ class MitosisInception:
             scheduler=self.scheduler,
             num_classes=self.num_classes,
             oneat_accuracy=oneat_accuracy,
+            eval_transforms=eval_transforms,
         )
         model_hyperparameters = {
             "input_channels": self.input_channels,

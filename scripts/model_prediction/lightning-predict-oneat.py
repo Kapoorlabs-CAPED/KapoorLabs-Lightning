@@ -10,6 +10,7 @@ from kapoorlabs_lightning.utils import load_checkpoint_model
 from kapoorlabs_lightning.oneat_module import OneatActionModule
 from kapoorlabs_lightning.oneat_prediction_dataset import OneatPredictionDataset
 from kapoorlabs_lightning.nms_utils import nms_space_time, group_detections_by_event
+from kapoorlabs_lightning.oneat_presets import OneatEvalPreset
 from torch.utils.data import DataLoader
 from lightning import Trainer
 
@@ -64,6 +65,13 @@ def main(config: OneatPredictClass):
     # Create predictions directory
     Path(predictions_dir).mkdir(exist_ok=True, parents=True)
 
+    # Create eval transforms (same as validation during training)
+    eval_transforms = OneatEvalPreset(
+        percentile_norm=True,
+        pmin=pmin,
+        pmax=pmax,
+    )
+
     # Load model from checkpoint using Lightning
     lightning_model = OneatActionModule.load_from_checkpoint(
         ckpt_path,
@@ -75,6 +83,7 @@ def main(config: OneatPredictClass):
         size_tplus=size_tplus,
         event_names=event_names,
         num_classes=num_classes,
+        eval_transforms=eval_transforms,
     )
 
     # Get all raw tif files

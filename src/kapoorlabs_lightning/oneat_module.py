@@ -29,6 +29,8 @@ class OneatActionModule(BaseModule):
         size_tminus: int = 1,
         size_tplus: int = 1,
         event_names: list = None,
+        # Eval transforms for prediction (same as validation)
+        eval_transforms=None,
     ):
         super().__init__(
             network=network,
@@ -53,6 +55,7 @@ class OneatActionModule(BaseModule):
         self.size_tplus = size_tplus
         self.imaget = size_tminus + size_tplus + 1
         self.event_names = event_names if event_names is not None else [f'class_{i}' for i in range(num_classes)]
+        self.eval_transforms = eval_transforms
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -215,6 +218,10 @@ class OneatActionModule(BaseModule):
                                           dtype=patch.dtype, device=patch.device)
                 padded_patch[:, :patch.shape[1], :patch.shape[2], :patch.shape[3]] = patch
                 patch = padded_patch
+
+            # Apply eval transforms (same as validation) - ToFloat32 + PercentileNormalize
+            if self.eval_transforms is not None:
+                patch = self.eval_transforms(patch)
 
             # Add batch dimension
             patch_tensor = patch.unsqueeze(0)  # (1, T, Z, Y, X)
