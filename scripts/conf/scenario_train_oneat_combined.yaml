@@ -1,0 +1,3 @@
+defaults:
+  - train_data_paths: gwdg_combined.yaml
+  - parameters: oneat.yaml
