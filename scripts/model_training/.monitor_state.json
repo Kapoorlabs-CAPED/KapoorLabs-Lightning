@@ -2,31 +2,31 @@
   "oneat_mitosis_model": {
     "mtime": 1772391880.7574723,
     "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model/epoch=249-step=19500.ckpt",
-    "processed_at": "2026-03-01T20:07:08.020696"
+    "processed_at": "2026-03-01T20:17:45.681452"
   },
   "oneat_mitosis_model_light": {
     "mtime": 1772390897.0493402,
     "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_light/epoch=249-step=19500.ckpt",
-    "processed_at": "2026-03-01T19:50:33.693243"
+    "processed_at": "2026-03-01T20:17:55.761338"
   },
   "oneat_mitosis_model_heavy": {
-    "mtime": 1772392005.6547935,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_heavy/epoch=225-step=17628.ckpt",
-    "processed_at": "2026-03-01T20:07:19.091608"
+    "mtime": 1772392770.3946974,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_heavy/epoch=249-step=19500.ckpt",
+    "processed_at": "2026-03-01T20:23:44.483410"
   },
   "oneat_mitosis_model_adam": {
-    "mtime": 1772392032.0961194,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam/epoch=236-step=18486.ckpt",
-    "processed_at": "2026-03-01T20:07:28.103861"
+    "mtime": 1772392391.5135083,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam/epoch=249-step=19500.ckpt",
+    "processed_at": "2026-03-01T20:18:15.229045"
   },
   "oneat_mitosis_model_adam_light": {
-    "mtime": 1772392043.7792463,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_light/epoch=239-step=18720.ckpt",
-    "processed_at": "2026-03-01T20:07:37.207837"
+    "mtime": 1772392315.7736542,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_light/epoch=249-step=19500.ckpt",
+    "processed_at": "2026-03-01T20:18:24.477161"
   },
   "oneat_mitosis_model_adam_heavy": {
-    "mtime": 1772392047.6517572,
-    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_heavy/epoch=241-step=18876.ckpt",
-    "processed_at": "2026-03-01T20:07:46.200089"
+    "mtime": 1772392265.1955316,
+    "checkpoint": "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_heavy/epoch=249-step=19500.ckpt",
+    "processed_at": "2026-03-01T20:18:34.341412"
   }
 }
