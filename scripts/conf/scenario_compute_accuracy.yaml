@@ -1,0 +1,4 @@
+defaults:
+  - _self_
+  - accuracy_paths: gwdg.yaml
+  - accuracy_params: default.yaml

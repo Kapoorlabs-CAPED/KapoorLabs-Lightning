@@ -26,6 +26,7 @@ from .pytorch_datasets import (
 )
 from .oneat_prediction_dataset import OneatPredictionDataset
 from .nms_utils import nms_space_time, group_detections_by_event
+from .classification_score import ClassificationScore, evaluate_multiple_events
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_models import __all__ as all_pytorch_models
 from .pytorch_transforms import Transforms
@@ -130,5 +131,7 @@ __all__ = [
     "OneatPredictionDataset",
     "nms_space_time",
     "group_detections_by_event",
+    "ClassificationScore",
+    "evaluate_multiple_events",
 ]
 __all__.extend(all_pytorch_models)

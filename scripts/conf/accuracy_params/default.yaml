@@ -1,0 +1,5 @@
+event_name: 'mitosis'
+match_threshold_space: 10.0
+match_threshold_time: 2
+prediction_class_column: 'event_name'
+save_errors: true

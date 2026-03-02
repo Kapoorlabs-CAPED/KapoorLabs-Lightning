@@ -1,0 +1,3 @@
+predictions_csv: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_predictions/predictions.csv'
+ground_truth_csv: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_training/oneat_timelapse_nuclei_csv/oneat_mitosis_timelapse.csv'
+output_dir: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_predictions/'
