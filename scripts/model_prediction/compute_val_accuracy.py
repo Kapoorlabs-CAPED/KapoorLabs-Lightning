@@ -110,6 +110,9 @@ def main(config: ValAccuracyConfig):
         pmax=pmax,
     )
 
+    # Allow unpickling OneatEvalPreset stored in checkpoint (PyTorch 2.6+ weights_only=True)
+    torch.serialization.add_safe_globals([OneatEvalPreset])
+
     # Load model from checkpoint
     device = 'cuda' if accelerator == 'cuda' and torch.cuda.is_available() else 'cpu'
     lightning_model = OneatActionModule.load_from_checkpoint(
