@@ -9,7 +9,6 @@
 #SBATCH --partition=grete:shared
 #SBATCH --mem=32G
 
-# No time restriction (infinite/max allowed by cluster)
 
 # Load modules
 module purge
@@ -24,4 +23,4 @@ source activate torchenv
 srun --unbuffered python lightning-oneat-adam.py \
     --config-name=scenario_train_oneat_combined \
     parameters.learning_rate=1.0e-3 \
-    parameters.transform_preset=medium
+    parameters.transform_preset=heavy
