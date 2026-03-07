@@ -115,8 +115,8 @@ def main(config: ValAccuracyConfig):
     lightning_model = OneatActionModule.load_from_checkpoint(
         ckpt_path,
         map_location=device,
+        network=network
       
-       
     )
     lightning_model.eval()
     lightning_model.to(device)
