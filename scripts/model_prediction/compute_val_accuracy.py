@@ -50,7 +50,7 @@ def main(config: ValAccuracyConfig):
     batch_size = config.parameters.batch_size
     num_workers = config.parameters.num_workers
     accelerator = config.parameters.accelerator
-    devices = config.parameters.devices
+   
 
     # DenseVollNet architecture params
     startfilter = config.parameters.startfilter
@@ -115,17 +115,8 @@ def main(config: ValAccuracyConfig):
     lightning_model = OneatActionModule.load_from_checkpoint(
         ckpt_path,
         map_location=device,
-        network=network,
-        loss_func=None,
-        optim_func=None,
-        imagex=imagex,
-        imagey=imagey,
-        imagez=imagez,
-        size_tminus=size_tminus,
-        size_tplus=size_tplus,
-        event_names=event_names,
-        num_classes=num_classes,
-        eval_transforms=eval_transforms,
+      
+       
     )
     lightning_model.eval()
     lightning_model.to(device)
