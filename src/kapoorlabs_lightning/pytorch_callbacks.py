@@ -221,6 +221,21 @@ class CheckpointModel(ModelCheckpoint):
         print(f"dirpath set to {self._dirpath}")
 
 
+class EventCountProgressBar(Callback):
+    """Displays a running event count on the progress bar during prediction."""
+
+    def on_predict_start(self, trainer, pl_module):
+        self._total_events = 0
+
+    def on_predict_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
+        self._total_events += len(outputs)
+        progress_bar = trainer.progress_bar_callback
+        if progress_bar is not None and hasattr(progress_bar, "predict_progress_bar"):
+            bar = progress_bar.predict_progress_bar
+            if bar is not None:
+                bar.set_postfix_str(f"events: {self._total_events}")
+
+
 class CustomVirtualMemory(Callback):
     def __init__(
         self,
