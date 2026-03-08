@@ -22,16 +22,6 @@ from .pytorch_models import (
 )
 from .pytorch_losses import VolumeYoloLoss
 
-from torchvision import transforms
-from .time_series_transforms import (
-    get_time_series_transforms,
-    AddGaussianNoise,
-    RandomTimeShift,
-    RandomScaling,
-    RandomMasking,
-    RandomTimePermutation,
-    RandomTimeWarping,
-)
 from .oneat_presets import (
     OneatTrainPresetLight,
     OneatTrainPresetMedium,
@@ -256,71 +246,6 @@ class MitosisInception:
             pmax=pmax,
         )
         print("ONEAT Eval transforms set up")
-
-    def setup_timeseries_transforms_light(
-        self,
-        mean=0.0,
-        std=0.01,
-        min_scale=0.98,
-        max_scale=1.02,
-    ):
-        """Setup light time series transforms (minimal augmentation)."""
-        self.train_transforms = transforms.Compose([
-            AddGaussianNoise(mean=mean, std=std),
-            RandomScaling(min_scale=min_scale, max_scale=max_scale),
-        ])
-        self.val_transforms = None
-        print("Time series Light transforms set up")
-
-    def setup_timeseries_transforms_medium(
-        self,
-        mean=0.0,
-        std=0.02,
-        min_scale=0.95,
-        max_shift=1,
-        max_scale=1.05,
-        max_mask_ratio=0.1,
-    ):
-        """Setup medium time series transforms (balanced augmentation)."""
-        self.train_transforms = get_time_series_transforms(
-            mean=mean,
-            std=std,
-            min_scale=min_scale,
-            max_shift=max_shift,
-            max_scale=max_scale,
-            max_mask_ratio=max_mask_ratio,
-        )
-        self.val_transforms = None
-        print("Time series Medium transforms set up")
-
-    def setup_timeseries_transforms_heavy(
-        self,
-        mean=0.0,
-        std=0.03,
-        min_scale=0.9,
-        max_shift=2,
-        max_scale=1.1,
-        max_mask_ratio=0.2,
-        permutation_p=0.3,
-        warping_p=0.3,
-    ):
-        """Setup heavy time series transforms (aggressive augmentation)."""
-        self.train_transforms = transforms.Compose([
-            AddGaussianNoise(mean=mean, std=std),
-            RandomTimeShift(max_shift=max_shift),
-            RandomScaling(min_scale=min_scale, max_scale=max_scale),
-            RandomMasking(max_mask_ratio=max_mask_ratio),
-            RandomTimePermutation(segment_size=3, p=permutation_p),
-            RandomTimeWarping(sigma=0.3, p=warping_p),
-        ])
-        self.val_transforms = None
-        print("Time series Heavy transforms set up")
-
-    def setup_timeseries_transforms_eval(self):
-        """Setup evaluation-only time series transforms (no augmentation)."""
-        self.train_transforms = None
-        self.val_transforms = None
-        print("Time series Eval transforms set up (no augmentation)")
 
     def setup_cellfate_transforms_light(
         self,

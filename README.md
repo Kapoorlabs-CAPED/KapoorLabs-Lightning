@@ -25,7 +25,6 @@ This product is a testament to our expertise at KapoorLabs, where we specialize 
 PyTorch Lightning framework for training deep learning models on microscopy data, with specialized support for:
 - **ONEAT**: Spatio-temporal event detection in 3D+T microscopy data
 - **Cell Fate Classification**: Time series classification of cell fates (basal, goblet, radial) from tracking data
-- **Classification**: General-purpose 3D image classification
 
 ----------------------------------
 
@@ -57,8 +56,7 @@ kapoorlabs_lightning/
 ├── Transforms
 │   ├── oneat_transforms.py     # Microscopy-specific augmentations
 │   ├── oneat_presets.py        # Light/Medium/Heavy presets
-│   ├── time_series_transforms.py
-│   └── time_series_presets.py  # Cell fate transform presets (order-preserving)
+│   └── time_series_presets.py  # Cell fate transforms + presets (order-preserving)
 ├── Training
 │   ├── lightning_trainer.py    # MitosisInception trainer class
 │   ├── optimizers.py           # Adam, SGD, LARS, AdamW

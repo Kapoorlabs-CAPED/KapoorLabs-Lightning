@@ -194,7 +194,6 @@ scripts/
 src/kapoorlabs_lightning/
 ├── cellfate_module.py         # CellFateModule (BaseModule subclass)
 ├── time_series_presets.py     # Order-preserving transform presets
-├── time_series_transforms.py  # Transform building blocks
 ├── pytorch_models.py          # InceptionNet, DenseNet, MitosisNet
 └── pytorch_datasets.py        # H5MitosisDataset
 ```
