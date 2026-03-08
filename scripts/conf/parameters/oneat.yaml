@@ -58,6 +58,7 @@ file_type: '*.tif'
 nms_space: 10
 nms_time: 2
 event_threshold: 0.999
+batch_size_predict: 1000
 normalizeimage: True
 test_pred: True
 test_roi_xy: 512

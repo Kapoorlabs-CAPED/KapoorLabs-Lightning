@@ -33,6 +33,7 @@ class OneatActionModule(BaseModule):
         event_threshold: float = 0.5,
         nms_space: int = 10,
         nms_time: int = 2,
+        batch_size_predict: int = 1000,
         # Eval transforms for prediction (same as validation)
         eval_transforms=None,
     ):
@@ -62,6 +63,7 @@ class OneatActionModule(BaseModule):
         self.event_threshold = event_threshold
         self.nms_space = nms_space
         self.nms_time = nms_time
+        self.batch_size_predict = batch_size_predict
         self.eval_transforms = eval_transforms
 
         # Buffer for online NMS across timepoints
@@ -258,18 +260,22 @@ class OneatActionModule(BaseModule):
         if len(patches) == 0:
             return []
 
-        # Batched forward pass - all cells for this timepoint at once
-        batch_tensor = torch.stack(patches, dim=0)  # (N_cells, T, Z, Y, X)
+        # Batched forward pass - chunk to avoid OOM with many cells
+        all_class_probs = []
+        for chunk_start in range(0, len(patches), self.batch_size_predict):
+            chunk = patches[chunk_start:chunk_start + self.batch_size_predict]
+            batch_tensor = torch.stack(chunk, dim=0)  # (chunk_size, T, Z, Y, X)
 
-        with torch.no_grad():
-            outputs = self(batch_tensor)  # (N_cells, num_classes + box_vector, ...)
+            with torch.no_grad():
+                outputs = self(batch_tensor)
 
-        # Squeeze spatial dims if present
-        if outputs.dim() > 2:
-            outputs = outputs.squeeze(-1).squeeze(-1).squeeze(-1)
+            if outputs.dim() > 2:
+                outputs = outputs.squeeze(-1).squeeze(-1).squeeze(-1)
 
-        # Softmax over class logits and apply threshold
-        class_probs = torch.softmax(outputs[:, :self.num_classes], dim=1)
+            chunk_probs = torch.softmax(outputs[:, :self.num_classes], dim=1)
+            all_class_probs.append(chunk_probs)
+
+        class_probs = torch.cat(all_class_probs, dim=0)
 
         # Collect candidate detections that pass threshold
         candidates = []

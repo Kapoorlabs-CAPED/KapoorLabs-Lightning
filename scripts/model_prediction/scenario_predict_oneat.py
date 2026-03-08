@@ -66,6 +66,7 @@ class Params:
         nms_space: int
         nms_time: int
         event_threshold: float
+        batch_size_predict: int
         normalizeimage: bool
         test_pred: bool
         test_roi_xy: int

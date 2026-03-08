@@ -49,6 +49,7 @@ def main(config: OneatPredictClass):
     nms_space = config.parameters.nms_space
     nms_time = config.parameters.nms_time
     event_threshold = config.parameters.event_threshold
+    batch_size_predict = config.parameters.batch_size_predict
 
     # Event parameters
     event_names = config.parameters.event_name
@@ -162,6 +163,7 @@ def main(config: OneatPredictClass):
         event_threshold=event_threshold,
         nms_space=nms_space,
         nms_time=nms_time,
+        batch_size_predict=batch_size_predict,
     )
 
     # Get raw tif files — only test_dataset.tif if test_pred mode
