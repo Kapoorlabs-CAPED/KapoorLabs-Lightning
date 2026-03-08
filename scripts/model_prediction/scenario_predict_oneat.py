@@ -65,6 +65,7 @@ class Params:
         file_type: str
         nms_space: int
         nms_time: int
+        event_threshold: float
         normalizeimage: bool
         test_pred: bool
         test_roi_xy: int

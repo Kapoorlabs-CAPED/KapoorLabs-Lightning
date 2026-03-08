@@ -11,7 +11,6 @@ from lightning import Trainer
 from tifffile import imread, imwrite
 from torch.utils.data import DataLoader
 
-from kapoorlabs_lightning.nms_utils import group_detections_by_event, nms_space_time
 from kapoorlabs_lightning.oneat_module import OneatActionModule
 from kapoorlabs_lightning.oneat_prediction_dataset import OneatPredictionDataset
 from kapoorlabs_lightning.oneat_presets import OneatEvalPreset
@@ -46,9 +45,10 @@ def main(config: OneatPredictClass):
     pmin = config.parameters.pmin
     pmax = config.parameters.pmax
 
-    # NMS parameters
+    # NMS and threshold parameters
     nms_space = config.parameters.nms_space
     nms_time = config.parameters.nms_time
+    event_threshold = config.parameters.event_threshold
 
     # Event parameters
     event_names = config.parameters.event_name
@@ -159,6 +159,9 @@ def main(config: OneatPredictClass):
         size_tplus=size_tplus,
         event_names=event_names,
         num_classes=num_classes,
+        event_threshold=event_threshold,
+        nms_space=nms_space,
+        nms_time=nms_time,
     )
 
     # Get raw tif files — only test_dataset.tif if test_pred mode
@@ -168,6 +171,7 @@ def main(config: OneatPredictClass):
         raw_files = sorted(glob(os.path.join(raw_timelapses_dir, config.parameters.file_type)))
 
     print(f"Found {len(raw_files)} raw timelapse files")
+    print(f"Event threshold: {event_threshold}, NMS space: {nms_space}, NMS time: {nms_time}")
 
     # Create Lightning Trainer for prediction
     trainer = Trainer(
@@ -202,53 +206,40 @@ def main(config: OneatPredictClass):
             chunk_steps=50,
         )
 
-        # Create dataloader
+        # Create dataloader (batch_size=1: one timepoint per batch,
+        # all cells within that timepoint are batched inside predict_step)
         pred_dataloader = DataLoader(
             pred_dataset,
-            batch_size=1,  # Process one timepoint at a time
+            batch_size=1,
             shuffle=False,
-            num_workers=0,  # Set to 0 for prediction
+            num_workers=0,
         )
 
         # Run prediction using Lightning Trainer
+        # NMS is applied online inside predict_step
         print("Running predictions...")
         predictions = trainer.predict(lightning_model, pred_dataloader)
-        print()  # newline after \r progress output
+        print()  # newline after progress bar
 
         # Flatten predictions (each batch returns a list of detections)
         all_detections = []
         for batch_detections in predictions:
             all_detections.extend(batch_detections)
 
-        print(f"Total detections before NMS: {len(all_detections)}")
+        print(f"Total detections (post-threshold, post-NMS): {len(all_detections)}")
 
-        # Apply NMS in space and time
+        # Save predictions to CSV
         if len(all_detections) > 0:
-            # Group by event type first
-            grouped_detections = group_detections_by_event(all_detections)
+            df = pd.DataFrame(all_detections)
 
-            all_nms_detections = []
-            for event_name, event_detections in grouped_detections.items():
-                print(f"Applying NMS to {len(event_detections)} {event_name} detections...")
-                nms_detections = nms_space_time(event_detections, nms_space=nms_space, nms_time=nms_time)
-                print(f"After NMS: {len(nms_detections)} {event_name} detections")
-                all_nms_detections.extend(nms_detections)
-
-            # Save predictions to CSV
-            if len(all_nms_detections) > 0:
-                df = pd.DataFrame(all_nms_detections)
-
-                # Group by event type and save separate CSV files
-                for event_name in df['event_name'].unique():
-                    event_df = df[df['event_name'] == event_name]
-                    # Select only relevant columns for ONEAT CSV format
-                    output_df = event_df[['time', 'z', 'y', 'x']].rename(columns={'time': 't'})
-                    csv_filename = f"{os.path.splitext(raw_basename)[0]}_oneat_{event_name}.csv"
-                    csv_path = os.path.join(predictions_dir, csv_filename)
-                    output_df.to_csv(csv_path, index=False)
-                    print(f"Saved {len(event_df)} {event_name} detections to: {csv_path}")
-            else:
-                print("No events detected after NMS")
+            # Group by event type and save separate CSV files
+            for event_name in df['event_name'].unique():
+                event_df = df[df['event_name'] == event_name]
+                output_df = event_df[['time', 'z', 'y', 'x', 'confidence']].rename(columns={'time': 't'})
+                csv_filename = f"{os.path.splitext(raw_basename)[0]}_oneat_{event_name}.csv"
+                csv_path = os.path.join(predictions_dir, csv_filename)
+                output_df.to_csv(csv_path, index=False)
+                print(f"Saved {len(event_df)} {event_name} detections to: {csv_path}")
         else:
             print("No events detected")
 

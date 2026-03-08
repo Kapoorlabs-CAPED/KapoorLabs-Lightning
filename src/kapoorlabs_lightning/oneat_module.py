@@ -1,10 +1,11 @@
-import torch
 import numpy as np
+import torch
 from torch import optim
 from torchmetrics import Accuracy, MeanSquaredError, MeanAbsoluteError
+from scipy.ndimage import center_of_mass
+
 from .base_module import BaseModule
 from kapoorlabs_lightning import schedulers
-from scipy.ndimage import center_of_mass
 
 
 class OneatActionModule(BaseModule):
@@ -29,6 +30,9 @@ class OneatActionModule(BaseModule):
         size_tminus: int = 1,
         size_tplus: int = 1,
         event_names: list = None,
+        event_threshold: float = 0.5,
+        nms_space: int = 10,
+        nms_time: int = 2,
         # Eval transforms for prediction (same as validation)
         eval_transforms=None,
     ):
@@ -55,7 +59,14 @@ class OneatActionModule(BaseModule):
         self.size_tplus = size_tplus
         self.imaget = size_tminus + size_tplus + 1
         self.event_names = event_names if event_names is not None else [f'class_{i}' for i in range(num_classes)]
+        self.event_threshold = event_threshold
+        self.nms_space = nms_space
+        self.nms_time = nms_time
         self.eval_transforms = eval_transforms
+
+        # Buffer for online NMS across timepoints
+        self._recent_detections = []
+        self._total_events = 0
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -165,26 +176,44 @@ class OneatActionModule(BaseModule):
     def predict_step(self, batch, batch_idx):
         """
         Prediction step for ONEAT model.
-        Takes raw and seg images, extracts patches for each cell, and returns predictions.
+        Batches all cell patches for a given timepoint, runs a single forward pass,
+        applies event confidence threshold, and performs online spatial NMS within
+        a temporal window of nms_time.
 
         batch format: (raw_image, seg_image, timepoint, metadata)
-        raw_image: (imaget, Z, Y, X) - temporal window around current timepoint
-        seg_image: (imaget, Z, Y, X) - corresponding segmentation
-        timepoint: scalar - current timepoint being processed
-        metadata: dict with image info
+        raw_image: (1, T, Z, Y, X) - temporal window around current timepoint
+        seg_image: (1, T, Z, Y, X) - corresponding segmentation
+        timepoint: (1,) - current timepoint being processed
+        metadata: dict with image info (collated by DataLoader)
         """
         temporal_raw, temporal_seg, timepoint, metadata = batch
 
-        # temporal_raw and temporal_seg have shape (B, T, Z, Y, X) where B=1 for prediction
+        # Remove batch dim (batch_size=1 from DataLoader)
         temporal_raw = temporal_raw[0]  # (T, Z, Y, X)
         temporal_seg = temporal_seg[0]  # (T, Z, Y, X)
         t = timepoint.item()
 
-        all_detections = []
+        # Extract filename from collated metadata
+        filename = metadata.get('filename', ['unknown'])
+        if isinstance(filename, (list, tuple)):
+            filename = filename[0]
 
-        # Find all cell instances in seg image at current timepoint (middle of temporal window)
+        # Clean old detections from buffer (only keep within nms_time window)
+        self._recent_detections = [
+            d for d in self._recent_detections
+            if abs(d['time'] - t) <= self.nms_time
+        ]
+
+        # Find all cell instances in seg image at current timepoint
         seg_labels = torch.unique(temporal_seg[self.size_tminus])
         seg_labels = seg_labels[seg_labels > 0]  # Remove background
+
+        if len(seg_labels) == 0:
+            return []
+
+        # Collect all cell patches into a batch
+        patches = []
+        cell_info = []
 
         for cell_id in seg_labels:
             cell_id_val = cell_id.item()
@@ -192,7 +221,6 @@ class OneatActionModule(BaseModule):
             # Get cell mask at current timepoint
             cell_mask = (temporal_seg[self.size_tminus] == cell_id).cpu().numpy()
 
-            # Get cell coords
             coords = np.where(cell_mask)
             if len(coords[0]) == 0:
                 continue
@@ -201,7 +229,7 @@ class OneatActionModule(BaseModule):
             center_coords = center_of_mass(cell_mask)
             z_center, y_center, x_center = center_coords
 
-            # Extract patch around cell
+            # Extract patch around cell center
             z_start = max(0, int(z_center - self.imagez // 2))
             z_end = min(temporal_raw.shape[1], z_start + self.imagez)
             y_start = max(0, int(y_center - self.imagey // 2))
@@ -209,42 +237,100 @@ class OneatActionModule(BaseModule):
             x_start = max(0, int(x_center - self.imagex // 2))
             x_end = min(temporal_raw.shape[3], x_start + self.imagex)
 
-            # Extract patch
             patch = temporal_raw[:, z_start:z_end, y_start:y_end, x_start:x_end]
 
-            # Pad if necessary
+            # Pad if patch is smaller than expected
             if patch.shape[1:] != (self.imagez, self.imagey, self.imagex):
-                padded_patch = torch.zeros((self.imaget, self.imagez, self.imagey, self.imagex),
-                                          dtype=patch.dtype, device=patch.device)
-                padded_patch[:, :patch.shape[1], :patch.shape[2], :patch.shape[3]] = patch
-                patch = padded_patch
+                padded = torch.zeros(
+                    (self.imaget, self.imagez, self.imagey, self.imagex),
+                    dtype=patch.dtype, device=patch.device
+                )
+                padded[:, :patch.shape[1], :patch.shape[2], :patch.shape[3]] = patch
+                patch = padded
 
-            # Apply eval transforms (same as validation) - ToFloat32 + PercentileNormalize
+            # Apply eval transforms
             if self.eval_transforms is not None:
                 patch = self.eval_transforms(patch)
 
-            # Add batch dimension
-            patch_tensor = patch.unsqueeze(0)  # (1, T, Z, Y, X)
+            patches.append(patch)
+            cell_info.append((cell_id_val, z_center, y_center, x_center))
 
-            # Predict
-            with torch.no_grad():
-                outputs = self(patch_tensor)  # Shape: (1, num_classes + box_vector)
+        if len(patches) == 0:
+            return []
 
-            # Get predicted class (argmax, no threshold)
-            predicted_class = torch.argmax(outputs[0, :self.num_classes]).item()
+        # Batched forward pass - all cells for this timepoint at once
+        batch_tensor = torch.stack(patches, dim=0)  # (N_cells, T, Z, Y, X)
 
-            # Only save non-normal events (assuming label 0 is normal)
-            if predicted_class > 0:
-                detection = {
+        with torch.no_grad():
+            outputs = self(batch_tensor)  # (N_cells, num_classes + box_vector, ...)
+
+        # Squeeze spatial dims if present
+        if outputs.dim() > 2:
+            outputs = outputs.squeeze(-1).squeeze(-1).squeeze(-1)
+
+        # Softmax over class logits and apply threshold
+        class_probs = torch.softmax(outputs[:, :self.num_classes], dim=1)
+
+        # Collect candidate detections that pass threshold
+        candidates = []
+        for i, (cell_id_val, z_center, y_center, x_center) in enumerate(cell_info):
+            predicted_class = torch.argmax(class_probs[i]).item()
+            confidence = class_probs[i, predicted_class].item()
+
+            # Only keep non-background events above threshold
+            if predicted_class > 0 and confidence >= self.event_threshold:
+                candidates.append({
                     'time': t,
                     'z': int(z_center),
                     'y': int(y_center),
                     'x': int(x_center),
                     'cell_id': cell_id_val,
                     'predicted_class': predicted_class,
+                    'confidence': confidence,
                     'event_name': self.event_names[predicted_class] if predicted_class < len(self.event_names) else f'class_{predicted_class}',
-                    'filename': metadata.get('filename', 'unknown')
-                }
-                all_detections.append(detection)
+                    'filename': filename,
+                })
 
-        return all_detections
+        # Sort candidates by confidence (highest first) for greedy NMS
+        candidates.sort(key=lambda d: d['confidence'], reverse=True)
+
+        # Online spatial NMS: check against recent detections buffer
+        surviving = []
+        for det in candidates:
+            suppressed = False
+            # Check against existing buffer detections
+            for existing in self._recent_detections:
+                if det['event_name'] != existing['event_name']:
+                    continue
+                if abs(det['time'] - existing['time']) > self.nms_time:
+                    continue
+                spatial_dist = np.sqrt(
+                    (det['x'] - existing['x']) ** 2
+                    + (det['y'] - existing['y']) ** 2
+                    + (det['z'] - existing['z']) ** 2
+                )
+                if spatial_dist < self.nms_space:
+                    suppressed = True
+                    break
+
+            # Also check against already-surviving detections from this timepoint
+            if not suppressed:
+                for s in surviving:
+                    if det['event_name'] != s['event_name']:
+                        continue
+                    spatial_dist = np.sqrt(
+                        (det['x'] - s['x']) ** 2
+                        + (det['y'] - s['y']) ** 2
+                        + (det['z'] - s['z']) ** 2
+                    )
+                    if spatial_dist < self.nms_space:
+                        suppressed = True
+                        break
+
+            if not suppressed:
+                surviving.append(det)
+                self._recent_detections.append(det)
+
+        self._total_events += len(surviving)
+
+        return surviving
