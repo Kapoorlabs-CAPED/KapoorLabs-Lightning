@@ -59,6 +59,7 @@ from lightning.pytorch.trainer.connectors.accelerator_connector import (
 )
 
 
+
 class MitosisInception:
 
 
@@ -855,6 +856,7 @@ class LightningModelTrain:
                 self.model,
                 datamodule=self.get_datamodule(),
                 ckpt_path=self.ckpt_path,
+                weights_only=False,
             )
 
         elif (
@@ -867,6 +869,7 @@ class LightningModelTrain:
                 train_dataloaders=self.train_dataloaders,
                 val_dataloaders=self.val_dataloaders,
                 ckpt_path=self.ckpt_path,
+                weights_only=False,
             )
         elif (
             self._datamodule is None
@@ -877,6 +880,7 @@ class LightningModelTrain:
                 self.model,
                 train_dataloaders=self.train_dataloaders,
                 ckpt_path=self.ckpt_path,
+                weights_only=False,
             )
         elif (
             self._datamodule is None
@@ -887,6 +891,7 @@ class LightningModelTrain:
                 self.model,
                 val_dataloaders=self.val_dataloaders,
                 ckpt_path=self.ckpt_path,
+                weights_only=False,
             )
         else:
             raise ValueError(

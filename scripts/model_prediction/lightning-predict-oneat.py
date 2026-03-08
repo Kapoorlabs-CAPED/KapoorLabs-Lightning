@@ -76,7 +76,15 @@ def main(config: OneatPredictClass):
     lightning_model = OneatActionModule.load_from_checkpoint(
         ckpt_path,
         map_location='cpu',
-        
+        weights_only=False,
+        eval_transforms=eval_transforms,
+        imagex=imagex,
+        imagey=imagey,
+        imagez=imagez,
+        size_tminus=size_tminus,
+        size_tplus=size_tplus,
+        event_names=event_names,
+        num_classes=num_classes,
     )
 
     # Get all raw tif files
