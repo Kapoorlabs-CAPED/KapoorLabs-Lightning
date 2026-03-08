@@ -9,7 +9,7 @@ This package contains a hierarchical structure of PyTorch Lightning modules desi
 ```
 BaseModule (base_module.py)
     ├── OneatActionModule (oneat_module.py)
-    └── AutoEncoderModule (autoencoder_module.py)
+    └── CellFateModule (cellfate_module.py)
 ```
 
 ## BaseModule
@@ -89,28 +89,6 @@ model = OneatActionModule(
     oneat_accuracy=True,
 )
 ```
-
-## AutoEncoderModule
-
-**Location:** `autoencoder_module.py`
-
-**Inherits:** `BaseModule`
-
-**Purpose:** Specialized module for autoencoder training and inference.
-
-**Key Features:**
-- Autoencoder-specific training (reconstruction loss)
-- Scaled prediction for point cloud applications
-- Support for latent feature extraction
-
-**Core Methods:**
-- `training_step()`: Reconstruction training
-- `predict_step()`: Scaled prediction with mean restoration
-- `_shared_eval()`: Autoencoder evaluation logic
-
-**Parameters:**
-- `scale_z`: Z-axis scaling factor for predictions
-- `scale_xy`: XY-axis scaling factor for predictions
 
 ## Loss Functions
 
@@ -256,24 +234,6 @@ trainer.setup_oneat_lightning_model()
 
 # Train
 trainer.train(logger=logger, callbacks=callbacks)
-```
-
-### AutoEncoder Module
-
-```python
-from kapoorlabs_lightning import AutoEncoderModule
-
-network = CloudAutoEncoder(...)
-loss_func = torch.nn.MSELoss()
-optim_func = lambda params: torch.optim.Adam(params, lr=0.001)
-
-model = AutoEncoderModule(
-    network=network,
-    loss_func=loss_func,
-    optim_func=optim_func,
-    scale_z=1.0,
-    scale_xy=1.0
-)
 ```
 
 ### Loading from Checkpoint

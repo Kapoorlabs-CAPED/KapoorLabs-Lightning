@@ -7,7 +7,6 @@ from .base_module import (
     BaseModule
    
 )
-from .autoencoder_module import  AutoEncoderModule
 from .oneat_module import OneatActionModule
 from .cellfate_module import CellFateModule
 
@@ -78,7 +77,6 @@ __all__ = [
     "BaseModule",
     "OneatActionModule",
     "CellFateModule",
-    "AutoEncoderModule",
     "CustomNPZLogger",
     "PointCloudDataset",
     "PyntCloud",
