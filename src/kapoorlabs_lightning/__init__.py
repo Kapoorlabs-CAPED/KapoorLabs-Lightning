@@ -9,6 +9,7 @@ from .base_module import (
 )
 from .autoencoder_module import  AutoEncoderModule
 from .oneat_module import OneatActionModule
+from .cellfate_module import CellFateModule
 
 from .lightning_trainer import (
     MitosisInception,
@@ -58,6 +59,11 @@ from .oneat_presets import (
     OneatTrainPresetHeavy,
     OneatEvalPreset,
 )
+from .time_series_presets import (
+    CellFateTrainPresetLight,
+    CellFateTrainPresetMedium,
+    CellFateTrainPresetHeavy,
+)
 from .utils import get_most_recent_file, plot_npz_files, plot_npz_files_interactive, create_event_dataset_h5, percentile_norm, normalize_mi_ma, save_config_as_json, normalize_in_chunks
 from .pytorch_callbacks import (
     CustomDeviceStatsMonitor,
@@ -75,6 +81,7 @@ from .optimizers import Adam, RMSprop, Rprop, SGD, LARS, AdamWClipStyle
 __all__ = [
     "BaseModule",
     "OneatActionModule",
+    "CellFateModule",
     "AutoEncoderModule",
     "CustomNPZLogger",
     "PointCloudDataset",
@@ -118,6 +125,9 @@ __all__ = [
     "OneatTrainPresetMedium",
     "OneatTrainPresetHeavy",
     "OneatEvalPreset",
+    "CellFateTrainPresetLight",
+    "CellFateTrainPresetMedium",
+    "CellFateTrainPresetHeavy",
     "TimeSeriesAddGaussianNoise",
     "RandomTimeShift",
     "RandomScaling",

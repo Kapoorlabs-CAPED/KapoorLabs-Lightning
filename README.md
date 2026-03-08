@@ -24,14 +24,14 @@ This product is a testament to our expertise at KapoorLabs, where we specialize 
 
 PyTorch Lightning framework for training deep learning models on microscopy data, with specialized support for:
 - **ONEAT**: Spatio-temporal event detection in 3D+T microscopy data
-- **Point Cloud Processing**: Autoencoder models for cell shape analysis
+- **Cell Fate Classification**: Time series classification of cell fates (basal, goblet, radial) from tracking data
 - **Classification**: General-purpose 3D image classification
 
 ----------------------------------
 
 ## Key Features
 
-- **Modular Architecture**: Base, Classification, AutoEncoder, and ONEAT-specific Lightning modules
+- **Modular Architecture**: Base, ONEAT, and Cell Fate Lightning modules
 - **YOLO-style Detection**: VolumeYoloLoss for multi-task learning (classification + localization)
 - **H5 Dataset Support**: Memory-efficient streaming from HDF5 files with YOLO labels
 - **Segmentation-Guided Prediction**: Uses instance segmentation to locate cells, carves patches from raw image, classifies each cell, and records global coordinates for positive events
@@ -46,18 +46,19 @@ PyTorch Lightning framework for training deep learning models on microscopy data
 kapoorlabs_lightning/
 ├── Lightning Modules
 │   ├── base_module.py          # BaseModule - common functionality
-│   ├── autoencoder_module.py   # AutoEncoderModule - reconstruction tasks
-│   └── oneat_module.py         # OneatActionModule - event detection
+│   ├── oneat_module.py         # OneatActionModule - event detection
+│   └── cellfate_module.py      # CellFateModule - time series classification
 ├── Models
 │   ├── pytorch_models.py       # DenseVollNet, DenseNet, InceptionNet
 │   └── pytorch_losses.py       # VolumeYoloLoss, OneatClassificationLoss
 ├── Data
-│   ├── pytorch_datasets.py        # H5VisionDataset (training), PointCloudDataset
+│   ├── pytorch_datasets.py        # H5VisionDataset, H5MitosisDataset
 │   └── oneat_prediction_dataset.py # OneatPredictionDataset (seg-guided inference)
 ├── Transforms
 │   ├── oneat_transforms.py     # Microscopy-specific augmentations
 │   ├── oneat_presets.py        # Light/Medium/Heavy presets
-│   └── time_series_transforms.py
+│   ├── time_series_transforms.py
+│   └── time_series_presets.py  # Cell fate transform presets (order-preserving)
 ├── Training
 │   ├── lightning_trainer.py    # MitosisInception trainer class
 │   ├── optimizers.py           # Adam, SGD, LARS, AdamW
@@ -85,6 +86,7 @@ To install latest development version :
 ## Documentation
 
 - [ONEAT Training Guide](README_ONEAT.md) - Complete workflow for event detection
+- [Cell Fate Classification Guide](README_CELLFATE.md) - Time series cell fate classification
 - [Lightning Modules](src/kapoorlabs_lightning/README_litmodules.md) - Module architecture details
 
 ## Quick Start
@@ -116,21 +118,28 @@ trainer.setup_oneat_lightning_model()
 trainer.train()
 ```
 
-### Classification Module
+### Cell Fate Classification
 
 ```python
-from kapoorlabs_lightning import BaseModule
-from kapoorlabs_lightning.pytorch_models import DenseNet3D
+from kapoorlabs_lightning import MitosisInception
 
-network = DenseNet3D(input_channels=1, num_classes=3)
-loss_func = torch.nn.CrossEntropyLoss()
-optim_func = lambda params: torch.optim.Adam(params, lr=0.001)
-
-model = BaseModule(
-    network=network,
-    loss_func=loss_func,
-    optim_func=optim_func,
+# Initialize trainer
+trainer = MitosisInception(
+    h5_file="cellfate_data.h5",  # H5 with train_arrays/train_labels/val_arrays/val_labels
+    num_classes=3,               # e.g. basal, goblet, radial
+    epochs=250,
+    batch_size=64,
+    learning_rate=1e-3,
+    seq_len=25,                  # 25 timepoints per track
 )
+
+# Setup (no temporal order changes in transforms)
+trainer.setup_cellfate_transforms_medium()
+trainer.setup_gbr_h5_datasets()
+trainer.setup_inception_qkv_model()
+trainer.setup_adam()
+trainer.setup_cellfate_lightning_model()
+trainer.train()
 ```
 
 ## Contributing

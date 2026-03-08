@@ -1,0 +1,4 @@
+base_data_dir: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/cellfate_training/'
+cellfate_h5_file: 'cellfate_data.h5'
+log_path: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/cellfate_model/'
+experiment_name: 'cellfate_default'

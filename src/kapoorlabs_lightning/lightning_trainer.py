@@ -10,7 +10,7 @@ from datetime import timedelta
 import logging
 from types import FrameType
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union, Set
-from torch.utils.data import DataLoader
+from torch.nn import CrossEntropyLoss
 from .utils import (
     load_checkpoint_model,
 )
@@ -20,7 +20,7 @@ from .pytorch_models import (
     InceptionNet,
     DenseVollNet,
 )
-from .pytorch_losses import VolumeYoloLoss, OneatClassificationLoss
+from .pytorch_losses import VolumeYoloLoss
 
 from torchvision import transforms
 from .time_series_transforms import (
@@ -38,6 +38,11 @@ from .oneat_presets import (
     OneatTrainPresetHeavy,
     OneatEvalPreset,
 )
+from .time_series_presets import (
+    CellFateTrainPresetLight,
+    CellFateTrainPresetMedium,
+    CellFateTrainPresetHeavy,
+)
 import signal
 import threading
 from lightning.fabric.plugins.environments import SLURMEnvironment
@@ -50,6 +55,7 @@ from .pytorch_datasets import H5MitosisDataset, H5VisionDataset, GenericDataModu
 import json
 from .base_module import BaseModule, _restore_schedulers
 from .oneat_module import OneatActionModule
+from .cellfate_module import CellFateModule
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_callbacks import CheckpointModel, CustomProgressBar
 from .optimizers import Adam, RMSprop, LARS, SGD, AdamWClipStyle, AdamW
@@ -316,7 +322,91 @@ class MitosisInception:
         self.val_transforms = None
         print("Time series Eval transforms set up (no augmentation)")
 
+    def setup_cellfate_transforms_light(
+        self,
+        gaussian_noise_std=0.01,
+        min_scale=0.98,
+        max_scale=1.02,
+    ):
+        """Setup light cell fate transforms (no temporal order changes)."""
+        self.train_transforms = CellFateTrainPresetLight(
+            gaussian_noise_std=gaussian_noise_std,
+            min_scale=min_scale,
+            max_scale=max_scale,
+        )
+        self.val_transforms = None
+        print("Cell fate Light transforms set up")
 
+    def setup_cellfate_transforms_medium(
+        self,
+        gaussian_noise_std=0.02,
+        min_scale=0.95,
+        max_scale=1.05,
+        max_mask_ratio=0.1,
+    ):
+        """Setup medium cell fate transforms (no temporal order changes)."""
+        self.train_transforms = CellFateTrainPresetMedium(
+            gaussian_noise_std=gaussian_noise_std,
+            min_scale=min_scale,
+            max_scale=max_scale,
+            max_mask_ratio=max_mask_ratio,
+        )
+        self.val_transforms = None
+        print("Cell fate Medium transforms set up")
+
+    def setup_cellfate_transforms_heavy(
+        self,
+        gaussian_noise_std=0.03,
+        min_scale=0.9,
+        max_scale=1.1,
+        max_mask_ratio=0.2,
+    ):
+        """Setup heavy cell fate transforms (no temporal order changes)."""
+        self.train_transforms = CellFateTrainPresetHeavy(
+            gaussian_noise_std=gaussian_noise_std,
+            min_scale=min_scale,
+            max_scale=max_scale,
+            max_mask_ratio=max_mask_ratio,
+        )
+        self.val_transforms = None
+        print("Cell fate Heavy transforms set up")
+
+    def setup_cellfate_lightning_model(self):
+        self.class_weights_dict = getattr(self.dataset_train, "class_weights_dict", None)
+
+        if self.class_weights_dict is not None:
+            self.class_weights = torch.tensor(
+                list(self.class_weights_dict.values()), dtype=torch.float
+            )
+        else:
+            self.class_weights = None
+
+        
+        self.loss = CrossEntropyLoss(weight=self.class_weights)
+
+        self.lightning_model = CellFateModule(
+            self.model,
+            self.loss,
+            self.optimizer,
+            scheduler=self.scheduler,
+            num_classes=self.num_classes,
+        )
+        model_hyperparameters = {
+            "input_channels": self.input_channels,
+            "num_classes": self.num_classes,
+            "learning_rate": self.learning_rate,
+            "model_path": self.log_path,
+            "model_name": self.experiment_name,
+            "growth_rate": self.growth_rate,
+            "block_config": list(self.block_config),
+            "num_init_features": self.num_init_features,
+            "bottleneck_size": self.bottleneck_size,
+            "kernel_size": self.kernel_size,
+        }
+        with open(
+            os.path.join(self.log_path, self.experiment_name + ".json"), "w"
+        ) as json_file:
+            json.dump(model_hyperparameters, json_file)
 
     def setup_gbr_h5_datasets(self):
         if self.h5_file is not None:

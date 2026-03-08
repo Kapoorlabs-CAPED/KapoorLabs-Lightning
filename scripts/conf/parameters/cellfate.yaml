@@ -1,0 +1,46 @@
+# Model architecture parameters
+growth_rate: 32
+block_config: [6, 12, 24, 16]
+num_init_features: 32
+bottleneck_size: 4
+kernel_size: 7
+attn_heads: 8
+seq_len: 25
+
+# Training parameters
+learning_rate: 0.001
+batch_size: 64
+epochs: 250
+num_workers: 4
+devices: 1
+accelerator: 'cuda'
+train_precision: '32-true'
+strategy: 'auto'
+gradient_clip_val: null
+gradient_clip_algorithm: null
+slurm_auto_requeue: True
+
+# Dataset parameters
+num_classes: 3
+compute_class_weights: True
+
+# Transform parameters
+transform_preset: 'medium'
+gaussian_noise_std: 0.02
+min_scale: 0.95
+max_scale: 1.05
+max_mask_ratio: 0.1
+
+# Optimizer
+weight_decay: 1.0E-5
+momentum: 0.9
+eta_min: 1.0E-8
+t_warmup: 5
+gamma: 0.94
+
+# Model choice: inception, densenet, mitosisnet
+model_choice: 'inception'
+
+# Scheduler
+scheduler:
+    _target_: kapoorlabs_lightning.schedulers.WarmCosineAnnealingLR
