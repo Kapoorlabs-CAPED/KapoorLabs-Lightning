@@ -73,6 +73,9 @@ from .pytorch_callbacks import (
 
 from .optimizers import Adam, RMSprop, Rprop, SGD, LARS, AdamWClipStyle
 
+from . import morphology
+from . import tracking
+
 __all__ = [
     "BaseModule",
     "OneatActionModule",
@@ -133,5 +136,7 @@ __all__ = [
     "group_detections_by_event",
     "ClassificationScore",
     "evaluate_multiple_events",
+    "morphology",
+    "tracking",
 ]
 __all__.extend(all_pytorch_models)

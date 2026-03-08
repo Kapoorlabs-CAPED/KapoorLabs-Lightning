@@ -1,0 +1,15 @@
+# CSV mode: path to pre-computed normalized features CSV
+csv_file: '/path/to/normalized_features.csv'
+
+# XML mode: paths (used when input_mode='xml')
+xml_file: ''
+seg_file: ''
+mask_file: ''
+calibration: ''  # 'z,y,x' e.g. '1.0,0.26,0.26', or empty for XML calibration
+
+# Label mapping: 'Name:0,Name:1,...' or empty for auto-mapping
+# e.g. 'Basal:0,Radial:1,Goblet:2'
+label_map: ''
+
+# Output H5 file
+output_h5_file: '/path/to/output/inception_cellfate.h5'

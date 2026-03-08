@@ -1,0 +1,19 @@
+# Tracklet parameters
+tracklet_length: 25
+stride: 2
+features: 'shape_dynamic'  # 'shape', 'dynamic', or 'shape_dynamic'
+normalize: true
+test_size: 0.1
+seed: 42
+
+# Input mode: 'csv' or 'xml'
+input_mode: 'csv'
+
+# Label
+label_column: 'Cell_Type'
+track_id_column: 'Track_ID'
+
+# Filtering (null = no filter)
+t_min: null
+t_max: null
+min_track_duration: null

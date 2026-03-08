@@ -64,6 +64,13 @@ class CellFateModule(BaseModule):
         accuracy = self._compute_accuracy(y_hat, y)
         self.log_metrics(f"{prefix}_accuracy", accuracy)
 
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        x, *rest = batch
+        logits = self(x)
+        probs = torch.softmax(logits, dim=1)
+        pred_classes = torch.argmax(probs, dim=1)
+        return {"logits": logits, "probabilities": probs, "predictions": pred_classes}
+
     def _compute_accuracy(self, outputs, labels):
         predicted_classes = torch.argmax(outputs, dim=1)
         accuracy = Accuracy(task="multiclass", num_classes=self.num_classes).to(

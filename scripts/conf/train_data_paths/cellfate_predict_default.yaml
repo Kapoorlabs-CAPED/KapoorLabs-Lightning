@@ -1,0 +1,18 @@
+# CSV mode: path to features CSV
+csv_file: '/path/to/normalized_features.csv'
+
+# XML mode
+xml_file: ''
+seg_file: ''
+mask_file: ''
+calibration: ''
+
+# Model checkpoint
+checkpoint_path: '/path/to/model/best.ckpt'
+
+# Class mapping: '0:Basal,1:Radial,2:Goblet'
+class_map: '0:Basal,1:Radial,2:Goblet'
+
+# Output
+output_dir: '/path/to/predictions/'
+output_prefix: ''

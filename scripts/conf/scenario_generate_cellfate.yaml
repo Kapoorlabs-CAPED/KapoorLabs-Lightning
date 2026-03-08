@@ -1,0 +1,4 @@
+defaults:
+    - _self_
+    - train_data_paths: cellfate_datagen_default.yaml
+    - parameters: cellfate_datagen.yaml

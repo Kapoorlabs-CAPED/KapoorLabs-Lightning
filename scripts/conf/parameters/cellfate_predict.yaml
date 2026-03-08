@@ -1,0 +1,21 @@
+# Model architecture parameters (must match training config)
+growth_rate: 32
+block_config: [6, 12, 24, 16]
+num_init_features: 32
+bottleneck_size: 4
+kernel_size: 7
+attn_heads: 8
+seq_len: 25
+num_classes: 3
+model_choice: 'inception'
+
+# Prediction parameters
+tracklet_length: 25
+features: 'shape_dynamic'
+track_id_column: 'Track_ID'
+t_min: null
+t_max: null
+
+# Input mode: 'csv' or 'xml'
+input_mode: 'csv'
+accelerator: 'cuda'
