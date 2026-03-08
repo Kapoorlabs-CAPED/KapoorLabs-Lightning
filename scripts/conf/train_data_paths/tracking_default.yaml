@@ -1,0 +1,22 @@
+# Base directory for the experiment
+base_directory: '/path/to/experiment/'
+
+# Timelapse names (without extension, channel prefix will be added)
+timelapse_nuclei_name: 'timelapse_dataset'
+timelapse_membrane_name: 'timelapse_dataset'
+
+# Segmentation image directories
+seg_nuclei_directory: '/path/to/experiment/seg_nuclei_timelapses/'
+seg_membrane_directory: '/path/to/experiment/seg_membrane_timelapses/'
+
+# Mask / region of interest directory (empty = no mask)
+mask_directory: ''
+
+# TrackMate XML directory (XMLs named as nuclei_<name>.xml, membrane_<name>.xml)
+tracking_directory: '/path/to/experiment/tracking/'
+
+# Output directory for master XMLs and DataFrames
+output_directory: '/path/to/experiment/tracking/'
+
+# Calibration override 'z,y,x' (empty = use XML calibration)
+calibration: ''

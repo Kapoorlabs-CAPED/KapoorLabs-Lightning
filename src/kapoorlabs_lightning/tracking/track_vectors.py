@@ -5,13 +5,20 @@ Assembles shape, dynamic, and tracking features into DataFrames
 from TrackMate XML data with optional segmentation-based morphology.
 """
 
+import math
+from collections import defaultdict
+
 import numpy as np
 import pandas as pd
 from typing import Optional, Tuple, Dict, List
 from scipy import spatial
-from skimage.measure import regionprops
 from skimage.segmentation import find_boundaries
 
+from ..morphology.point_clouds import extract_all_point_clouds
+from ..morphology.shape_features import (
+    compute_shape_features as compute_single_shape_features,
+    compute_shape_features_for_image,
+)
 from .xml_parser import TrackMateXML
 from .track_features import (
     compute_speed,
@@ -19,11 +26,6 @@ from .track_features import (
     compute_motion_angles,
     compute_radial_angles,
     compute_msd,
-    SHAPE_FEATURES,
-    DYNAMIC_FEATURES,
-    SHAPE_DYNAMIC_FEATURES,
-    IDENTITY_FEATURES,
-    ALL_FEATURES,
 )
 
 
@@ -71,13 +73,20 @@ class TrackVectors:
 
         # Precomputed data
         self._boundary_trees = {}
-        self._shape_features = {}
+        # Maps spot_id → ShapeFeatures dict for spots matched via KDTree
+        self._spot_shape_features: Dict[int, Dict] = {}
 
         # Compute boundary trees if mask provided
         if self.mask is not None:
             self._build_boundary_trees()
 
-        # Compute shape features if seg image provided
+        # Build per-timeframe KDTree of XML spot centroids
+        self._timed_spot_trees: Dict[
+            int, Tuple[spatial.cKDTree, np.ndarray, List[int]]
+        ] = {}
+        self._build_spot_trees()
+
+        # Compute shape features and match to spots via KDTree
         if self.seg_image is not None:
             self._compute_shape_features()
 
@@ -101,24 +110,99 @@ class TrackVectors:
                 tree = spatial.cKDTree(scaled)
                 self._boundary_trees[t] = (tree, centroid)
 
-    def _compute_shape_features(self):
-        """Compute shape features from segmentation using morphology module."""
-        from ..morphology.shape_features import compute_shape_features_for_image
+    def _build_spot_trees(self):
+        """Build per-timeframe KDTree from XML spot centroids.
 
-        df = compute_shape_features_for_image(
-            self.seg_image,
-            num_points=2048,
-            calibration=self._cal,
+        For each timeframe, collects all spot positions and builds a
+        KDTree so that point cloud centroids can be matched to the
+        nearest XML spot (same approach as NapaTrackMater).
+        """
+        timed_spots = defaultdict(list)
+        for spot_id, spot in self.xml.spots.items():
+            timed_spots[spot.frame].append((spot_id, spot))
+
+        for frame, spots_in_frame in timed_spots.items():
+            spot_ids = [s[0] for s in spots_in_frame]
+            centroids = np.array([[s[1].z, s[1].y, s[1].x] for s in spots_in_frame])
+            tree = spatial.cKDTree(centroids)
+            self._timed_spot_trees[frame] = (tree, centroids, spot_ids)
+
+    def _compute_shape_features(self):
+        """Compute shape features from segmentation and match to spots via KDTree.
+
+        For each timeframe:
+          1. Extract point clouds from the segmentation.
+          2. Compute shape features (eccentricity, surface area, cell axis).
+          3. For each point cloud centroid, query the per-frame KDTree of
+             XML spot centroids to find the nearest spot.
+          4. Only assign if distance < quality (geometric mean of eigenvalues),
+             matching the NapaTrackMater approach.
+        """
+        ndim = self.seg_image.ndim
+        is_timelapse = ndim == 4 or (
+            ndim == 3 and self.seg_image.shape[0] < self.seg_image.shape[-1]
         )
-        # Index by (t, centroid) for matching to spots
-        for _, row in df.iterrows():
-            t = int(row.get("t", 0))
-            centroid = (
-                row.get("centroid_z", 0),
-                row.get("centroid_y", 0),
-                row.get("centroid_x", 0),
+
+        if ndim <= 3 and not is_timelapse:
+            frames = [(0, self.seg_image)]
+        else:
+            frames = [(t, self.seg_image[t]) for t in range(self.seg_image.shape[0])]
+
+        min_size = (
+            (2, 2, 2) if (ndim >= 3 and not (ndim == 3 and is_timelapse)) else (2, 2)
+        )
+
+        for t, frame_labels in frames:
+            if t not in self._timed_spot_trees:
+                continue
+
+            tree, spot_centroids, spot_ids = self._timed_spot_trees[t]
+
+            clouds = extract_all_point_clouds(
+                frame_labels,
+                num_points=2048,
+                min_size=min_size,
             )
-            self._shape_features[(t, row["label"])] = row
+
+            for cloud in clouds:
+                features = compute_single_shape_features(cloud, self._cal)
+
+                if features.eigenvalues is None:
+                    continue
+
+                quality = math.pow(
+                    float(features.eigenvalues[0])
+                    * float(features.eigenvalues[1])
+                    * float(features.eigenvalues[2]),
+                    1.0 / 3.0,
+                )
+
+                centroid = features.centroid
+                dist, index = tree.query(centroid)
+
+                if dist < quality:
+                    matched_spot_id = spot_ids[index]
+
+                    props = {}
+                    if features.eccentricity is not None:
+                        props["eccentricity_comp_1"] = features.eccentricity[0]
+                        props["eccentricity_comp_2"] = features.eccentricity[1]
+                        props["eccentricity_comp_3"] = features.eccentricity[2]
+                    if features.surface_area is not None:
+                        props["surface_area"] = features.surface_area
+                    if features.cell_axis_angles is not None:
+                        props["cell_axis_z"] = features.cell_axis_angles[0]
+                        props["cell_axis_y"] = features.cell_axis_angles[1]
+                        props["cell_axis_x"] = features.cell_axis_angles[2]
+
+                    radius = quality * math.pow(
+                        self._cal[0] * self._cal[1] * self._cal[2],
+                        1.0 / 3.0,
+                    )
+                    props["quality"] = quality
+                    props["computed_radius"] = radius
+
+                    self._spot_shape_features[matched_spot_id] = props
 
     def _get_boundary_distance(
         self, frame: int, position: Tuple[float, float, float]
@@ -137,7 +221,7 @@ class TrackVectors:
         if self.seg_image is None:
             return 0
         frame_seg = self.seg_image[frame]
-        z, y, x = [int(p / c) for p, c in zip(position, self._cal)]
+        z, y, x = (int(p / c) for p, c in zip(position, self._cal))
 
         if frame_seg.ndim == 3:
             r = int(radius)
@@ -153,166 +237,223 @@ class TrackVectors:
 
         return len(np.unique(region))
 
-    def _match_shape_to_spot(
-        self, frame: int, position: Tuple[float, float, float]
-    ) -> Optional[pd.Series]:
-        """Find the closest shape feature entry for a spot."""
-        if not self._shape_features:
-            return None
+    def _match_shape_to_spot(self, spot_id: int) -> Optional[Dict]:
+        """Get precomputed shape features for a spot matched via KDTree.
 
-        # Find closest centroid at this frame
-        frame_shapes = {
-            k: v for k, v in self._shape_features.items() if k[0] == frame
-        }
-        if not frame_shapes:
-            return None
-
-        pos_pixel = np.array([p / c for p, c in zip(position, self._cal)])
-        best_dist = float("inf")
-        best_row = None
-
-        for (t, label), row in frame_shapes.items():
-            centroid = np.array([
-                row.get("centroid_z", 0),
-                row.get("centroid_y", 0),
-                row.get("centroid_x", 0),
-            ])
-            dist = np.linalg.norm(pos_pixel - centroid)
-            if dist < best_dist:
-                best_dist = dist
-                best_row = row
-
-        return best_row
+        During _compute_shape_features, each point cloud centroid from
+        segmentation was matched to the nearest XML spot centroid using
+        KDTree lookup (with quality threshold). This method simply
+        retrieves those precomputed results.
+        """
+        return self._spot_shape_features.get(spot_id)
 
     def to_dataframe(self) -> pd.DataFrame:
         """
-        Assemble all features into a DataFrame.
+        Assemble all features into a single DataFrame.
+
+        Splits each track into tracklets along the lineage tree so that
+        dividing tracks have separate tracklet IDs per sub-lineage.
+        Non-dividing tracks get a single tracklet.
 
         Returns:
-            DataFrame with columns for identity, shape, dynamic,
-            and tracking features for every spot in every filtered track.
+            DataFrame with columns:
+                - Track_ID: unique tracklet ID (sub-lineage)
+                - TrackMate_Track_ID: original TrackMate track ID
+                - Generation_ID: 0 for mother, 1 for daughter, etc.
+                - Tracklet_Number: sequential tracklet index within track
+                - t, z, y, x: spot coordinates
+                - Dividing, Number_Dividing: mitosis info
+                - Shape features, dynamic features, track-level features
         """
         rows = []
+        tracklet_counter = 0
 
         for track_id in self.xml.filtered_track_ids:
             track = self.xml.tracks.get(track_id)
             if track is None:
                 continue
 
-            spot_ids = self.xml.get_all_spot_ids_for_track(track_id)
-
-            # Sort spots by time
-            spot_ids_sorted = sorted(
-                spot_ids,
-                key=lambda sid: self.xml.spots[sid].frame,
-            )
-
             is_dividing = self.xml.is_dividing(track_id)
             num_splits = track.num_splits
+            tracklets = self._get_tracklets(track_id)
 
-            # Collect positions for MSD
-            positions = []
-            for sid in spot_ids_sorted:
-                spot = self.xml.spots[sid]
-                positions.append([spot.z, spot.y, spot.x])
-            positions = np.array(positions)
-            track_msd = compute_msd(positions)
+            for tlet in tracklets:
+                tlet["tracklet_id"] = tracklet_counter
+                tracklet_counter += 1
 
-            prev_speed = 0.0
-            prev_pos = None
+                spot_ids_sorted = tlet["spot_ids"]
 
-            for i, sid in enumerate(spot_ids_sorted):
-                spot = self.xml.spots[sid]
-                pos = (spot.z, spot.y, spot.x)
+                # MSD per tracklet
+                positions = []
+                for sid in spot_ids_sorted:
+                    spot = self.xml.spots[sid]
+                    positions.append([spot.z, spot.y, spot.x])
+                positions = np.array(positions)
+                tracklet_msd = compute_msd(positions)
 
-                # Speed
-                if prev_pos is not None:
-                    speed = compute_speed(pos, prev_pos, self._cal)
-                else:
-                    speed = 0.0
+                prev_speed = 0.0
+                prev_pos = None
 
-                # Acceleration
-                accel = compute_acceleration(speed, prev_speed)
+                for i, sid in enumerate(spot_ids_sorted):
+                    spot = self.xml.spots[sid]
+                    pos = (spot.z, spot.y, spot.x)
 
-                # Motion angles
-                if prev_pos is not None:
-                    m_z, m_y, m_x = compute_motion_angles(pos, prev_pos)
-                else:
-                    m_z, m_y, m_x = 0.0, 0.0, 0.0
+                    if prev_pos is not None:
+                        speed = compute_speed(pos, prev_pos, self._cal)
+                    else:
+                        speed = 0.0
 
-                # Radial angles
-                r_z, r_y, r_x = compute_radial_angles(np.array(pos))
+                    accel = compute_acceleration(speed, prev_speed)
 
-                # Distance to mask boundary
-                dist_mask, mask_centroid = self._get_boundary_distance(
-                    spot.frame, pos
-                )
+                    if prev_pos is not None:
+                        m_z, m_y, m_x = compute_motion_angles(pos, prev_pos)
+                    else:
+                        m_z, m_y, m_x = 0.0, 0.0, 0.0
 
-                # Local cell density
-                local_density = self._get_local_density(spot.frame, pos)
+                    r_z, r_y, r_x = compute_radial_angles(np.array(pos))
 
-                # Shape features from segmentation
-                shape_row = self._match_shape_to_spot(spot.frame, pos)
-                if shape_row is not None:
-                    ecc1 = shape_row.get("eccentricity_comp_1", np.nan)
-                    ecc2 = shape_row.get("eccentricity_comp_2", np.nan)
-                    ecc3 = shape_row.get("eccentricity_comp_3", np.nan)
-                    surf_area = shape_row.get("surface_area", np.nan)
-                    axis_z = shape_row.get("cell_axis_z", np.nan)
-                    axis_y = shape_row.get("cell_axis_y", np.nan)
-                    axis_x = shape_row.get("cell_axis_x", np.nan)
-                else:
-                    ecc1 = ecc2 = ecc3 = np.nan
-                    surf_area = np.nan
-                    axis_z = axis_y = axis_x = np.nan
+                    dist_mask, _ = self._get_boundary_distance(spot.frame, pos)
+                    local_density = self._get_local_density(spot.frame, pos)
 
-                row = {
-                    "Track_ID": track_id,
-                    "t": spot.frame,
-                    "z": spot.z,
-                    "y": spot.y,
-                    "x": spot.x,
-                    "Dividing": int(is_dividing),
-                    "Number_Dividing": num_splits,
-                    "Radius": spot.radius,
-                    "Eccentricity_Comp_First": ecc1,
-                    "Eccentricity_Comp_Second": ecc2,
-                    "Eccentricity_Comp_Third": ecc3,
-                    "Local_Cell_Density": local_density,
-                    "Surface_Area": surf_area,
-                    "Speed": speed,
-                    "Motion_Angle_Z": m_z,
-                    "Motion_Angle_Y": m_y,
-                    "Motion_Angle_X": m_x,
-                    "Acceleration": accel,
-                    "Distance_Cell_mask": dist_mask,
-                    "Radial_Angle_Z": r_z,
-                    "Radial_Angle_Y": r_y,
-                    "Radial_Angle_X": r_x,
-                    "Cell_Axis_Z": axis_z,
-                    "Cell_Axis_Y": axis_y,
-                    "Cell_Axis_X": axis_x,
-                    "MSD": track_msd,
-                    "Track_Displacement": track.displacement,
-                    "Total_Track_Distance": track.total_distance,
-                    "Max_Track_Distance": track.max_distance,
-                    "Track_Duration": track.duration,
-                    "Total_Intensity": spot.total_intensity,
-                    "Mean_Intensity": spot.mean_intensity,
-                }
-                rows.append(row)
+                    shape_props = self._match_shape_to_spot(sid)
+                    if shape_props is not None:
+                        ecc1 = shape_props.get("eccentricity_comp_1", np.nan)
+                        ecc2 = shape_props.get("eccentricity_comp_2", np.nan)
+                        ecc3 = shape_props.get("eccentricity_comp_3", np.nan)
+                        surf_area = shape_props.get("surface_area", np.nan)
+                        axis_z = shape_props.get("cell_axis_z", np.nan)
+                        axis_y = shape_props.get("cell_axis_y", np.nan)
+                        axis_x = shape_props.get("cell_axis_x", np.nan)
+                    else:
+                        ecc1 = ecc2 = ecc3 = np.nan
+                        surf_area = np.nan
+                        axis_z = axis_y = axis_x = np.nan
 
-                prev_speed = speed
-                prev_pos = pos
+                    row = {
+                        "Track_ID": tlet["tracklet_id"],
+                        "TrackMate_Track_ID": track_id,
+                        "Generation_ID": tlet["generation"],
+                        "Tracklet_Number": tlet["tracklet_number"],
+                        "t": spot.frame,
+                        "z": spot.z,
+                        "y": spot.y,
+                        "x": spot.x,
+                        "Dividing": int(is_dividing),
+                        "Number_Dividing": num_splits,
+                        "Radius": spot.radius,
+                        "Eccentricity_Comp_First": ecc1,
+                        "Eccentricity_Comp_Second": ecc2,
+                        "Eccentricity_Comp_Third": ecc3,
+                        "Local_Cell_Density": local_density,
+                        "Surface_Area": surf_area,
+                        "Speed": speed,
+                        "Motion_Angle_Z": m_z,
+                        "Motion_Angle_Y": m_y,
+                        "Motion_Angle_X": m_x,
+                        "Acceleration": accel,
+                        "Distance_Cell_mask": dist_mask,
+                        "Radial_Angle_Z": r_z,
+                        "Radial_Angle_Y": r_y,
+                        "Radial_Angle_X": r_x,
+                        "Cell_Axis_Z": axis_z,
+                        "Cell_Axis_Y": axis_y,
+                        "Cell_Axis_X": axis_x,
+                        "MSD": tracklet_msd,
+                        "Track_Displacement": track.displacement,
+                        "Total_Track_Distance": track.total_distance,
+                        "Max_Track_Distance": track.max_distance,
+                        "Track_Duration": track.duration,
+                        "Total_Intensity": spot.total_intensity,
+                        "Mean_Intensity": spot.mean_intensity,
+                    }
+                    rows.append(row)
+
+                    prev_speed = speed
+                    prev_pos = pos
 
         return pd.DataFrame(rows)
+
+    def _get_tracklets(self, track_id: int) -> List[Dict]:
+        """
+        Split a track into tracklets along its lineage tree.
+
+        A tracklet is a linear segment between division events (or
+        between root/division and leaf/division). Each tracklet gets
+        a unique ID, a generation number, and a sequential tracklet
+        number within the track.
+
+        Returns:
+            List of dicts, each with keys:
+                - tracklet_id: unique sequential ID
+                - generation: 0 for mother, 1 for daughters, etc.
+                - tracklet_number: sequential within the track
+                - spot_ids: ordered list of spot IDs in this tracklet
+        """
+        track = self.xml.tracks.get(track_id)
+        if track is None:
+            return []
+
+        # If non-dividing, the whole track is one tracklet
+        if track.num_splits == 0:
+            spot_ids = self.xml.get_all_spot_ids_for_track(track_id)
+            spot_ids_sorted = sorted(
+                spot_ids, key=lambda sid: self.xml.spots[sid].frame
+            )
+            return [
+                {
+                    "tracklet_id": None,  # assigned later
+                    "generation": 0,
+                    "tracklet_number": 0,
+                    "spot_ids": spot_ids_sorted,
+                }
+            ]
+
+        # For dividing tracks, walk the lineage tree
+        roots = self.xml.get_root_ids(track_id)
+        tracklets = []
+        tracklet_number = 0
+
+        def walk(spot_id, generation):
+            nonlocal tracklet_number
+            current_tracklet = [spot_id]
+            current = spot_id
+
+            while True:
+                children = self.xml.edge_target_lookup.get(current, [])
+                if len(children) == 0:
+                    # Leaf — end this tracklet
+                    break
+                elif len(children) == 1:
+                    # Linear — continue this tracklet
+                    current = children[0]
+                    current_tracklet.append(current)
+                else:
+                    # Division — end this tracklet, recurse into children
+                    for child in children:
+                        walk(child, generation + 1)
+                    break
+
+            # Sort by time
+            current_tracklet.sort(key=lambda sid: self.xml.spots[sid].frame)
+            tracklets.append(
+                {
+                    "tracklet_id": None,
+                    "generation": generation,
+                    "tracklet_number": tracklet_number,
+                    "spot_ids": current_tracklet,
+                }
+            )
+            tracklet_number += 1
+
+        for root in roots:
+            walk(root, 0)
+
+        return tracklets
 
     def get_shape_features_only(self) -> pd.DataFrame:
         """Get only shape features (no tracking required)."""
         if self.seg_image is None:
             raise ValueError("seg_image is required for shape features")
-
-        from ..morphology.shape_features import compute_shape_features_for_image
 
         return compute_shape_features_for_image(
             self.seg_image,

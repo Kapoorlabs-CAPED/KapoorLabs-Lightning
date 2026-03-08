@@ -5,14 +5,16 @@ Provides functions for sampling tracklet sub-arrays, running model
 inference, and aggregating predictions across tracklets.
 """
 
+import os
 import random
+
 import numpy as np
 import pandas as pd
 import torch
 from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
-from .track_features import SHAPE_FEATURES, DYNAMIC_FEATURES, SHAPE_DYNAMIC_FEATURES
+from .track_features import SHAPE_DYNAMIC_FEATURES
 
 
 def sample_subarrays(
@@ -64,9 +66,7 @@ def make_prediction(
     """
     with torch.no_grad():
         tensor = (
-            torch.tensor(input_data, dtype=torch.float32)
-            .unsqueeze(0)
-            .permute(0, 2, 1)
+            torch.tensor(input_data, dtype=torch.float32).unsqueeze(0).permute(0, 2, 1)
         ).to(device)
         logits = model(tensor)
         probs = torch.softmax(logits[0], dim=0)
@@ -171,8 +171,13 @@ def predict_all_tracks(
     predictions = {}
     for track_id in valid_tracks:
         pred = predict_track(
-            df, track_id, tracklet_length, class_map, model,
-            device=device, feature_columns=feature_columns,
+            df,
+            track_id,
+            tracklet_length,
+            class_map,
+            model,
+            device=device,
+            feature_columns=feature_columns,
             track_id_column=track_id_column,
         )
         if pred != "UnClassified":
@@ -203,7 +208,6 @@ def save_cell_type_predictions(
         prefix: Optional prefix for filenames.
         track_id_column: Column for track ID.
     """
-    import os
     os.makedirs(save_dir, exist_ok=True)
 
     for class_name in class_map.values():
@@ -214,17 +218,23 @@ def save_cell_type_predictions(
                 if len(track_df) == 0:
                     continue
                 first_row = track_df.loc[track_df["t"].idxmin()]
-                rows.append({
-                    track_id_column: track_id,
-                    "t": first_row["t"],
-                    "z": first_row["z"],
-                    "y": first_row["y"],
-                    "x": first_row["x"],
-                })
+                rows.append(
+                    {
+                        track_id_column: track_id,
+                        "t": first_row["t"],
+                        "z": first_row["z"],
+                        "y": first_row["y"],
+                        "x": first_row["x"],
+                    }
+                )
 
         df_out = pd.DataFrame(rows)
         safe_name = class_name.lower().replace(" ", "_")
-        filename = f"{prefix}{safe_name}_predictions.csv" if prefix else f"{safe_name}_predictions.csv"
+        filename = (
+            f"{prefix}{safe_name}_predictions.csv"
+            if prefix
+            else f"{safe_name}_predictions.csv"
+        )
         filepath = os.path.join(save_dir, filename)
         df_out.to_csv(filepath, index=False)
         print(f"Saved {len(df_out)} {class_name} predictions to {filepath}")

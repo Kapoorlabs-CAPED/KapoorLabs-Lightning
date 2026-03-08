@@ -1,0 +1,15 @@
+# Shape feature computation
+num_points: 2048
+
+# Channels to process
+do_nuclei: true
+do_membrane: false
+
+# Channel transfer: transfer tracks from source channel XML to target channel segmentation
+do_channel_transfer: false
+transfer_source_channel: 'nuclei'
+transfer_target_channel: 'membrane'
+
+# Output
+save_dataframe: true
+normalize_dataframe: true

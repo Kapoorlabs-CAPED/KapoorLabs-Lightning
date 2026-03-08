@@ -6,12 +6,10 @@ import pandas as pd
 import seaborn as sns
 import pickle
 import matplotlib.pyplot as plt
-import torch
 import h5py
 
 from pathlib import Path
 from omegaconf import OmegaConf
-from scipy import spatial
 from skimage import measure
 
 from bokeh.palettes import Category10
@@ -21,13 +19,8 @@ import itertools
 logger = logging.getLogger(__name__)
 
 
-
-
-
 def get_most_recent_file(file_path, file_pattern):
-    ckpt_files = [
-        file for file in os.listdir(file_path) if file.endswith(file_pattern)
-    ]
+    ckpt_files = [file for file in os.listdir(file_path) if file.endswith(file_pattern)]
 
     if len(ckpt_files) > 0:
         # Sort by modification time (most recent first)
@@ -35,7 +28,9 @@ def get_most_recent_file(file_path, file_pattern):
             (file, os.path.getmtime(os.path.join(file_path, file)))
             for file in ckpt_files
         ]
-        sorted_ckpt_files = sorted(ckpt_files_with_mtime, key=lambda x: x[1], reverse=True)
+        sorted_ckpt_files = sorted(
+            ckpt_files_with_mtime, key=lambda x: x[1], reverse=True
+        )
         most_recent_ckpt = sorted_ckpt_files[0][0]
         return os.path.join(file_path, most_recent_ckpt)
     else:
@@ -49,14 +44,12 @@ def load_checkpoint_model(log_path: str):
     return ckpt_path
 
 
-
-
 def plot_npz_files_interactive(
     filepaths,
     unwanted_substrings=["gpu", "memory"],
     page_output_dir="metrics",
     save_plots=False,
-    show_plots=True
+    show_plots=True,
 ):
     all_data = {}
     Path(page_output_dir).mkdir(parents=True, exist_ok=True)
@@ -97,7 +90,9 @@ def plot_npz_files_interactive(
 
         ax = axes[i]
         ax.plot(df["steps"].to_numpy(), df["values"].to_numpy(), label=key, color=color)
-        ax.scatter(df["steps"].to_numpy(), df["values"].to_numpy(), s=4, color=color, alpha=0.3)
+        ax.scatter(
+            df["steps"].to_numpy(), df["values"].to_numpy(), s=4, color=color, alpha=0.3
+        )
         ax.set_title(f"{key}")
         ax.set_xlabel("Steps")
         ax.set_ylabel("Value")
@@ -115,11 +110,10 @@ def plot_npz_files_interactive(
         fig.savefig(output_path, dpi=300)
         print(f"Saved all-in-one plot to: {output_path}")
         if show_plots:
-           plt.show()
-           
-    if show_plots:
-           plt.show()       
+            plt.show()
 
+    if show_plots:
+        plt.show()
 
 
 def plot_npz_files(filepaths):
@@ -159,17 +153,13 @@ def normalize_mi_ma(x, mi, ma, eps=1e-20, dtype=np.float32):
     return x
 
 
-def percentile_norm(
-    x, pmin=1, pmax=99.8, axis=None, eps=1e-20, dtype=np.float32
-):
+def percentile_norm(x, pmin=1, pmax=99.8, axis=None, eps=1e-20, dtype=np.float32):
     mi = np.percentile(x, pmin, axis=axis, keepdims=True)
     ma = np.percentile(x, pmax, axis=axis, keepdims=True)
     return normalize_mi_ma(x, mi, ma, eps=eps, dtype=dtype)
 
 
-def normalize_in_chunks(
-    image, chunk_steps=50, pmin=1, pmax=99.8, dtype=np.float32
-):
+def normalize_in_chunks(image, chunk_steps=50, pmin=1, pmax=99.8, dtype=np.float32):
     """
     Normalize a TZYX image in chunks along the T (time) dimension.
 
@@ -198,9 +188,7 @@ def normalize_in_chunks(
         chunk = image[t:t_end]
 
         # Normalize this chunk
-        chunk_normalized = percentile_norm(
-            chunk, pmin=pmin, pmax=pmax, dtype=dtype
-        )
+        chunk_normalized = percentile_norm(chunk, pmin=pmin, pmax=pmax, dtype=dtype)
 
         # Replace the corresponding portion with the normalized chunk
         normalized_image[t:t_end] = chunk_normalized
@@ -213,7 +201,7 @@ def save_config_as_json(config, log_path):
     config_dict = OmegaConf.to_container(config, resolve=True)
 
     config_file = Path(log_path) / "training_config.json"
-    with open(config_file, 'w') as f:
+    with open(config_file, "w") as f:
         json.dump(config_dict, f, indent=2)
 
     print(f"Config saved to: {config_file}")
@@ -254,7 +242,7 @@ def create_event_dataset_h5(
                 # Extract image name from CSV: oneat_{event}_{image_name}.csv
                 prefix = f"oneat_{event_name}_"
                 if csv_name.startswith(prefix):
-                    image_name = csv_name[len(prefix):].replace('.csv', '')
+                    image_name = csv_name[len(prefix) :].replace(".csv", "")
 
                     # Find raw image index
                     if image_name in image_name_to_idx:
@@ -262,16 +250,18 @@ def create_event_dataset_h5(
                         clicks_df = pd.read_csv(csv_file)
 
                         for _, row in clicks_df.iterrows():
-                            event_data.append({
-                                'raw_idx': raw_idx,
-                                'csv_file': csv_file,
-                                'event_label': event_idx,
-                                'event_name': event_name,
-                                'time': row.get('t', row.get('time', 0)),
-                                'x': row.get('x', 0),
-                                'y': row.get('y', 0),
-                                'z': row.get('z', 0)
-                            })
+                            event_data.append(
+                                {
+                                    "raw_idx": raw_idx,
+                                    "csv_file": csv_file,
+                                    "event_label": event_idx,
+                                    "event_name": event_name,
+                                    "time": row.get("t", row.get("time", 0)),
+                                    "x": row.get("x", 0),
+                                    "y": row.get("y", 0),
+                                    "z": row.get("z", 0),
+                                }
+                            )
                         matched = True
                         break
 
@@ -283,9 +273,9 @@ def create_event_dataset_h5(
     train_data = event_data[:train_size]
     val_data = event_data[train_size:]
 
-    with h5py.File(h5_output_path, 'w') as h5f:
-        train_grp = h5f.create_group('train')
-        val_grp = h5f.create_group('val')
+    with h5py.File(h5_output_path, "w") as h5f:
+        train_grp = h5f.create_group("train")
+        val_grp = h5f.create_group("val")
 
         train_images_list = []
         train_segs_list = []
@@ -297,10 +287,10 @@ def create_event_dataset_h5(
 
         for i, event in enumerate(train_data):
             result = _extract_event_cube(
-                raw_images[event['raw_idx']],
-                seg_images[event['raw_idx']],
+                raw_images[event["raw_idx"]],
+                seg_images[event["raw_idx"]],
                 event,
-                crop_size
+                crop_size,
             )
             if result is not None:
                 crop_image, crop_seg, label = result
@@ -309,20 +299,24 @@ def create_event_dataset_h5(
                 train_labels_list.append(label)
 
                 if len(train_images_list) >= batch_write_size:
-                    _write_batch_to_h5(train_grp, train_images_list, train_segs_list, train_labels_list)
+                    _write_batch_to_h5(
+                        train_grp, train_images_list, train_segs_list, train_labels_list
+                    )
                     train_images_list = []
                     train_segs_list = []
                     train_labels_list = []
 
         if len(train_images_list) > 0:
-            _write_batch_to_h5(train_grp, train_images_list, train_segs_list, train_labels_list)
+            _write_batch_to_h5(
+                train_grp, train_images_list, train_segs_list, train_labels_list
+            )
 
         for event in val_data:
             result = _extract_event_cube(
-                raw_images[event['raw_idx']],
-                seg_images[event['raw_idx']],
+                raw_images[event["raw_idx"]],
+                seg_images[event["raw_idx"]],
                 event,
-                crop_size
+                crop_size,
             )
             if result is not None:
                 crop_image, crop_seg, label = result
@@ -331,7 +325,9 @@ def create_event_dataset_h5(
                 val_labels_list.append(label)
 
                 if len(val_images_list) >= batch_write_size:
-                    _write_batch_to_h5(val_grp, val_images_list, val_segs_list, val_labels_list)
+                    _write_batch_to_h5(
+                        val_grp, val_images_list, val_segs_list, val_labels_list
+                    )
                     val_images_list = []
                     val_segs_list = []
                     val_labels_list = []
@@ -349,14 +345,12 @@ def _extract_event_cube(raw_image, seg_image, event, crop_size, num_classes=2):
         crop_seg: (T, Z, Y, X) segmentation crop
         yolo_label: array of [x, y, z, h, w, d, conf] + [one-hot class (num_classes)]
     """
-    from skimage import measure
-
     sizex, sizey, sizez, t_minus, t_plus = crop_size
-    time = int(event['time'])
-    x = int(event['x'])
-    y = int(event['y'])
-    z = int(event['z'])
-    event_label = int(event['event_label'])
+    time = int(event["time"])
+    x = int(event["x"])
+    y = int(event["y"])
+    z = int(event["z"])
+    event_label = int(event["event_label"])
 
     # Check temporal bounds
     t_start = time - t_minus
@@ -398,11 +392,23 @@ def _extract_event_cube(raw_image, seg_image, event, crop_size, num_classes=2):
     x_end_dst = x_start_dst + (x_end_src - x_start_src)
 
     # Copy data into padded arrays
-    crop_raw[:, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst] = \
-        raw_image[t_start:t_end, z_start_src:z_end_src, y_start_src:y_end_src, x_start_src:x_end_src]
+    crop_raw[
+        :, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst
+    ] = raw_image[
+        t_start:t_end,
+        z_start_src:z_end_src,
+        y_start_src:y_end_src,
+        x_start_src:x_end_src,
+    ]
 
-    crop_seg[:, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst] = \
-        seg_image[t_start:t_end, z_start_src:z_end_src, y_start_src:y_end_src, x_start_src:x_end_src]
+    crop_seg[
+        :, z_start_dst:z_end_dst, y_start_dst:y_end_dst, x_start_dst:x_end_dst
+    ] = seg_image[
+        t_start:t_end,
+        z_start_src:z_end_src,
+        y_start_src:y_end_src,
+        x_start_src:x_end_src,
+    ]
 
     # Compute box_vector from segmentation at the event timepoint (middle of crop)
     mid_t = t_minus  # middle timepoint in the crop
@@ -420,7 +426,9 @@ def _extract_event_cube(raw_image, seg_image, event, crop_size, num_classes=2):
             distances = np.linalg.norm(nonzero_coords - center, axis=1)
             closest_idx = np.argmin(distances)
             closest_coord = nonzero_coords[closest_idx]
-            cell_label = seg_at_event[closest_coord[0], closest_coord[1], closest_coord[2]]
+            cell_label = seg_at_event[
+                closest_coord[0], closest_coord[1], closest_coord[2]
+            ]
 
     # xyz is always 0.5 (center of crop)
     box_x, box_y, box_z = 0.5, 0.5, 0.5
@@ -453,7 +461,9 @@ def _extract_event_cube(raw_image, seg_image, event, crop_size, num_classes=2):
     one_hot_class[event_label] = 1.0
 
     # YOLO label format: [x, y, z, t, h, w, d, c] + [one-hot class]
-    box_vector = np.array([box_x, box_y, box_z, box_t, box_h, box_w, box_d, conf], dtype=np.float32)
+    box_vector = np.array(
+        [box_x, box_y, box_z, box_t, box_h, box_w, box_d, conf], dtype=np.float32
+    )
     yolo_label = np.concatenate([box_vector, one_hot_class])
 
     return crop_raw, crop_seg, yolo_label
@@ -464,37 +474,36 @@ def _write_batch_to_h5(group, images, segs, labels):
     segs_arr = np.array(segs)
     labels_arr = np.array(labels)
 
-    if 'images' not in group:
+    if "images" not in group:
         group.create_dataset(
-            'images',
+            "images",
             data=images_arr,
             maxshape=(None,) + images_arr.shape[1:],
             chunks=True,
-            compression='gzip'
+            compression="gzip",
         )
         group.create_dataset(
-            'segmentations',
+            "segmentations",
             data=segs_arr,
             maxshape=(None,) + segs_arr.shape[1:],
             chunks=True,
-            compression='gzip'
+            compression="gzip",
         )
         group.create_dataset(
-            'labels',
+            "labels",
             data=labels_arr,
             maxshape=(None,) + labels_arr.shape[1:],
-            chunks=True
+            chunks=True,
         )
     else:
-        old_size = group['images'].shape[0]
+        old_size = group["images"].shape[0]
         new_size = old_size + len(images)
-        group['images'].resize(new_size, axis=0)
-        group['segmentations'].resize(new_size, axis=0)
-        group['labels'].resize(new_size, axis=0)
-        group['images'][old_size:new_size] = images_arr
-        group['segmentations'][old_size:new_size] = segs_arr
-        group['labels'][old_size:new_size] = labels_arr
-
+        group["images"].resize(new_size, axis=0)
+        group["segmentations"].resize(new_size, axis=0)
+        group["labels"].resize(new_size, axis=0)
+        group["images"][old_size:new_size] = images_arr
+        group["segmentations"][old_size:new_size] = segs_arr
+        group["labels"][old_size:new_size] = labels_arr
 
 
 __all__ = [
@@ -502,10 +511,8 @@ __all__ = [
     "load_checkpoint_model",
     "plot_npz_files_interactive",
     "plot_npz_files",
-    "blockwise_causal_norm",
-    "blockwise_sum",
     "save_config_as_json",
     "create_event_dataset_h5",
     "percentile_norm",
-    "normalize_mi_ma"
+    "normalize_mi_ma",
 ]

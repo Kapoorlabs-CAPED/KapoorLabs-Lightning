@@ -1,0 +1,4 @@
+defaults:
+    - _self_
+    - train_data_paths: tracking_default.yaml
+    - parameters: tracking.yaml
