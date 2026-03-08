@@ -238,7 +238,7 @@ def main(config: OneatPredictClass):
             for event_name in df['event_name'].unique():
                 event_df = df[df['event_name'] == event_name]
                 output_df = event_df[['time', 'z', 'y', 'x', 'confidence']].rename(columns={'time': 't'})
-                csv_filename = f"{os.path.splitext(raw_basename)[0]}_oneat_{event_name}.csv"
+                csv_filename = f"oneat_{event_name}_{os.path.splitext(raw_basename)[0]}.csv"
                 csv_path = os.path.join(predictions_dir, csv_filename)
                 output_df.to_csv(csv_path, index=False)
                 print(f"Saved {len(event_df)} {event_name} detections to: {csv_path}")
