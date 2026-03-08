@@ -13,7 +13,7 @@ from kapoorlabs_lightning.nms_utils import nms_space_time, group_detections_by_e
 from kapoorlabs_lightning.oneat_presets import OneatEvalPreset
 from torch.utils.data import DataLoader
 from lightning import Trainer
-
+from kapoorlabs_lightning.pytorch_models import DenseVollNet
 
 configstore = ConfigStore.instance()
 configstore.store(name="OneatPredictClass", node=OneatPredictClass)
@@ -65,6 +65,31 @@ def main(config: OneatPredictClass):
     # Create predictions directory
     Path(predictions_dir).mkdir(exist_ok=True, parents=True)
 
+    # Build model architecture (needed for load_from_checkpoint)
+    startfilter = config.parameters.startfilter
+    start_kernel = config.parameters.start_kernel
+    mid_kernel = config.parameters.mid_kernel
+    depth = config.parameters.depth
+    growth_rate = config.parameters.growth_rate
+    pool_first = config.parameters.pool_first
+    event_position_label = config.parameters.event_position_label
+
+    n_time = size_tminus + size_tplus + 1
+    input_shape = (n_time, imagez, imagey, imagex)
+    box_vector = len(event_position_label)
+
+    network = DenseVollNet(
+        input_shape,
+        num_classes,
+        box_vector,
+        start_kernel=start_kernel,
+        mid_kernel=mid_kernel,
+        startfilter=startfilter,
+        depth=depth,
+        growth_rate=growth_rate,
+        pool_first=pool_first,
+    )
+
     # Create eval transforms (same as validation during training)
     eval_transforms = OneatEvalPreset(
         percentile_norm=True,
@@ -77,6 +102,7 @@ def main(config: OneatPredictClass):
         ckpt_path,
         map_location='cpu',
         weights_only=False,
+        network=network,
         eval_transforms=eval_transforms,
         imagex=imagex,
         imagey=imagey,
