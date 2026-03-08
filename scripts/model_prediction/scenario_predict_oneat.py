@@ -66,6 +66,8 @@ class Params:
         nms_space: int
         nms_time: int
         normalizeimage: bool
+        test_pred: bool
+        test_roi_xy: int
         event_name: List
         event_label: str
         event_position_name: List

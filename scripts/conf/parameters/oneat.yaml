@@ -58,6 +58,8 @@ file_type: '*.tif'
 nms_space: 10
 nms_time: 2
 normalizeimage: True
+test_pred: True
+test_roi_xy: 512
 event_name: ['normal', 'mitosis']
 event_label: [0, 1]
 event_position_name: ["x", "y", "z", "t", "h", "w", "d", "c"]

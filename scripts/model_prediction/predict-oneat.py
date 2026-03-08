@@ -1,19 +1,23 @@
-from pathlib import Path
 import os
-import hydra
-from hydra.core.config_store import ConfigStore
-from scenario_predict_oneat import OneatPredictClass
-import torch
 from glob import glob
+from pathlib import Path
+
+import hydra
+import numpy as np
 import pandas as pd
-from kapoorlabs_lightning.utils import load_checkpoint_model
+import torch
+from hydra.core.config_store import ConfigStore
+from lightning import Trainer
+from tifffile import imread, imwrite
+from torch.utils.data import DataLoader
+
+from kapoorlabs_lightning.nms_utils import group_detections_by_event, nms_space_time
 from kapoorlabs_lightning.oneat_module import OneatActionModule
 from kapoorlabs_lightning.oneat_prediction_dataset import OneatPredictionDataset
-from kapoorlabs_lightning.nms_utils import nms_space_time, group_detections_by_event
 from kapoorlabs_lightning.oneat_presets import OneatEvalPreset
-from torch.utils.data import DataLoader
-from lightning import Trainer
 from kapoorlabs_lightning.pytorch_models import DenseVollNet
+from kapoorlabs_lightning.utils import load_checkpoint_model
+from scenario_predict_oneat import OneatPredictClass
 
 configstore = ConfigStore.instance()
 configstore.store(name="OneatPredictClass", node=OneatPredictClass)
@@ -52,6 +56,48 @@ def main(config: OneatPredictClass):
     raw_timelapses_dir = os.path.join(base_data_dir, config.experiment_data_paths.raw_timelapses)
     seg_timelapses_dir = os.path.join(base_data_dir, config.experiment_data_paths.seg_timelapses)
     predictions_dir = os.path.join(base_data_dir, config.experiment_data_paths.oneat_predictions)
+
+    # Test prediction: crop a small ROI from center of each timelapse
+    test_pred = config.parameters.test_pred
+    test_roi_xy = config.parameters.test_roi_xy
+
+    if test_pred:
+        print(f"\nTest prediction mode: cropping {test_roi_xy}x{test_roi_xy} XY ROI from center")
+        raw_files_full = sorted(glob(os.path.join(raw_timelapses_dir, config.parameters.file_type)))
+        for raw_file in raw_files_full:
+            basename = os.path.basename(raw_file)
+            seg_file = os.path.join(seg_timelapses_dir, basename)
+            if not os.path.exists(seg_file):
+                continue
+
+            raw_img = imread(raw_file)
+            seg_img = imread(seg_file)
+
+            # Image is TZYX — crop XY around center
+            _, _, h, w = raw_img.shape if raw_img.ndim == 4 else (1, *raw_img.shape)
+            cy, cx = h // 2, w // 2
+            half = test_roi_xy // 2
+            y0 = max(0, cy - half)
+            y1 = min(h, cy + half)
+            x0 = max(0, cx - half)
+            x1 = min(w, cx + half)
+
+            if raw_img.ndim == 4:
+                raw_crop = raw_img[:, :, y0:y1, x0:x1]
+                seg_crop = seg_img[:, :, y0:y1, x0:x1]
+            else:
+                raw_crop = raw_img[:, y0:y1, x0:x1]
+                seg_crop = seg_img[:, y0:y1, x0:x1]
+
+            test_name = "test_dataset.tif"
+            raw_test_path = os.path.join(raw_timelapses_dir, test_name)
+            seg_test_path = os.path.join(seg_timelapses_dir, test_name)
+            imwrite(raw_test_path, raw_crop)
+            imwrite(seg_test_path, seg_crop)
+            print(f"Saved test crop: {raw_crop.shape} -> {raw_test_path}")
+            print(f"Saved test crop: {seg_crop.shape} -> {seg_test_path}")
+            # Only crop the first file for test
+            break
 
     # Model checkpoint path from config
     log_path = config.train_data_paths.log_path
@@ -113,8 +159,11 @@ def main(config: OneatPredictClass):
         num_classes=num_classes,
     )
 
-    # Get all raw tif files
-    raw_files = sorted(glob(os.path.join(raw_timelapses_dir, config.parameters.file_type)))
+    # Get raw tif files — only test_dataset.tif if test_pred mode
+    if test_pred:
+        raw_files = [os.path.join(raw_timelapses_dir, "test_dataset.tif")]
+    else:
+        raw_files = sorted(glob(os.path.join(raw_timelapses_dir, config.parameters.file_type)))
 
     print(f"Found {len(raw_files)} raw timelapse files")
 
