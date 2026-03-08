@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 from hydra.core.config_store import ConfigStore
 from lightning import Trainer
+from lightning.pytorch.callbacks import Callback
 from tifffile import imread, imwrite
 from torch.utils.data import DataLoader
 
@@ -18,6 +19,24 @@ from kapoorlabs_lightning.oneat_presets import OneatEvalPreset
 from kapoorlabs_lightning.pytorch_models import DenseVollNet
 from kapoorlabs_lightning.utils import load_checkpoint_model
 from scenario_predict_oneat import OneatPredictClass
+
+class EventCountCallback(Callback):
+    """Updates the progress bar with running event count during prediction."""
+
+    def on_predict_start(self, trainer, pl_module):
+        self.total_events = 0
+
+    def on_predict_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
+        self.total_events += len(outputs)
+        if trainer.progress_bar_callback is not None:
+            bar = getattr(trainer.progress_bar_callback, "predict_progress_bar", None)
+            if bar is not None:
+                bar.set_postfix_str(f"events found: {self.total_events}")
+            else:
+                bar = getattr(trainer.progress_bar_callback, "main_progress_bar", None)
+                if bar is not None:
+                    bar.set_postfix_str(f"events found: {self.total_events}")
+
 
 configstore = ConfigStore.instance()
 configstore.store(name="OneatPredictClass", node=OneatPredictClass)
@@ -168,12 +187,14 @@ def main(config: OneatPredictClass):
     print(f"Found {len(raw_files)} raw timelapse files")
 
     # Create Lightning Trainer for prediction
+    event_counter = EventCountCallback()
     trainer = Trainer(
         accelerator=accelerator,
         devices=devices,
         logger=False,
         enable_checkpointing=False,
         enable_progress_bar=True,
+        callbacks=[event_counter],
     )
 
     for raw_file in raw_files:
