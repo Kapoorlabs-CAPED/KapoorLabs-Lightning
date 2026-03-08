@@ -1,12 +1,11 @@
 """
-ONEAT Event Detection - Streamlit App (Local)
+ONEAT Event Detection - Local Streamlit App
 
 Upload raw + segmentation timelapse TIF files, select a model checkpoint,
-and run ONEAT prediction to detect spatio-temporal events (e.g. mitosis).
-Results are displayed as a table and downloadable CSV, with a detection overlay viewer.
+and run ONEAT prediction locally. Results displayed as table + overlay viewer.
 
 Usage:
-    streamlit run app.py
+    streamlit run local_app.py
 """
 
 import os
@@ -40,11 +39,7 @@ def get_available_models():
 
 
 def create_detection_overlay(raw_image, detections, timepoint):
-    """
-    Create a max-Z-projection with detection markers at a given timepoint.
-    Returns a matplotlib figure.
-    """
-    # Get detections at this timepoint
+    """Max-Z-projection with detection markers at a given timepoint."""
     dets_at_t = [d for d in detections if d["time"] == timepoint]
 
     frame = raw_image[timepoint]  # (Z, Y, X)
@@ -62,10 +57,17 @@ def create_detection_overlay(raw_image, detections, timepoint):
     if dets_at_t:
         ys = [d["y"] for d in dets_at_t]
         xs = [d["x"] for d in dets_at_t]
-        ax.scatter(xs, ys, c="red", s=80, marker="o", facecolors="none", linewidths=2, label=f"Detections ({len(dets_at_t)})")
+        ax.scatter(
+            xs, ys, c="red", s=80, marker="o",
+            facecolors="none", linewidths=2,
+            label=f"Detections ({len(dets_at_t)})",
+        )
         ax.legend(loc="upper right", fontsize=9)
 
-    ax.set_title(f"Max-Z Projection   t={timepoint}   ({len(dets_at_t)} detections)", fontsize=11)
+    ax.set_title(
+        f"Max-Z Projection   t={timepoint}   ({len(dets_at_t)} detections)",
+        fontsize=11,
+    )
     ax.axis("off")
     fig.tight_layout()
     return fig
@@ -79,18 +81,28 @@ def main():
 
     # Sidebar: all configuration
     st.sidebar.header("Input Files")
-    raw_file = st.sidebar.file_uploader("Raw Timelapse (TIF)", type=["tif", "tiff"], key="raw")
-    seg_file = st.sidebar.file_uploader("Segmentation Timelapse (TIF)", type=["tif", "tiff"], key="seg")
+    raw_file = st.sidebar.file_uploader(
+        "Raw Timelapse (TIF)", type=["tif", "tiff"], key="raw"
+    )
+    seg_file = st.sidebar.file_uploader(
+        "Segmentation Timelapse (TIF)", type=["tif", "tiff"], key="seg"
+    )
 
     st.sidebar.header("Model")
     models = get_available_models()
     if not models:
         st.sidebar.warning("No .ckpt files in models/ directory")
-    model_name = st.sidebar.selectbox("Checkpoint", models if models else ["(none)"])
+    model_name = st.sidebar.selectbox(
+        "Checkpoint", models if models else ["(none)"]
+    )
 
     st.sidebar.header("Event Configuration")
-    event_names_str = st.sidebar.text_input("Event Names (comma-separated)", value="normal, mitosis")
-    num_classes = st.sidebar.number_input("Number of Classes", value=2, min_value=1, step=1)
+    event_names_str = st.sidebar.text_input(
+        "Event Names (comma-separated)", value="normal, mitosis"
+    )
+    num_classes = st.sidebar.number_input(
+        "Number of Classes", value=2, min_value=1, step=1
+    )
 
     st.sidebar.header("Model Architecture")
     col_a, col_b, col_c = st.sidebar.columns(3)
@@ -127,27 +139,37 @@ def main():
     pmax = col_p.number_input("Percentile Max", value=99.8, step=0.1)
     normalize = st.sidebar.checkbox("Normalize Timelapse", value=True)
 
-    use_gpu = st.sidebar.checkbox("Use GPU (if available)", value=torch.cuda.is_available())
+    use_gpu = st.sidebar.checkbox(
+        "Use GPU (if available)", value=torch.cuda.is_available()
+    )
 
     # Main area
-    run_btn = st.button("Run Prediction", type="primary", use_container_width=True)
+    run_btn = st.button(
+        "Run Prediction", type="primary", use_container_width=True
+    )
 
     if run_btn:
         if raw_file is None or seg_file is None:
             st.error("Please upload both raw and segmentation timelapse files.")
             return
         if not models or model_name == "(none)":
-            st.error("No model checkpoint available. Place .ckpt files in the models/ directory.")
+            st.error(
+                "No model checkpoint available. "
+                "Place .ckpt files in the models/ directory."
+            )
             return
 
         ckpt_path = MODELS_DIR / model_name
         event_names = [e.strip() for e in event_names_str.split(",")]
         imaget = size_tminus + size_tplus + 1
         input_shape = (imaget, imagez, imagey, imagex)
-        depth = {"depth_0": depth_0, "depth_1": depth_1, "depth_2": depth_2}
+        depth = {
+            "depth_0": depth_0,
+            "depth_1": depth_1,
+            "depth_2": depth_2,
+        }
         box_vector = 8
 
-        # Save uploaded files to temp
         with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp_raw:
             tmp_raw.write(raw_file.read())
             raw_path = tmp_raw.name
@@ -179,7 +201,9 @@ def main():
 
             progress.progress(15, text="Loading model checkpoint...")
 
-            accelerator = "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
+            accelerator = (
+                "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
+            )
 
             lightning_model = OneatActionModule.load_from_checkpoint(
                 str(ckpt_path),
@@ -242,31 +266,40 @@ def main():
                 all_nms_detections = []
                 for event_name_key, event_detections in grouped_detections.items():
                     nms_detections = nms_space_time(
-                        event_detections, nms_space=nms_space, nms_time=nms_time
+                        event_detections,
+                        nms_space=nms_space,
+                        nms_time=nms_time,
                     )
-                    st.write(f"**{event_name_key}**: {len(event_detections)} -> {len(nms_detections)} after NMS")
+                    st.write(
+                        f"**{event_name_key}**: {len(event_detections)} "
+                        f"-> {len(nms_detections)} after NMS"
+                    )
                     all_nms_detections.extend(nms_detections)
 
                 progress.progress(90, text="Preparing results...")
 
                 if len(all_nms_detections) > 0:
                     df = pd.DataFrame(all_nms_detections)
-                    display_df = df[["time", "z", "y", "x", "event_name", "cell_id"]].copy()
+                    display_df = df[
+                        ["time", "z", "y", "x", "event_name", "cell_id"]
+                    ].copy()
                     display_df = display_df.rename(columns={"time": "t"})
 
-                    # Store results in session state for the viewer
                     st.session_state["detections"] = all_nms_detections
                     st.session_state["display_df"] = display_df
                     st.session_state["raw_image"] = pred_dataset.raw_image
-                    st.session_state["num_timepoints"] = pred_dataset.num_timepoints
+                    st.session_state["num_timepoints"] = (
+                        pred_dataset.num_timepoints
+                    )
 
-                    # Save CSV
                     csv_path = tempfile.mktemp(suffix=".csv")
                     display_df.to_csv(csv_path, index=False)
                     st.session_state["csv_path"] = csv_path
 
                     progress.progress(100, text="Done!")
-                    st.success(f"Detected {len(all_nms_detections)} events after NMS")
+                    st.success(
+                        f"Detected {len(all_nms_detections)} events after NMS"
+                    )
                 else:
                     progress.progress(100, text="Done!")
                     st.warning("No events detected after NMS.")
@@ -278,15 +311,24 @@ def main():
             os.unlink(raw_path)
             os.unlink(seg_path)
 
-    # Results display (persists after prediction via session state)
-    if "display_df" in st.session_state and not st.session_state["display_df"].empty:
+    # Results display (persists via session state)
+    if (
+        "display_df" in st.session_state
+        and not st.session_state["display_df"].empty
+    ):
         st.markdown("---")
 
         tab_table, tab_viewer = st.tabs(["Results Table", "Detection Viewer"])
 
         with tab_table:
-            st.subheader(f"Detected Events ({len(st.session_state['display_df'])})")
-            st.dataframe(st.session_state["display_df"], use_container_width=True, hide_index=True)
+            st.subheader(
+                f"Detected Events ({len(st.session_state['display_df'])})"
+            )
+            st.dataframe(
+                st.session_state["display_df"],
+                use_container_width=True,
+                hide_index=True,
+            )
 
             with open(st.session_state["csv_path"], "rb") as f:
                 st.download_button(
@@ -302,11 +344,9 @@ def main():
             raw_image = st.session_state["raw_image"]
             num_timepoints = st.session_state["num_timepoints"]
 
-            # Find timepoints that have detections
             det_timepoints = sorted(set(d["time"] for d in detections))
 
             if det_timepoints:
-                # Timepoint slider
                 selected_t = st.slider(
                     "Timepoint",
                     min_value=0,
@@ -315,19 +355,28 @@ def main():
                     step=1,
                 )
 
-                n_dets_at_t = sum(1 for d in detections if d["time"] == selected_t)
-                st.caption(f"Timepoint {selected_t} — {n_dets_at_t} detections"
-                           f"  |  Timepoints with events: {det_timepoints}")
+                n_dets_at_t = sum(
+                    1 for d in detections if d["time"] == selected_t
+                )
+                st.caption(
+                    f"Timepoint {selected_t} — {n_dets_at_t} detections"
+                    f"  |  Timepoints with events: {det_timepoints}"
+                )
 
-                fig = create_detection_overlay(raw_image, detections, selected_t)
+                fig = create_detection_overlay(
+                    raw_image, detections, selected_t
+                )
                 st.pyplot(fig)
                 plt.close(fig)
 
-                # Show detections at this timepoint as a mini table
-                dets_at_t = [d for d in detections if d["time"] == selected_t]
+                dets_at_t = [
+                    d for d in detections if d["time"] == selected_t
+                ]
                 if dets_at_t:
                     st.dataframe(
-                        pd.DataFrame(dets_at_t)[["time", "z", "y", "x", "event_name", "cell_id"]],
+                        pd.DataFrame(dets_at_t)[
+                            ["time", "z", "y", "x", "event_name", "cell_id"]
+                        ],
                         use_container_width=True,
                         hide_index=True,
                     )

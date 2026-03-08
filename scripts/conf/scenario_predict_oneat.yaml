@@ -1,5 +1,5 @@
 defaults:
     - _self_
-    - experiment_data_paths: jean_zay_first_dataset.yaml
-    - train_data_paths: jeanzay.yaml
+    - experiment_data_paths: gwdg_fifth_dataset.yaml
+    - train_data_paths: gwdg.yaml
     - parameters: oneat.yaml
