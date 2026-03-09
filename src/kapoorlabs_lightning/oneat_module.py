@@ -9,7 +9,6 @@ from kapoorlabs_lightning import schedulers
 
 
 class OneatActionModule(BaseModule):
-
     def __init__(
         self,
         network: torch.nn.Module,
@@ -59,7 +58,11 @@ class OneatActionModule(BaseModule):
         self.size_tminus = size_tminus
         self.size_tplus = size_tplus
         self.imaget = size_tminus + size_tplus + 1
-        self.event_names = event_names if event_names is not None else [f'class_{i}' for i in range(num_classes)]
+        self.event_names = (
+            event_names
+            if event_names is not None
+            else [f"class_{i}" for i in range(num_classes)]
+        )
         self.event_threshold = event_threshold
         self.nms_space = nms_space
         self.nms_time = nms_time
@@ -133,9 +136,9 @@ class OneatActionModule(BaseModule):
         box_vector_len = 8
 
         # Extract predictions: categories first, then box_vector
-        predicted_classes = outputs[:, :self.num_classes]
-        predicted_xyzt = outputs[:, self.num_classes:self.num_classes + 4]
-        predicted_hwd = outputs[:, self.num_classes + 4:self.num_classes + 7]
+        predicted_classes = outputs[:, : self.num_classes]
+        predicted_xyzt = outputs[:, self.num_classes : self.num_classes + 4]
+        predicted_hwd = outputs[:, self.num_classes + 4 : self.num_classes + 7]
         predicted_confidence = outputs[:, self.num_classes + 7]
 
         # Extract GT: box_vector first, then categories
@@ -196,14 +199,13 @@ class OneatActionModule(BaseModule):
         t = timepoint.item()
 
         # Extract filename from collated metadata
-        filename = metadata.get('filename', ['unknown'])
+        filename = metadata.get("filename", ["unknown"])
         if isinstance(filename, (list, tuple)):
             filename = filename[0]
 
         # Clean old detections from buffer (only keep within nms_time window)
         self._recent_detections = [
-            d for d in self._recent_detections
-            if abs(d['time'] - t) <= self.nms_time
+            d for d in self._recent_detections if abs(d["time"] - t) <= self.nms_time
         ]
 
         # Find all cell instances in seg image at current timepoint
@@ -245,9 +247,10 @@ class OneatActionModule(BaseModule):
             if patch.shape[1:] != (self.imagez, self.imagey, self.imagex):
                 padded = torch.zeros(
                     (self.imaget, self.imagez, self.imagey, self.imagex),
-                    dtype=patch.dtype, device=patch.device
+                    dtype=patch.dtype,
+                    device=patch.device,
                 )
-                padded[:, :patch.shape[1], :patch.shape[2], :patch.shape[3]] = patch
+                padded[:, : patch.shape[1], : patch.shape[2], : patch.shape[3]] = patch
                 patch = padded
 
             # Apply eval transforms
@@ -263,7 +266,7 @@ class OneatActionModule(BaseModule):
         # Batched forward pass - chunk to avoid OOM with many cells
         all_outputs = []
         for chunk_start in range(0, len(patches), self.batch_size_predict):
-            chunk = patches[chunk_start:chunk_start + self.batch_size_predict]
+            chunk = patches[chunk_start : chunk_start + self.batch_size_predict]
             batch_tensor = torch.stack(chunk, dim=0)  # (chunk_size, T, Z, Y, X)
 
             with torch.no_grad():
@@ -274,12 +277,17 @@ class OneatActionModule(BaseModule):
 
             all_outputs.append(outputs)
 
-        all_outputs = torch.cat(all_outputs, dim=0)  # (N_cells, num_classes + box_vector)
+        all_outputs = torch.cat(
+            all_outputs, dim=0
+        )  # (N_cells, num_classes + box_vector)
 
         # Extract class probabilities and box predictions
-        class_probs = torch.softmax(all_outputs[:, :self.num_classes], dim=1)
+        # NOTE: softmax is already applied inside DenseVollNet.forward(),
+        # do NOT apply it again here — double softmax compresses probabilities
+        # toward uniform and caps confidence at ~0.73 instead of 0.99+
+        class_probs = all_outputs[:, : self.num_classes]
         # Box vector layout: [x, y, z, t, h, w, d, c] (after sigmoid, values in [0, 1])
-        box_predictions = all_outputs[:, self.num_classes:]
+        box_predictions = all_outputs[:, self.num_classes :]
 
         # Collect candidate detections that pass threshold
         candidates = []
@@ -296,23 +304,27 @@ class OneatActionModule(BaseModule):
                 pred_w = box_predictions[i, 5].item() * self.imagex
                 pred_d = box_predictions[i, 6].item() * self.imagez
 
-                candidates.append({
-                    'time': t,
-                    'z': int(z_center),
-                    'y': int(y_center),
-                    'x': int(x_center),
-                    'h': round(pred_h, 2),
-                    'w': round(pred_w, 2),
-                    'd': round(pred_d, 2),
-                    'cell_id': cell_id_val,
-                    'predicted_class': predicted_class,
-                    'confidence': confidence,
-                    'event_name': self.event_names[predicted_class] if predicted_class < len(self.event_names) else f'class_{predicted_class}',
-                    'filename': filename,
-                })
+                candidates.append(
+                    {
+                        "time": t,
+                        "z": int(z_center),
+                        "y": int(y_center),
+                        "x": int(x_center),
+                        "h": round(pred_h, 2),
+                        "w": round(pred_w, 2),
+                        "d": round(pred_d, 2),
+                        "cell_id": cell_id_val,
+                        "predicted_class": predicted_class,
+                        "confidence": confidence,
+                        "event_name": self.event_names[predicted_class]
+                        if predicted_class < len(self.event_names)
+                        else f"class_{predicted_class}",
+                        "filename": filename,
+                    }
+                )
 
         # Sort candidates by confidence (highest first) for greedy NMS
-        candidates.sort(key=lambda d: d['confidence'], reverse=True)
+        candidates.sort(key=lambda d: d["confidence"], reverse=True)
 
         # Online spatial NMS: check against recent detections buffer
         surviving = []
@@ -320,14 +332,14 @@ class OneatActionModule(BaseModule):
             suppressed = False
             # Check against existing buffer detections
             for existing in self._recent_detections:
-                if det['event_name'] != existing['event_name']:
+                if det["event_name"] != existing["event_name"]:
                     continue
-                if abs(det['time'] - existing['time']) > self.nms_time:
+                if abs(det["time"] - existing["time"]) > self.nms_time:
                     continue
                 spatial_dist = np.sqrt(
-                    (det['x'] - existing['x']) ** 2
-                    + (det['y'] - existing['y']) ** 2
-                    + (det['z'] - existing['z']) ** 2
+                    (det["x"] - existing["x"]) ** 2
+                    + (det["y"] - existing["y"]) ** 2
+                    + (det["z"] - existing["z"]) ** 2
                 )
                 if spatial_dist < self.nms_space:
                     suppressed = True
@@ -336,12 +348,12 @@ class OneatActionModule(BaseModule):
             # Also check against already-surviving detections from this timepoint
             if not suppressed:
                 for s in surviving:
-                    if det['event_name'] != s['event_name']:
+                    if det["event_name"] != s["event_name"]:
                         continue
                     spatial_dist = np.sqrt(
-                        (det['x'] - s['x']) ** 2
-                        + (det['y'] - s['y']) ** 2
-                        + (det['z'] - s['z']) ** 2
+                        (det["x"] - s["x"]) ** 2
+                        + (det["y"] - s["y"]) ** 2
+                        + (det["z"] - s["z"]) ** 2
                     )
                     if spatial_dist < self.nms_space:
                         suppressed = True

@@ -15,7 +15,6 @@ import napari
 import numpy as np
 import pandas as pd
 from magicgui import magicgui
-from magicgui import widgets as mw
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from psygnal import Signal
 from qtpy.QtCore import Qt
@@ -88,7 +87,7 @@ def plugin_wrapper_oneat_visualizer():
         label_head=dict(
             widget_type="Label",
             label=f'<h1> <img src="{kapoorlogo}"> </h1>',
-            value='<h5>ONEAT Event Visualizer & Annotator</h5>',
+            value="<h5>ONEAT Event Visualizer & Annotator</h5>",
         ),
         event_selector=dict(
             widget_type="RadioButtons",
@@ -204,7 +203,11 @@ def plugin_wrapper_oneat_visualizer():
     score_slider.setSingleStep(1)
     score_slider.setTickInterval(1)
     # Set slider to position corresponding to DEFAULT_THRESHOLD (0.7)
-    default_slider_pos = int((DEFAULT_THRESHOLD - DEFAULT_START_PROB) / (1.0 - DEFAULT_START_PROB) * SLIDER_STEPS)
+    default_slider_pos = int(
+        (DEFAULT_THRESHOLD - DEFAULT_START_PROB)
+        / (1.0 - DEFAULT_START_PROB)
+        * SLIDER_STEPS
+    )
     score_slider.setValue(default_slider_pos)
     score_value_label = QLabel(f"{DEFAULT_THRESHOLD:.3f}")
     slider_row.addWidget(slider_label_text)
@@ -244,9 +247,13 @@ def plugin_wrapper_oneat_visualizer():
             return
 
         # Filter the original dataframe
-        mask = current_csv_data['confidence'] >= real_value
+        mask = current_csv_data["confidence"] >= real_value
         high_prob_df = current_csv_data[mask]
-        points = high_prob_df[['t', 'z', 'y', 'x']].values if len(high_prob_df) > 0 else np.empty((0, 4))
+        points = (
+            high_prob_df[["t", "z", "y", "x"]].values
+            if len(high_prob_df) > 0
+            else np.empty((0, 4))
+        )
 
         viewer = plugin.viewer.value
 
@@ -256,8 +263,26 @@ def plugin_wrapper_oneat_visualizer():
                 layer.data = points
                 break
 
+        # Update boxes layer for high-prob events only
+        if has_boxes:
+            box_df = (
+                high_prob_df.dropna(subset=["h", "w", "d"])
+                if len(high_prob_df) > 0
+                else pd.DataFrame()
+            )
+            for layer in viewer.layers:
+                if layer.name == "High Prob Boxes":
+                    if len(box_df) > 0:
+                        rectangles = _make_box_rectangles(box_df)
+                        layer.data = rectangles
+                    else:
+                        layer.data = []
+                    break
+
         _overlay_high_prob_on_plot(high_prob_df, real_value)
-        plugin.status_label.value = f"{len(high_prob_df)} high-prob detections (threshold >= {real_value:.3f})"
+        plugin.status_label.value = (
+            f"{len(high_prob_df)} high-prob detections (threshold >= {real_value:.3f})"
+        )
 
     apply_threshold_btn.clicked.connect(_apply_threshold)
 
@@ -267,19 +292,23 @@ def plugin_wrapper_oneat_visualizer():
             plugin.status_label.value = "No prediction data with confidence to filter"
             return
 
-        filtered_df = current_csv_data[current_csv_data['confidence'] >= event_threshold]
+        filtered_df = current_csv_data[
+            current_csv_data["confidence"] >= event_threshold
+        ]
         if len(filtered_df) == 0:
             plugin.status_label.value = "No detections above current threshold"
             return
 
         csv_dir = os.path.dirname(current_csv_path)
         csv_stem = os.path.splitext(os.path.basename(current_csv_path))[0]
-        threshold_str = f"{event_threshold:.2f}".replace('.', 'p')
+        threshold_str = f"{event_threshold:.2f}".replace(".", "p")
         output_name = f"{csv_stem}_high_prob_{threshold_str}.csv"
         output_path = os.path.join(csv_dir, output_name)
 
         filtered_df.to_csv(output_path, index=False)
-        plugin.status_label.value = f"Saved {len(filtered_df)} high-prob detections to {output_name}"
+        plugin.status_label.value = (
+            f"Saved {len(filtered_df)} high-prob detections to {output_name}"
+        )
         print(f"Saved high probability detections: {output_path}")
 
     save_high_prob_btn.clicked.connect(_on_save_high_prob)
@@ -297,18 +326,20 @@ def plugin_wrapper_oneat_visualizer():
 
         # Extract coordinates based on dimensionality
         if len(clicked_location) == 4:  # TZYX
-            t, z, y, x = [int(coord) for coord in clicked_location]
+            t, z, y, x = (int(coord) for coord in clicked_location)
         elif len(clicked_location) == 3:  # TYX
-            t, y, x = [int(coord) for coord in clicked_location]
+            t, y, x = (int(coord) for coord in clicked_location)
             z = 0
         else:
             return
 
-        new_point = {'t': t, 'z': z, 'y': y, 'x': x}
+        new_point = {"t": t, "z": z, "y": y, "x": x}
         clicked_points.append(new_point)
 
         print(f"Added point: t={t}, z={z}, y={y}, x={x}")
-        plugin.status_label.value = f"Added point at t={t}, z={z}, y={y}, x={x} ({len(clicked_points)} new)"
+        plugin.status_label.value = (
+            f"Added point at t={t}, z={z}, y={y}, x={x} ({len(clicked_points)} new)"
+        )
 
         _update_viewer_with_new_points()
         _update_table()
@@ -317,31 +348,33 @@ def plugin_wrapper_oneat_visualizer():
         """Create rectangle corner arrays for napari Shapes layer from detections with h, w, d columns."""
         rectangles = []
         for _, row in df.iterrows():
-            t = row['t']
-            z = row['z']
-            y = row['y']
-            x = row['x']
-            h = row['h']
-            w = row['w']
+            t = row["t"]
+            z = row["z"]
+            y = row["y"]
+            x = row["x"]
+            h = row["h"]
+            w = row["w"]
             half_h = h / 2
             half_w = w / 2
-            rect = np.array([
-                [t, z, y - half_h, x - half_w],
-                [t, z, y - half_h, x + half_w],
-                [t, z, y + half_h, x + half_w],
-                [t, z, y + half_h, x - half_w],
-            ])
+            rect = np.array(
+                [
+                    [t, z, y - half_h, x - half_w],
+                    [t, z, y - half_h, x + half_w],
+                    [t, z, y + half_h, x + half_w],
+                    [t, z, y + half_h, x - half_w],
+                ]
+            )
             rectangles.append(rect)
         return rectangles
 
     def _get_filtered_data():
         """Return current CSV data filtered by confidence threshold if applicable."""
         if current_csv_data is None or len(current_csv_data) == 0:
-            return pd.DataFrame(columns=['t', 'z', 'y', 'x'])
+            return pd.DataFrame(columns=["t", "z", "y", "x"])
 
         df = current_csv_data.copy()
-        if has_confidence and 'confidence' in df.columns:
-            df = df[df['confidence'] >= event_threshold].reset_index(drop=True)
+        if has_confidence and "confidence" in df.columns:
+            df = df[df["confidence"] >= event_threshold].reset_index(drop=True)
         return df
 
     def _update_viewer_with_new_points():
@@ -349,10 +382,9 @@ def plugin_wrapper_oneat_visualizer():
         combined_df = _get_filtered_data()
 
         if len(clicked_points) > 0:
-            combined_df = pd.concat([
-                combined_df,
-                pd.DataFrame(clicked_points)
-            ], ignore_index=True)
+            combined_df = pd.concat(
+                [combined_df, pd.DataFrame(clicked_points)], ignore_index=True
+            )
 
         # Remove old points and shapes layers
         for layer in list(plugin.viewer.value.layers):
@@ -360,7 +392,7 @@ def plugin_wrapper_oneat_visualizer():
                 plugin.viewer.value.layers.remove(layer)
 
         if len(combined_df) > 0:
-            points_array = combined_df[['t', 'z', 'y', 'x']].values
+            points_array = combined_df[["t", "z", "y", "x"]].values
 
             kwargs = dict(
                 name=f"{current_event_name} Events (Updated)",
@@ -370,30 +402,30 @@ def plugin_wrapper_oneat_visualizer():
                 ndim=4,
             )
 
-            if has_confidence and 'confidence' in combined_df.columns:
-                kwargs['properties'] = {
-                    'confidence': combined_df['confidence'].apply(
-                        lambda c: f"{c:.3f}" if pd.notna(c) else ""
-                    ).values
+            if has_confidence and "confidence" in combined_df.columns:
+                kwargs["properties"] = {
+                    "confidence": combined_df["confidence"]
+                    .apply(lambda c: f"{c:.3f}" if pd.notna(c) else "")
+                    .values
                 }
-                kwargs['text'] = {
-                    'string': '{confidence}',
-                    'size': 8,
-                    'color': 'yellow',
-                    'anchor': 'upper_left',
+                kwargs["text"] = {
+                    "string": "{confidence}",
+                    "size": 8,
+                    "color": "yellow",
+                    "anchor": "upper_left",
                 }
 
             plugin.viewer.value.add_points(points_array, **kwargs)
 
-            if has_boxes and all(c in combined_df.columns for c in ('h', 'w', 'd')):
-                box_df = combined_df.dropna(subset=['h', 'w', 'd'])
+            if has_boxes and all(c in combined_df.columns for c in ("h", "w", "d")):
+                box_df = combined_df.dropna(subset=["h", "w", "d"])
                 if len(box_df) > 0:
                     rectangles = _make_box_rectangles(box_df)
                     plugin.viewer.value.add_shapes(
                         rectangles,
-                        shape_type='rectangle',
+                        shape_type="rectangle",
                         name=f"{current_event_name} Boxes (Updated)",
-                        edge_color='cyan',
+                        edge_color="cyan",
                         face_color="transparent",
                         edge_width=2,
                         ndim=4,
@@ -404,14 +436,17 @@ def plugin_wrapper_oneat_visualizer():
         combined_df = _get_filtered_data()
 
         if len(clicked_points) > 0:
-            combined_df = pd.concat([
-                combined_df,
-                pd.DataFrame(clicked_points)
-            ], ignore_index=True)
+            combined_df = pd.concat(
+                [combined_df, pd.DataFrame(clicked_points)], ignore_index=True
+            )
 
-        display_cols = [c for c in ('t', 'z', 'y', 'x', 'h', 'w', 'd', 'confidence') if c in combined_df.columns]
+        display_cols = [
+            c
+            for c in ("t", "z", "y", "x", "h", "w", "d", "confidence")
+            if c in combined_df.columns
+        ]
         if not display_cols:
-            display_cols = ['t', 'z', 'y', 'x']
+            display_cols = ["t", "z", "y", "x"]
 
         # Block signals to avoid per-cell redraws
         table_widget.blockSignals(True)
@@ -426,11 +461,13 @@ def plugin_wrapper_oneat_visualizer():
                 for col_idx, col in enumerate(display_cols):
                     if col in row.index:
                         val = row[col]
-                        if col in ('confidence', 'h', 'w', 'd'):
+                        if col in ("confidence", "h", "w", "d"):
                             cell_text = f"{val:.3f}" if pd.notna(val) else ""
                         else:
                             cell_text = str(int(val))
-                        table_widget.setItem(row_idx, col_idx, QTableWidgetItem(cell_text))
+                        table_widget.setItem(
+                            row_idx, col_idx, QTableWidgetItem(cell_text)
+                        )
 
         table_widget.setUpdatesEnabled(True)
         table_widget.blockSignals(False)
@@ -442,26 +479,41 @@ def plugin_wrapper_oneat_visualizer():
         ax = plot_fig.axes[0]
 
         # Remove previous green overlay bars (identified by label)
-        bars_to_remove = [c for c in ax.containers if hasattr(c, 'get_label') and c.get_label().startswith('>=')]
+        bars_to_remove = [
+            c
+            for c in ax.containers
+            if hasattr(c, "get_label") and c.get_label().startswith(">=")
+        ]
         for bar in bars_to_remove:
             bar.remove()
         # Also remove from legend
         legend_handles = []
         legend_labels = []
         for h, l in zip(*ax.get_legend_handles_labels()):
-            if not l.startswith('>='):
+            if not l.startswith(">="):
                 legend_handles.append(h)
                 legend_labels.append(l)
 
-        if len(filtered_df) > 0 and 't' in filtered_df.columns:
-            all_df = current_csv_data if current_csv_data is not None else pd.DataFrame(columns=['t'])
+        if len(filtered_df) > 0 and "t" in filtered_df.columns:
+            all_df = (
+                current_csv_data
+                if current_csv_data is not None
+                else pd.DataFrame(columns=["t"])
+            )
             if len(all_df) > 0:
-                t_min = int(all_df['t'].min())
-                t_max = int(all_df['t'].max())
+                t_min = int(all_df["t"].min())
+                t_max = int(all_df["t"].max())
                 bins = np.arange(t_min, t_max + 2) - 0.5
-                bars = ax.hist(filtered_df['t'].values, bins=bins, color='#2ecc71', edgecolor='white', alpha=0.85, label=f'>= {threshold:.3f} ({len(filtered_df)})')
+                bars = ax.hist(
+                    filtered_df["t"].values,
+                    bins=bins,
+                    color="#2ecc71",
+                    edgecolor="white",
+                    alpha=0.85,
+                    label=f">= {threshold:.3f} ({len(filtered_df)})",
+                )
                 legend_handles.append(bars[2][0])
-                legend_labels.append(f'>= {threshold:.3f} ({len(filtered_df)})')
+                legend_labels.append(f">= {threshold:.3f} ({len(filtered_df)})")
 
         ax.legend(legend_handles, legend_labels, fontsize=8)
         plot_canvas.draw_idle()
@@ -472,23 +524,41 @@ def plugin_wrapper_oneat_visualizer():
         plot_fig.clear()
         ax = plot_fig.add_subplot(111)
 
-        all_df = current_csv_data if current_csv_data is not None else pd.DataFrame(columns=['t'])
+        all_df = (
+            current_csv_data
+            if current_csv_data is not None
+            else pd.DataFrame(columns=["t"])
+        )
         filtered_df = _get_filtered_data()
 
-        if len(all_df) > 0 and 't' in all_df.columns:
-            t_min = int(all_df['t'].min())
-            t_max = int(all_df['t'].max())
+        if len(all_df) > 0 and "t" in all_df.columns:
+            t_min = int(all_df["t"].min())
+            t_max = int(all_df["t"].max())
             bins = np.arange(t_min, t_max + 2) - 0.5
 
             # All detections in red
-            ax.hist(all_df['t'].values, bins=bins, color='#e74c3c', edgecolor='white', alpha=0.5, label=f'all ({len(all_df)})')
+            ax.hist(
+                all_df["t"].values,
+                bins=bins,
+                color="#e74c3c",
+                edgecolor="white",
+                alpha=0.5,
+                label=f"all ({len(all_df)})",
+            )
 
             # High-prob detections in green on top
             if has_confidence and len(filtered_df) > 0:
-                ax.hist(filtered_df['t'].values, bins=bins, color='#2ecc71', edgecolor='white', alpha=0.85, label=f'>= {event_threshold:.3f} ({len(filtered_df)})')
+                ax.hist(
+                    filtered_df["t"].values,
+                    bins=bins,
+                    color="#2ecc71",
+                    edgecolor="white",
+                    alpha=0.85,
+                    label=f">= {event_threshold:.3f} ({len(filtered_df)})",
+                )
 
-            ax.set_xlabel('Timepoint')
-            ax.set_ylabel('Detections')
+            ax.set_xlabel("Timepoint")
+            ax.set_ylabel("Detections")
             title = f"{current_event_name} detections"
             if has_confidence:
                 title += f" | threshold >= {event_threshold:.3f}"
@@ -496,8 +566,8 @@ def plugin_wrapper_oneat_visualizer():
             ax.legend(fontsize=8)
         else:
             ax.set_title("No detections", fontsize=10)
-            ax.set_xlabel('Timepoint')
-            ax.set_ylabel('Detections')
+            ax.set_xlabel("Timepoint")
+            ax.set_ylabel("Detections")
 
         plot_fig.tight_layout()
         plot_canvas.draw()
@@ -516,9 +586,15 @@ def plugin_wrapper_oneat_visualizer():
             plugin.viewer.value.mouse_double_click_callbacks.append(get_event)
             mouse_callback_registered = True
 
-        raw_directory = str(plugin_data.raw_dir.value) if plugin_data.raw_dir.value else None
-        seg_directory = str(plugin_data.seg_dir.value) if plugin_data.seg_dir.value else None
-        csv_directory = str(plugin_data.csv_dir.value) if plugin_data.csv_dir.value else None
+        raw_directory = (
+            str(plugin_data.raw_dir.value) if plugin_data.raw_dir.value else None
+        )
+        seg_directory = (
+            str(plugin_data.seg_dir.value) if plugin_data.seg_dir.value else None
+        )
+        csv_directory = (
+            str(plugin_data.csv_dir.value) if plugin_data.csv_dir.value else None
+        )
 
         if not raw_directory or not csv_directory:
             plugin.status_label.value = "Error: Must select raw and CSV directories"
@@ -536,9 +612,13 @@ def plugin_wrapper_oneat_visualizer():
 
         is_loading = True
         try:
-            plugin_select.raw_image_selector.choices = [os.path.basename(f) for f in raw_files]
+            plugin_select.raw_image_selector.choices = [
+                os.path.basename(f) for f in raw_files
+            ]
             if seg_files:
-                plugin_select.seg_image_selector.choices = ["None"] + [os.path.basename(f) for f in seg_files]
+                plugin_select.seg_image_selector.choices = ["None"] + [
+                    os.path.basename(f) for f in seg_files
+                ]
             else:
                 plugin_select.seg_image_selector.choices = ["None"]
 
@@ -592,19 +672,23 @@ def plugin_wrapper_oneat_visualizer():
 
             if os.path.exists(csv_path):
                 current_csv_data = pd.read_csv(csv_path)
-                current_csv_data.columns = [col.lower() for col in current_csv_data.columns]
-                if 'time' in current_csv_data.columns:
-                    current_csv_data = current_csv_data.rename(columns={'time': 't'})
-                has_confidence = 'confidence' in current_csv_data.columns
-                has_boxes = all(c in current_csv_data.columns for c in ('h', 'w', 'd'))
+                current_csv_data.columns = [
+                    col.lower() for col in current_csv_data.columns
+                ]
+                if "time" in current_csv_data.columns:
+                    current_csv_data = current_csv_data.rename(columns={"time": "t"})
+                has_confidence = "confidence" in current_csv_data.columns
+                has_boxes = all(c in current_csv_data.columns for c in ("h", "w", "d"))
                 current_csv_path = csv_path
-                print(f"Loaded CSV with {len(current_csv_data)} events (confidence: {has_confidence}, boxes: {has_boxes})")
+                print(
+                    f"Loaded CSV with {len(current_csv_data)} events (confidence: {has_confidence}, boxes: {has_boxes})"
+                )
             else:
-                current_csv_data = pd.DataFrame(columns=['t', 'z', 'y', 'x'])
+                current_csv_data = pd.DataFrame(columns=["t", "z", "y", "x"])
                 has_confidence = False
                 has_boxes = False
                 current_csv_path = csv_path
-                print(f"No CSV found, created empty DataFrame")
+                print("No CSV found, created empty DataFrame")
 
             current_event_name = selected_event
             clicked_points = []
@@ -624,13 +708,13 @@ def plugin_wrapper_oneat_visualizer():
         finally:
             is_loading = False
 
-    
-
     def _update_viewer():
         """Update napari viewer with current images and points"""
         plugin.viewer.value.layers.clear()
 
-        plugin.viewer.value.add_image(current_raw_image, name="Raw Image", colormap="gray")
+        plugin.viewer.value.add_image(
+            current_raw_image, name="Raw Image", colormap="gray"
+        )
 
         if current_seg_image is not None:
             plugin.viewer.value.add_labels(current_seg_image, name="Segmentation")
@@ -638,7 +722,7 @@ def plugin_wrapper_oneat_visualizer():
         filtered_df = _get_filtered_data()
 
         if len(filtered_df) > 0:
-            points_array = filtered_df[['t', 'z', 'y', 'x']].values
+            points_array = filtered_df[["t", "z", "y", "x"]].values
             print(f"Adding {len(points_array)} points")
             print(f"Image shape: {current_raw_image.shape}")
 
@@ -650,15 +734,17 @@ def plugin_wrapper_oneat_visualizer():
                 ndim=4,
             )
 
-            if has_confidence and 'confidence' in filtered_df.columns:
-                kwargs['properties'] = {
-                    'confidence': filtered_df['confidence'].apply(lambda c: f"{c:.3f}").values
+            if has_confidence and "confidence" in filtered_df.columns:
+                kwargs["properties"] = {
+                    "confidence": filtered_df["confidence"]
+                    .apply(lambda c: f"{c:.3f}")
+                    .values
                 }
-                kwargs['text'] = {
-                    'string': '{confidence}',
-                    'size': 8,
-                    'color': 'yellow',
-                    'anchor': 'upper_left',
+                kwargs["text"] = {
+                    "string": "{confidence}",
+                    "size": 8,
+                    "color": "yellow",
+                    "anchor": "upper_left",
                 }
 
             plugin.viewer.value.add_points(points_array, **kwargs)
@@ -666,8 +752,16 @@ def plugin_wrapper_oneat_visualizer():
             # Create High Prob Events layer with same data (green filled)
             # Threshold changes will just swap its data
             if has_confidence:
+                high_prob_mask = current_csv_data["confidence"] >= event_threshold
+                high_prob_df = current_csv_data[high_prob_mask]
+                high_prob_points = (
+                    high_prob_df[["t", "z", "y", "x"]].values
+                    if len(high_prob_df) > 0
+                    else np.empty((0, 4))
+                )
+
                 plugin.viewer.value.add_points(
-                    points_array.copy(),
+                    high_prob_points,
                     name="High Prob Events",
                     border_color="green",
                     face_color="transparent",
@@ -675,20 +769,47 @@ def plugin_wrapper_oneat_visualizer():
                     ndim=4,
                 )
 
-            if has_boxes:
-                rectangles = _make_box_rectangles(filtered_df)
-                if len(rectangles) > 0:
+                # Boxes only for high-prob events, updated with threshold
+                if has_boxes and len(high_prob_df) > 0:
+                    box_df = high_prob_df.dropna(subset=["h", "w", "d"])
+                    if len(box_df) > 0:
+                        rectangles = _make_box_rectangles(box_df)
+                        plugin.viewer.value.add_shapes(
+                            rectangles,
+                            shape_type="rectangle",
+                            name="High Prob Boxes",
+                            edge_color="cyan",
+                            face_color="transparent",
+                            edge_width=2,
+                            ndim=4,
+                        )
+                    else:
+                        # Empty shapes layer so we can swap data later
+                        plugin.viewer.value.add_shapes(
+                            [],
+                            shape_type="rectangle",
+                            name="High Prob Boxes",
+                            edge_color="cyan",
+                            face_color="transparent",
+                            edge_width=2,
+                            ndim=4,
+                        )
+                elif has_boxes:
                     plugin.viewer.value.add_shapes(
-                        rectangles,
-                        shape_type='rectangle',
-                        name=f"{current_event_name} Boxes",
-                        edge_color='cyan',
+                        [],
+                        shape_type="rectangle",
+                        name="High Prob Boxes",
+                        edge_color="cyan",
                         face_color="transparent",
                         edge_width=2,
                         ndim=4,
                     )
 
-    @change_handler(plugin_select.raw_image_selector, plugin_select.seg_image_selector, plugin.event_selector)
+    @change_handler(
+        plugin_select.raw_image_selector,
+        plugin_select.seg_image_selector,
+        plugin.event_selector,
+    )
     def _on_selection_changed(value):
         """Auto-load when selections change"""
         if not is_loading and len(raw_files) > 0:
@@ -712,24 +833,28 @@ def plugin_wrapper_oneat_visualizer():
 
         csv_directory = str(plugin_data.csv_dir.value)
         output_csv = os.path.join(
-            csv_directory,
-            f"oneat_{current_event_name}_{image_name}.csv"
+            csv_directory, f"oneat_{current_event_name}_{image_name}.csv"
         )
 
-        combined_df = current_csv_data.copy() if current_csv_data is not None and len(current_csv_data) > 0 else pd.DataFrame(columns=['t', 'z', 'y', 'x'])
+        combined_df = (
+            current_csv_data.copy()
+            if current_csv_data is not None and len(current_csv_data) > 0
+            else pd.DataFrame(columns=["t", "z", "y", "x"])
+        )
 
         if len(clicked_points) > 0:
-            combined_df = pd.concat([
-                combined_df,
-                pd.DataFrame(clicked_points)
-            ], ignore_index=True)
+            combined_df = pd.concat(
+                [combined_df, pd.DataFrame(clicked_points)], ignore_index=True
+            )
 
         combined_df.columns = [col.lower() for col in combined_df.columns]
-        combined_df = combined_df.sort_values('t').reset_index(drop=True)
+        combined_df = combined_df.sort_values("t").reset_index(drop=True)
 
         combined_df.to_csv(output_csv, index=False)
 
-        plugin.status_label.value = f"Saved {len(combined_df)} points to {os.path.basename(output_csv)}"
+        plugin.status_label.value = (
+            f"Saved {len(combined_df)} points to {os.path.basename(output_csv)}"
+        )
         print(f"Saved CSV: {output_csv}")
 
         current_csv_data = combined_df.copy()
@@ -762,7 +887,7 @@ def plugin_wrapper_oneat_visualizer():
     # Table tab
     table_widget = QTableWidget()
     table_widget.setColumnCount(4)
-    table_widget.setHorizontalHeaderLabels(['T', 'Z', 'Y', 'X'])
+    table_widget.setHorizontalHeaderLabels(["T", "Z", "Y", "X"])
     tabs.addTab(table_widget, "Event Table")
 
     # Plot tab - detections over time
