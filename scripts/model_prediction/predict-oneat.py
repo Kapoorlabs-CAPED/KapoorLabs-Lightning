@@ -31,7 +31,8 @@ def main(config: OneatPredictClass):
     # Extract parameters
     num_classes = config.parameters.num_classes
     devices = config.parameters.devices
-    accelerator = config.parameters.accelerator
+    accelerator = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
 
     # Model architecture parameters
     imagex = config.parameters.imagex
