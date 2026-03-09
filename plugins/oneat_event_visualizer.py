@@ -35,8 +35,8 @@ from tifffile import imread
 
 
 SLIDER_STEPS = 5000
-DEFAULT_START_PROB = 0.0
-DEFAULT_THRESHOLD = 0.7
+DEFAULT_START_PROB = 0.9
+DEFAULT_THRESHOLD = 0.9
 
 
 def plugin_wrapper_oneat_visualizer():
