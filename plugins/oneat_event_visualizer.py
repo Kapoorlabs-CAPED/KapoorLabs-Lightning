@@ -35,8 +35,8 @@ from tifffile import imread
 
 
 SLIDER_STEPS = 5000
-DEFAULT_START_PROB = 0.9
-DEFAULT_THRESHOLD = 0.9
+DEFAULT_START_PROB = 0.999
+DEFAULT_THRESHOLD = 0.999
 
 
 def plugin_wrapper_oneat_visualizer():
@@ -186,10 +186,10 @@ def plugin_wrapper_oneat_visualizer():
     startprob_row = QHBoxLayout()
     startprob_label = QLabel("Start Prob:")
     startprob_spinbox = QDoubleSpinBox()
-    startprob_spinbox.setValue(DEFAULT_START_PROB)  # 0.0 — full range
-    startprob_spinbox.setDecimals(3)
-    startprob_spinbox.setRange(0.0, 1.0)
-    startprob_spinbox.setSingleStep(0.01)
+    startprob_spinbox.setValue(DEFAULT_START_PROB)
+    startprob_spinbox.setDecimals(6)
+    startprob_spinbox.setRange(0.0, 0.999999)
+    startprob_spinbox.setSingleStep(0.001)
     startprob_row.addWidget(startprob_label)
     startprob_row.addWidget(startprob_spinbox)
     threshold_layout.addLayout(startprob_row)
@@ -209,7 +209,7 @@ def plugin_wrapper_oneat_visualizer():
         * SLIDER_STEPS
     )
     score_slider.setValue(default_slider_pos)
-    score_value_label = QLabel(f"{DEFAULT_THRESHOLD:.3f}")
+    score_value_label = QLabel(f"{DEFAULT_THRESHOLD:.6f}")
     slider_row.addWidget(slider_label_text)
     slider_row.addWidget(score_slider)
     slider_row.addWidget(score_value_label)
@@ -225,7 +225,8 @@ def plugin_wrapper_oneat_visualizer():
     def _slider_to_threshold(slider_value):
         """Convert integer slider value to real probability threshold."""
         start_prob = startprob_spinbox.value()
-        return start_prob + (1.0 - start_prob) / SLIDER_STEPS * float(slider_value)
+        end_prob = 0.999999
+        return start_prob + (end_prob - start_prob) / SLIDER_STEPS * float(slider_value)
 
     apply_threshold_btn = QPushButton("Apply Threshold")
     threshold_layout.addWidget(apply_threshold_btn)
@@ -233,7 +234,7 @@ def plugin_wrapper_oneat_visualizer():
     def _on_slider_moved(value):
         """Only update the label text, nothing else."""
         real_value = _slider_to_threshold(value)
-        score_value_label.setText(f"{real_value:.3f}")
+        score_value_label.setText(f"{real_value:.6f}")
 
     score_slider.valueChanged.connect(_on_slider_moved)
 
@@ -242,7 +243,7 @@ def plugin_wrapper_oneat_visualizer():
         nonlocal event_threshold
         real_value = _slider_to_threshold(score_slider.value())
         event_threshold = real_value
-        score_value_label.setText(f"{real_value:.3f}")
+        score_value_label.setText(f"{real_value:.6f}")
         if is_loading or current_csv_data is None or not has_confidence:
             return
 
