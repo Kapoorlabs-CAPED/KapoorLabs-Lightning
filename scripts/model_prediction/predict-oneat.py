@@ -237,7 +237,7 @@ def main(config: OneatPredictClass):
             # Group by event type and save separate CSV files
             for event_name in df['event_name'].unique():
                 event_df = df[df['event_name'] == event_name]
-                output_df = event_df[['time', 'z', 'y', 'x', 'confidence']].rename(columns={'time': 't'})
+                output_df = event_df[['time', 'z', 'y', 'x', 'h', 'w', 'd', 'confidence']].rename(columns={'time': 't'})
                 csv_filename = f"oneat_{event_name}_{os.path.splitext(raw_basename)[0]}.csv"
                 csv_path = os.path.join(predictions_dir, csv_filename)
                 output_df.to_csv(csv_path, index=False)

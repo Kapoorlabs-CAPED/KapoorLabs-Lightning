@@ -261,7 +261,7 @@ class OneatActionModule(BaseModule):
             return []
 
         # Batched forward pass - chunk to avoid OOM with many cells
-        all_class_probs = []
+        all_outputs = []
         for chunk_start in range(0, len(patches), self.batch_size_predict):
             chunk = patches[chunk_start:chunk_start + self.batch_size_predict]
             batch_tensor = torch.stack(chunk, dim=0)  # (chunk_size, T, Z, Y, X)
@@ -272,10 +272,14 @@ class OneatActionModule(BaseModule):
             if outputs.dim() > 2:
                 outputs = outputs.squeeze(-1).squeeze(-1).squeeze(-1)
 
-            chunk_probs = torch.softmax(outputs[:, :self.num_classes], dim=1)
-            all_class_probs.append(chunk_probs)
+            all_outputs.append(outputs)
 
-        class_probs = torch.cat(all_class_probs, dim=0)
+        all_outputs = torch.cat(all_outputs, dim=0)  # (N_cells, num_classes + box_vector)
+
+        # Extract class probabilities and box predictions
+        class_probs = torch.softmax(all_outputs[:, :self.num_classes], dim=1)
+        # Box vector layout: [x, y, z, t, h, w, d, c] (after sigmoid, values in [0, 1])
+        box_predictions = all_outputs[:, self.num_classes:]
 
         # Collect candidate detections that pass threshold
         candidates = []
@@ -285,11 +289,21 @@ class OneatActionModule(BaseModule):
 
             # Only keep non-background events above threshold
             if predicted_class > 0 and confidence >= self.event_threshold:
+                # Extract predicted bounding box dimensions (h, w, d)
+                # Indices 4, 5, 6 in box_vector correspond to h, w, d
+                # Scale from [0, 1] sigmoid output to pixel dimensions
+                pred_h = box_predictions[i, 4].item() * self.imagey
+                pred_w = box_predictions[i, 5].item() * self.imagex
+                pred_d = box_predictions[i, 6].item() * self.imagez
+
                 candidates.append({
                     'time': t,
                     'z': int(z_center),
                     'y': int(y_center),
                     'x': int(x_center),
+                    'h': round(pred_h, 2),
+                    'w': round(pred_w, 2),
+                    'd': round(pred_d, 2),
                     'cell_id': cell_id_val,
                     'predicted_class': predicted_class,
                     'confidence': confidence,

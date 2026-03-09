@@ -55,9 +55,9 @@ reduction: 0.5
 alpha: 0.01
 n_tiles: [1,4,4]
 file_type: '*.tif'
-nms_space: 10
-nms_time: 2
-event_threshold: 0.7
+nms_space: 30
+nms_time: 3
+event_threshold: 0.72
 batch_size_predict: 100
 normalizeimage: True
 test_pred: True
