@@ -304,18 +304,22 @@ class OneatActionModule(BaseModule):
                 pred_w = box_predictions[i, 5].item() * self.imagex
                 pred_d = box_predictions[i, 6].item() * self.imagez
 
+                # Effective sphere diameter from bounding box h, w, d
+                size = round((pred_h * pred_w * pred_d) ** (1.0 / 3.0), 2)
+
                 candidates.append(
                     {
                         "time": t,
                         "z": int(z_center),
                         "y": int(y_center),
                         "x": int(x_center),
+                        "score": confidence,
+                        "size": size,
                         "h": round(pred_h, 2),
                         "w": round(pred_w, 2),
                         "d": round(pred_d, 2),
                         "cell_id": cell_id_val,
                         "predicted_class": predicted_class,
-                        "confidence": confidence,
                         "event_name": self.event_names[predicted_class]
                         if predicted_class < len(self.event_names)
                         else f"class_{predicted_class}",
@@ -324,7 +328,7 @@ class OneatActionModule(BaseModule):
                 )
 
         # Sort candidates by confidence (highest first) for greedy NMS
-        candidates.sort(key=lambda d: d["confidence"], reverse=True)
+        candidates.sort(key=lambda d: d["score"], reverse=True)
 
         # Online spatial NMS: check against recent detections buffer
         surviving = []

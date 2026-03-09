@@ -247,7 +247,7 @@ def plugin_wrapper_oneat_visualizer():
             return
 
         # Filter the original dataframe
-        mask = current_csv_data["confidence"] >= real_value
+        mask = current_csv_data["score"] >= real_value
         high_prob_df = current_csv_data[mask]
         points = (
             high_prob_df[["t", "z", "y", "x"]].values
@@ -292,9 +292,7 @@ def plugin_wrapper_oneat_visualizer():
             plugin.status_label.value = "No prediction data with confidence to filter"
             return
 
-        filtered_df = current_csv_data[
-            current_csv_data["confidence"] >= event_threshold
-        ]
+        filtered_df = current_csv_data[current_csv_data["score"] >= event_threshold]
         if len(filtered_df) == 0:
             plugin.status_label.value = "No detections above current threshold"
             return
@@ -373,8 +371,8 @@ def plugin_wrapper_oneat_visualizer():
             return pd.DataFrame(columns=["t", "z", "y", "x"])
 
         df = current_csv_data.copy()
-        if has_confidence and "confidence" in df.columns:
-            df = df[df["confidence"] >= event_threshold].reset_index(drop=True)
+        if has_confidence and "score" in df.columns:
+            df = df[df["score"] >= event_threshold].reset_index(drop=True)
         return df
 
     def _update_viewer_with_new_points():
@@ -402,14 +400,14 @@ def plugin_wrapper_oneat_visualizer():
                 ndim=4,
             )
 
-            if has_confidence and "confidence" in combined_df.columns:
+            if has_confidence and "score" in combined_df.columns:
                 kwargs["properties"] = {
-                    "confidence": combined_df["confidence"]
+                    "score": combined_df["score"]
                     .apply(lambda c: f"{c:.3f}" if pd.notna(c) else "")
                     .values
                 }
                 kwargs["text"] = {
-                    "string": "{confidence}",
+                    "string": "{score}",
                     "size": 8,
                     "color": "yellow",
                     "anchor": "upper_left",
@@ -442,7 +440,7 @@ def plugin_wrapper_oneat_visualizer():
 
         display_cols = [
             c
-            for c in ("t", "z", "y", "x", "h", "w", "d", "confidence")
+            for c in ("t", "z", "y", "x", "score", "size", "h", "w", "d")
             if c in combined_df.columns
         ]
         if not display_cols:
@@ -461,7 +459,7 @@ def plugin_wrapper_oneat_visualizer():
                 for col_idx, col in enumerate(display_cols):
                     if col in row.index:
                         val = row[col]
-                        if col in ("confidence", "h", "w", "d"):
+                        if col in ("score", "size", "h", "w", "d"):
                             cell_text = f"{val:.3f}" if pd.notna(val) else ""
                         else:
                             cell_text = str(int(val))
@@ -677,7 +675,12 @@ def plugin_wrapper_oneat_visualizer():
                 ]
                 if "time" in current_csv_data.columns:
                     current_csv_data = current_csv_data.rename(columns={"time": "t"})
-                has_confidence = "confidence" in current_csv_data.columns
+                # Normalize old 'confidence' column name to 'score'
+                if "confidence" in current_csv_data.columns:
+                    current_csv_data = current_csv_data.rename(
+                        columns={"confidence": "score"}
+                    )
+                has_confidence = "score" in current_csv_data.columns
                 has_boxes = all(c in current_csv_data.columns for c in ("h", "w", "d"))
                 current_csv_path = csv_path
                 print(
@@ -703,7 +706,7 @@ def plugin_wrapper_oneat_visualizer():
             csv_status = "existing" if os.path.exists(csv_path) else "new"
             extra = ""
             if has_confidence:
-                extra = f", confidence range: [{current_csv_data['confidence'].min():.3f}, {current_csv_data['confidence'].max():.3f}]"
+                extra = f", score range: [{current_csv_data['score'].min():.3f}, {current_csv_data['score'].max():.3f}]"
             plugin.status_label.value = f"{image_name} - {selected_event} ({len(current_csv_data)} events, {csv_status}{extra})"
         finally:
             is_loading = False
@@ -734,14 +737,12 @@ def plugin_wrapper_oneat_visualizer():
                 ndim=4,
             )
 
-            if has_confidence and "confidence" in filtered_df.columns:
+            if has_confidence and "score" in filtered_df.columns:
                 kwargs["properties"] = {
-                    "confidence": filtered_df["confidence"]
-                    .apply(lambda c: f"{c:.3f}")
-                    .values
+                    "score": filtered_df["score"].apply(lambda c: f"{c:.3f}").values
                 }
                 kwargs["text"] = {
-                    "string": "{confidence}",
+                    "string": "{score}",
                     "size": 8,
                     "color": "yellow",
                     "anchor": "upper_left",
@@ -752,7 +753,7 @@ def plugin_wrapper_oneat_visualizer():
             # Create High Prob Events layer with same data (green filled)
             # Threshold changes will just swap its data
             if has_confidence:
-                high_prob_mask = current_csv_data["confidence"] >= event_threshold
+                high_prob_mask = current_csv_data["score"] >= event_threshold
                 high_prob_df = current_csv_data[high_prob_mask]
                 high_prob_points = (
                     high_prob_df[["t", "z", "y", "x"]].values

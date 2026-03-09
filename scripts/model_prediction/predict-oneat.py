@@ -3,7 +3,6 @@ from glob import glob
 from pathlib import Path
 
 import hydra
-import numpy as np
 import pandas as pd
 import torch
 from hydra.core.config_store import ConfigStore
@@ -24,15 +23,12 @@ configstore = ConfigStore.instance()
 configstore.store(name="OneatPredictClass", node=OneatPredictClass)
 
 
-@hydra.main(
-    config_path="../conf", config_name="scenario_predict_oneat"
-)
+@hydra.main(config_path="../conf", config_name="scenario_predict_oneat")
 def main(config: OneatPredictClass):
     # Extract parameters
     num_classes = config.parameters.num_classes
     devices = config.parameters.devices
-    accelerator = 'cuda' if torch.cuda.is_available() else 'cpu'
-    
+    accelerator = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Model architecture parameters
     imagex = config.parameters.imagex
@@ -57,17 +53,27 @@ def main(config: OneatPredictClass):
 
     # Data paths
     base_data_dir = config.experiment_data_paths.base_data_dir
-    raw_timelapses_dir = os.path.join(base_data_dir, config.experiment_data_paths.raw_timelapses)
-    seg_timelapses_dir = os.path.join(base_data_dir, config.experiment_data_paths.seg_timelapses)
-    predictions_dir = os.path.join(base_data_dir, config.experiment_data_paths.oneat_predictions)
+    raw_timelapses_dir = os.path.join(
+        base_data_dir, config.experiment_data_paths.raw_timelapses
+    )
+    seg_timelapses_dir = os.path.join(
+        base_data_dir, config.experiment_data_paths.seg_timelapses
+    )
+    predictions_dir = os.path.join(
+        base_data_dir, config.experiment_data_paths.oneat_predictions
+    )
 
     # Test prediction: crop a small ROI from center of each timelapse
     test_pred = config.parameters.test_pred
     test_roi_xy = config.parameters.test_roi_xy
 
     if test_pred:
-        print(f"\nTest prediction mode: cropping {test_roi_xy}x{test_roi_xy} XY ROI from center")
-        raw_files_full = sorted(glob(os.path.join(raw_timelapses_dir, config.parameters.file_type)))
+        print(
+            f"\nTest prediction mode: cropping {test_roi_xy}x{test_roi_xy} XY ROI from center"
+        )
+        raw_files_full = sorted(
+            glob(os.path.join(raw_timelapses_dir, config.parameters.file_type))
+        )
         for raw_file in raw_files_full:
             basename = os.path.basename(raw_file)
             seg_file = os.path.join(seg_timelapses_dir, basename)
@@ -150,7 +156,7 @@ def main(config: OneatPredictClass):
     # Load model from checkpoint using Lightning
     lightning_model = OneatActionModule.load_from_checkpoint(
         ckpt_path,
-        map_location='cpu',
+        map_location="cpu",
         weights_only=False,
         network=network,
         eval_transforms=eval_transforms,
@@ -171,10 +177,14 @@ def main(config: OneatPredictClass):
     if test_pred:
         raw_files = [os.path.join(raw_timelapses_dir, "test_dataset.tif")]
     else:
-        raw_files = sorted(glob(os.path.join(raw_timelapses_dir, config.parameters.file_type)))
+        raw_files = sorted(
+            glob(os.path.join(raw_timelapses_dir, config.parameters.file_type))
+        )
 
     print(f"Found {len(raw_files)} raw timelapse files")
-    print(f"Event threshold: {event_threshold}, NMS space: {nms_space}, NMS time: {nms_time}")
+    print(
+        f"Event threshold: {event_threshold}, NMS space: {nms_space}, NMS time: {nms_time}"
+    )
 
     # Create Lightning Trainer for prediction
     trainer = Trainer(
@@ -236,10 +246,14 @@ def main(config: OneatPredictClass):
             df = pd.DataFrame(all_detections)
 
             # Group by event type and save separate CSV files
-            for event_name in df['event_name'].unique():
-                event_df = df[df['event_name'] == event_name]
-                output_df = event_df[['time', 'z', 'y', 'x', 'h', 'w', 'd', 'confidence']].rename(columns={'time': 't'})
-                csv_filename = f"oneat_{event_name}_{os.path.splitext(raw_basename)[0]}.csv"
+            for event_name in df["event_name"].unique():
+                event_df = df[df["event_name"] == event_name]
+                output_df = event_df[
+                    ["time", "z", "y", "x", "score", "size", "h", "w", "d"]
+                ].rename(columns={"time": "t"})
+                csv_filename = (
+                    f"oneat_{event_name}_{os.path.splitext(raw_basename)[0]}.csv"
+                )
                 csv_path = os.path.join(predictions_dir, csv_filename)
                 output_df.to_csv(csv_path, index=False)
                 print(f"Saved {len(event_df)} {event_name} detections to: {csv_path}")

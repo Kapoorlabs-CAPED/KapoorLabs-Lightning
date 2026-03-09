@@ -57,7 +57,7 @@ n_tiles: [1,4,4]
 file_type: '*.tif'
 nms_space: 30
 nms_time: 3
-event_threshold: 0.99
+event_threshold: 0.999
 batch_size_predict: 100
 normalizeimage: True
 test_pred: True
