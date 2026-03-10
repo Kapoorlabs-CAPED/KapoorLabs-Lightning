@@ -1,6 +1,6 @@
 # KapoorLabs-Lightning
 
-# Developed by KapoorLabs
+## Developed by KapoorLabs
 
 
 <img src="images/mtrack.png" alt="Logo1" width="150"/>
