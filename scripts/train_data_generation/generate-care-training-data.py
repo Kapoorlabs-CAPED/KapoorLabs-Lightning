@@ -8,6 +8,8 @@ Expects:
 Produces:
     H5 file with /train/low, /train/high, /val/low, /val/high
     Each dataset has shape (N_patches, patch_z, patch_y, patch_x)
+
+Patches are written incrementally in batches to avoid holding all data in memory.
 """
 
 import os
@@ -26,33 +28,66 @@ configstore = ConfigStore.instance()
 configstore.store(name="CareDataClass", node=CareDataClass)
 
 
-def extract_patches_3d(volume, patch_shape, stride=None):
+def _write_care_batch_to_h5(group, key, patches):
+    """Append a batch of patches to a resizable H5 dataset."""
+    arr = np.array(patches)
+    if key not in group:
+        group.create_dataset(
+            key,
+            data=arr,
+            maxshape=(None,) + arr.shape[1:],
+            chunks=True,
+            compression="gzip",
+        )
+    else:
+        old_size = group[key].shape[0]
+        new_size = old_size + len(patches)
+        group[key].resize(new_size, axis=0)
+        group[key][old_size:new_size] = arr
+
+
+def extract_and_write_patches(
+    low_vol, high_vol, patch_shape, stride, group, batch_write_size=100
+):
     """
-    Extract non-overlapping (or strided) 3D patches from a volume.
-
-    Args:
-        volume: numpy array (Z, Y, X)
-        patch_shape: (pz, py, px)
-        stride: (sz, sy, sx) — defaults to patch_shape (non-overlapping)
-
-    Returns:
-        list of patches as numpy arrays
+    Extract 3D patches from paired volumes and write them directly to H5
+    in batches, never holding more than batch_write_size patches in memory.
     """
-    if stride is None:
-        stride = patch_shape
-
     pz, py, px = patch_shape
     sz, sy, sx = stride
-    vz, vy, vx = volume.shape
+    vz, vy, vx = low_vol.shape
 
-    patches = []
+    low_batch = []
+    high_batch = []
+    total = 0
+
     for z in range(0, vz - pz + 1, sz):
         for y in range(0, vy - py + 1, sy):
             for x in range(0, vx - px + 1, sx):
-                patch = volume[z : z + pz, y : y + py, x : x + px]
-                patches.append(patch)
+                low_batch.append(low_vol[z : z + pz, y : y + py, x : x + px])
+                high_batch.append(high_vol[z : z + pz, y : y + py, x : x + px])
 
-    return patches
+                if len(low_batch) >= batch_write_size:
+                    _write_care_batch_to_h5(group, "low", low_batch)
+                    _write_care_batch_to_h5(group, "high", high_batch)
+                    total += len(low_batch)
+                    low_batch = []
+                    high_batch = []
+
+    if len(low_batch) > 0:
+        _write_care_batch_to_h5(group, "low", low_batch)
+        _write_care_batch_to_h5(group, "high", high_batch)
+        total += len(low_batch)
+
+    return total
+
+
+def _load_volume(filepath):
+    """Load a 3D volume from a tif file, taking first channel if 4D."""
+    vol = imread(filepath)
+    if vol.ndim == 4:
+        vol = vol[:, 0] if vol.shape[1] < vol.shape[0] else vol[0]
+    return vol
 
 
 @hydra.main(config_path="../conf", config_name="scenario_generate_care")
@@ -102,89 +137,57 @@ def main(config: CareDataClass):
         train_pairs = paired_files[:-1]
         val_pairs = paired_files[-1:]
     else:
-        # Single file: use it for both train and val
         train_pairs = paired_files
         val_pairs = paired_files
 
-    # Extract patches
     print(f"\nPatch shape: {patch_shape}, stride: {stride}")
 
-    train_low_patches = []
-    train_high_patches = []
-    val_low_patches = []
-    val_high_patches = []
-
-    for low_file, high_file in train_pairs:
-        basename = os.path.basename(low_file)
-        print(f"\n[TRAIN] Processing {basename}...")
-
-        low_vol = imread(low_file)
-        high_vol = imread(high_file)
-
-        # Handle multi-channel: take first channel if needed
-        if low_vol.ndim == 4:
-            low_vol = low_vol[:, 0] if low_vol.shape[1] < low_vol.shape[0] else low_vol[0]
-        if high_vol.ndim == 4:
-            high_vol = high_vol[:, 0] if high_vol.shape[1] < high_vol.shape[0] else high_vol[0]
-
-        assert low_vol.shape == high_vol.shape, (
-            f"Shape mismatch: low {low_vol.shape} vs high {high_vol.shape}"
-        )
-
-        print(f"  Volume shape: {low_vol.shape}")
-
-        low_patches = extract_patches_3d(low_vol, patch_shape, stride)
-        high_patches = extract_patches_3d(high_vol, patch_shape, stride)
-
-        print(f"  Extracted {len(low_patches)} patches")
-        train_low_patches.extend(low_patches)
-        train_high_patches.extend(high_patches)
-
-    for low_file, high_file in val_pairs:
-        basename = os.path.basename(low_file)
-        print(f"\n[VAL] Processing {basename}...")
-
-        low_vol = imread(low_file)
-        high_vol = imread(high_file)
-
-        if low_vol.ndim == 4:
-            low_vol = low_vol[:, 0] if low_vol.shape[1] < low_vol.shape[0] else low_vol[0]
-        if high_vol.ndim == 4:
-            high_vol = high_vol[:, 0] if high_vol.shape[1] < high_vol.shape[0] else high_vol[0]
-
-        assert low_vol.shape == high_vol.shape
-
-        # Use non-overlapping stride for validation
-        low_patches = extract_patches_3d(low_vol, patch_shape)
-        high_patches = extract_patches_3d(high_vol, patch_shape)
-
-        print(f"  Extracted {len(low_patches)} val patches")
-        val_low_patches.extend(low_patches)
-        val_high_patches.extend(high_patches)
-
-    # Stack into arrays
-    train_low = np.stack(train_low_patches, axis=0)
-    train_high = np.stack(train_high_patches, axis=0)
-    val_low = np.stack(val_low_patches, axis=0)
-    val_high = np.stack(val_high_patches, axis=0)
-
-    print(f"\nTrain: {train_low.shape[0]} patches, Val: {val_low.shape[0]} patches")
-    print(f"Patch shape: {train_low.shape[1:]}")
-
-    # Write H5 file
     Path(os.path.dirname(h5_output_path)).mkdir(parents=True, exist_ok=True)
 
-    with h5py.File(h5_output_path, "w") as f:
-        train_grp = f.create_group("train")
-        train_grp.create_dataset("low", data=train_low, compression="gzip")
-        train_grp.create_dataset("high", data=train_high, compression="gzip")
+    train_total = 0
+    val_total = 0
 
-        val_grp = f.create_group("val")
-        val_grp.create_dataset("low", data=val_low, compression="gzip")
-        val_grp.create_dataset("high", data=val_high, compression="gzip")
+    with h5py.File(h5_output_path, "w") as h5f:
+        train_grp = h5f.create_group("train")
+        val_grp = h5f.create_group("val")
+
+        for low_file, high_file in train_pairs:
+            basename = os.path.basename(low_file)
+            print(f"\n[TRAIN] Processing {basename}...")
+
+            low_vol = _load_volume(low_file)
+            high_vol = _load_volume(high_file)
+
+            assert low_vol.shape == high_vol.shape, (
+                f"Shape mismatch: low {low_vol.shape} vs high {high_vol.shape}"
+            )
+            print(f"  Volume shape: {low_vol.shape}")
+
+            n = extract_and_write_patches(
+                low_vol, high_vol, patch_shape, stride, train_grp
+            )
+            train_total += n
+            print(f"  Wrote {n} patches (total: {train_total})")
+
+        for low_file, high_file in val_pairs:
+            basename = os.path.basename(low_file)
+            print(f"\n[VAL] Processing {basename}...")
+
+            low_vol = _load_volume(low_file)
+            high_vol = _load_volume(high_file)
+
+            assert low_vol.shape == high_vol.shape
+
+            # Use non-overlapping stride for validation
+            n = extract_and_write_patches(
+                low_vol, high_vol, patch_shape, patch_shape, val_grp
+            )
+            val_total += n
+            print(f"  Wrote {n} val patches (total: {val_total})")
 
     file_size_mb = os.path.getsize(h5_output_path) / (1024 * 1024)
-    print(f"\nSaved H5 file: {h5_output_path} ({file_size_mb:.1f} MB)")
+    print(f"\nTrain: {train_total} patches, Val: {val_total} patches")
+    print(f"Saved H5 file: {h5_output_path} ({file_size_mb:.1f} MB)")
     print("Done!")
 
 
