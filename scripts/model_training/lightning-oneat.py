@@ -36,8 +36,6 @@ def main(config: OneatClass):
     alpha = config.parameters.alpha
     weight_decay = config.parameters.weight_decay
     momentum = config.parameters.momentum
-    eta_min = config.parameters.eta_min
-    t_warmup = config.parameters.t_warmup
     gamma = config.parameters.gamma
     scheduler = hydra.utils.instantiate(
         config.parameters.scheduler, t_max = epochs, t_warmup = 5, factor = alpha
@@ -104,8 +102,6 @@ def main(config: OneatClass):
         slurm_auto_requeue=slurm_auto_requeue,
         weight_decay=weight_decay,
         momentum=momentum,
-        eta_min=eta_min,
-        t_warmup=t_warmup,
         gamma=gamma,
         experiment_name=experiment_name,
         scheduler = scheduler

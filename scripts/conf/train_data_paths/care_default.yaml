@@ -1,0 +1,6 @@
+base_data_dir: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/edge_enhancement_training/'
+low_dir: 'low_raw_membrane'
+high_dir: 'gt_raw_membrane'
+care_h5_file: edge_enhancement_membrane.h5
+log_path: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/xenopus_edge_enhancement/'
+experiment_name: care_denoising

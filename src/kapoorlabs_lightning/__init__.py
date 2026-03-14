@@ -9,10 +9,12 @@ from .base_module import (
 )
 from .oneat_module import OneatActionModule
 from .cellfate_module import CellFateModule
+from .care_module import CareModule, stitch_tiles
 
 from .lightning_trainer import (
     MitosisInception,
 )
+from .care_trainer import CareInception
 
 
 from .pytorch_datasets import (
@@ -25,6 +27,7 @@ from .pytorch_datasets import (
     H5VisionDataset,
 )
 from .oneat_prediction_dataset import OneatPredictionDataset
+from .care_dataset import H5CareDataset, CarePredictionDataset, compute_tile_shape
 from .nms_utils import nms_space_time, group_detections_by_event
 from .classification_score import ClassificationScore, evaluate_multiple_events
 from .pytorch_loggers import CustomNPZLogger
@@ -53,6 +56,19 @@ from .oneat_presets import (
     OneatTrainPresetMedium,
     OneatTrainPresetHeavy,
     OneatEvalPreset,
+)
+from .care_presets import (
+    CareTrainPresetLight,
+    CareTrainPresetMedium,
+    CareTrainPresetHeavy,
+    CareEvalPreset,
+)
+from .care_transforms import (
+    PairedRandomSpatialFlip,
+    PairedRandomRotation90,
+    InputGaussianNoise,
+    PairedPercentileNormalize,
+    PairedToFloat32,
 )
 from .time_series_presets import (
     CellFateTrainPresetLight,
@@ -100,6 +116,7 @@ __all__ = [
     "Rprop",
     "SGD", "LARS", "AdamWClipStyle",
     "MitosisInception",
+    "CareInception",
     "plot_npz_files",
     "plot_npz_files_interactive",
     "create_event_dataset_h5",
@@ -132,6 +149,20 @@ __all__ = [
     "GenericDataset",
     "GenericDataModule",
     "OneatPredictionDataset",
+    "CareModule",
+    "stitch_tiles",
+    "H5CareDataset",
+    "CarePredictionDataset",
+    "compute_tile_shape",
+    "CareTrainPresetLight",
+    "CareTrainPresetMedium",
+    "CareTrainPresetHeavy",
+    "CareEvalPreset",
+    "PairedRandomSpatialFlip",
+    "PairedRandomRotation90",
+    "InputGaussianNoise",
+    "PairedPercentileNormalize",
+    "PairedToFloat32",
     "nms_space_time",
     "group_detections_by_event",
     "ClassificationScore",

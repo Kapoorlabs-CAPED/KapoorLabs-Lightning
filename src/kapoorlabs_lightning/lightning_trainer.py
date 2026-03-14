@@ -78,7 +78,6 @@ class MitosisInception:
         experiment_name: str = "experiment_name",
         scheduler: str = None, 
         learning_rate: float = 0.001,
-        eta_min: float = 1.0e-8,
         momentum: float = 0.9,
         decay: float = 1e-4,
         epsilon: float = 1.0,
@@ -91,7 +90,6 @@ class MitosisInception:
         factor: float = 0.1,
         patience: int = 10,
         threshold: float = 1e-4,
-        t_warmup: int = 0,
         t_max: int = None,
         weight_decay: float = 1e-5,
         eps: float = 1e-1,
@@ -119,7 +117,6 @@ class MitosisInception:
         self.devices = devices
         self.experiment_name = experiment_name
         self.learning_rate = learning_rate
-        self.eta_min = eta_min
         self.slurm_auto_requeue = slurm_auto_requeue
         self.train_precision = train_precision
         self.scheduler = scheduler
@@ -134,7 +131,6 @@ class MitosisInception:
         self.factor = factor
         self.patience = patience
         self.threshold = threshold
-        self.t_warmup = t_warmup
         self.strategy = strategy
         self.weight_decay = weight_decay
         self.eps = eps

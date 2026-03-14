@@ -1,0 +1,4 @@
+defaults:
+    - _self_
+    - train_data_paths: care_default.yaml
+    - parameters: care.yaml
