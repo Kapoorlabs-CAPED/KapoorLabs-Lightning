@@ -2,7 +2,7 @@ import os
 import re
 
 # Configuration
-directory = "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam/"  
+directory = "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_combined/"  
 keep_n_first = 2
 keep_n_middle = 2
 keep_n_last = 2

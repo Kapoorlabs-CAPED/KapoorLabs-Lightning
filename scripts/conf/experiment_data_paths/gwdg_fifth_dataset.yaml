@@ -1,4 +1,4 @@
-base_data_dir: '/mnt/lustre-rzg/workspaces/ws/nhr_ni_test_27040/u26482-Organoids/Mari_Fifth_Dataset_Analysis/' 
+base_data_dir: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/Mari_Fifth_Dataset_Analysis/' 
 raw_timelapses : 'nuclei_timelapses/'
 seg_timelapses : 'seg_nuclei_timelapses/'
 oneat_predictions: 'lighting_oneat/'

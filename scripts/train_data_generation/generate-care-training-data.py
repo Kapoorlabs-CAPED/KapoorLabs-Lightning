@@ -106,7 +106,7 @@ def main(config: CareDataClass):
 
     patch_shape = (patch_z, patch_y, patch_x)
     # Use half-patch stride for 50% overlap to get more training data
-    stride = (max(1, patch_z // 2), max(1, patch_y // 2), max(1, patch_x // 2))
+    stride = (max(1, 2 * patch_z // 3), max(1, 2 * patch_y // 3), max(1, 2 * patch_x // 3))
 
     # Find paired files
     low_files = sorted(glob(os.path.join(low_dir, file_type)))

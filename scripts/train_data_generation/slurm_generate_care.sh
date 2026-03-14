@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
-#SBATCH --partition=grete:shared
+##SBATCH --partition=grete:shared
 
 # Load modules
 module purge
