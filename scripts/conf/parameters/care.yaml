@@ -4,9 +4,9 @@ num_channels_init: 64
 use_batch_norm: True
 
 # Patch shape (ZYX) for training
-patch_z: 16
-patch_y: 64
-patch_x: 64
+patch_z: 8
+patch_y: 256
+patch_x: 256
 
 # Training parameters
 learning_rate: 0.0004
