@@ -206,9 +206,13 @@ class CareInception:
         )
         self.unet_depth = unet_depth
         self.num_channels_init = num_channels_init
+        self.conv_dims = conv_dims 
+        self.in_channels = in_channels 
+        self.num_classes = num_classes
 
         print(
-            f"CARE UNet: depth={unet_depth}, init_filters={num_channels_init}"
+            f"CARE UNet: depth={unet_depth}, init_filters={num_channels_init}, \
+            conv_dims={conv_dims}, in_channels={in_channels}, num_classes={num_classes}"
         )
 
     
@@ -271,7 +275,7 @@ class CareInception:
             "learning_rate": self.learning_rate,
             "batch_size": self.batch_size,
             "epochs": self.epochs,
-            "n_tiles": self.n_tiles,
+            "n_tiles": tuple(self.n_tiles),
             "tile_overlap": self.tile_overlap,
             "model_path": self.log_path,
             "model_name": self.experiment_name,
