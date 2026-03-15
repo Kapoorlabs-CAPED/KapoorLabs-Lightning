@@ -4,10 +4,10 @@
 #SBATCH --error=care_train_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:A100:1
+#SBATCH --cpus-per-task=10
+#SBATCH --gres=gpu:A100:2
 #SBATCH --partition=grete:shared
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 
 # Load modules
 module purge

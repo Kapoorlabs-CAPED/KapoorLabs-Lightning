@@ -10,12 +10,12 @@ patch_x: 256
 
 # Training parameters
 learning_rate: 0.0004
-batch_size: 16
+batch_size: 32
 epochs: 100
-num_workers: 4
-devices: 1
+num_workers: 8
+devices: 2
 accelerator: 'cuda'
-train_precision: '32-true'
+train_precision: '16-mixed'
 strategy: 'auto'
 gradient_clip_val: null
 gradient_clip_algorithm: null
