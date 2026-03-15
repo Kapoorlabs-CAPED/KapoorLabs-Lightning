@@ -25,20 +25,21 @@ class H5CareDataset(Dataset):
         transforms: Callable that takes (low, high) tensors and returns (low, high).
     """
 
-    def __init__(self, h5_file, split="train", transforms=None):
+    def __init__(self, h5_file, split="train", transforms=None,
+                 input_key="low", target_key="high"):
         self.h5_file = h5_file
         self.split = split
         self.transforms = transforms
 
         self.h5_handle = h5py.File(h5_file, "r", swmr=True)
-        self.low_dataset = self.h5_handle[f"{split}/low"]
-        self.high_dataset = self.h5_handle[f"{split}/high"]
+        self.low_dataset = self.h5_handle[f"{split}/{input_key}"]
+        self.high_dataset = self.h5_handle[f"{split}/{target_key}"]
 
         assert len(self.low_dataset) == len(self.high_dataset), (
-            f"Mismatch: {len(self.low_dataset)} low vs {len(self.high_dataset)} high patches"
+            f"Mismatch: {len(self.low_dataset)} {input_key} vs {len(self.high_dataset)} {target_key} patches"
         )
         self.num_samples = len(self.low_dataset)
-        self.patch_shape = self.low_dataset.shape[1:]  # (Z, Y, X)
+        self.patch_shape = self.low_dataset.shape[1:]
 
     def __len__(self):
         return self.num_samples

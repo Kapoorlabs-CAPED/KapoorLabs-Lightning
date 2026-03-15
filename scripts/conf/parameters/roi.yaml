@@ -1,0 +1,48 @@
+# UNet architecture (from careamics)
+unet_depth: 3
+num_channels_init: 64
+use_batch_norm: True
+
+# Patch shape (YX) for training
+
+patch_y: 1024
+patch_x: 1024
+
+conv_dims: 2
+
+# Training parameters
+learning_rate: 0.0004
+batch_size: 32
+epochs: 100
+num_workers: 8
+devices: 'auto'
+accelerator: 'cuda'
+train_precision: '32'
+strategy: 'auto'
+gradient_clip_val: null
+gradient_clip_algorithm: null
+slurm_auto_requeue: True
+alpha: 0.01
+
+# Transform parameters
+transform_preset: 'medium'
+percentile_norm: True
+pmin: 0.1
+pmax: 99.9
+gaussian_noise_std: 0.01
+spatial_flip_p: 0.5
+rotation_p: 0.5
+
+# Optimizer
+weight_decay: 0.0
+eta_min: 1.0E-8
+t_warmup: 5
+
+# Prediction parameters
+n_tiles: [1, 1]
+tile_overlap: 0.125
+file_type: '*.tif'
+
+# Scheduler
+scheduler:
+  _target_: kapoorlabs_lightning.schedulers.WarmCosineAnnealingLR

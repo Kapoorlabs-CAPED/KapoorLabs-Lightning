@@ -1,0 +1,67 @@
+from dataclasses import dataclass
+from kapoorlabs_lightning.schedulers import _Schedulers
+
+
+@dataclass
+class RoiParams:
+    # UNet architecture
+    unet_depth: int
+    num_channels_init: int
+    use_batch_norm: bool
+
+    # Patch shape
+    patch_y: int
+    patch_x: int
+
+    conv_dims: int
+
+    # Training parameters
+    learning_rate: float
+    batch_size: int
+    epochs: int
+    num_workers: int
+    devices: int
+    accelerator: str
+    train_precision: str
+    strategy: str
+    gradient_clip_val: float
+    gradient_clip_algorithm: str
+    slurm_auto_requeue: bool
+
+    # Transform parameters
+    transform_preset: str
+    percentile_norm: bool
+    pmin: float
+    pmax: float
+    gaussian_noise_std: float
+    spatial_flip_p: float
+    rotation_p: float
+
+    # Optimizer
+    weight_decay: float
+    eta_min: float
+    t_warmup: int
+
+    # Prediction parameters
+    n_tiles: list
+    tile_overlap: float
+    file_type: str
+
+    # Scheduler
+    scheduler: _Schedulers
+
+
+@dataclass
+class RoiDataPaths:
+    base_data_dir: str
+    raw_dir: str
+    mask_dir: str
+    roi_h5_file: str
+    log_path: str
+    experiment_name: str
+
+
+@dataclass
+class RoiDataClass:
+    parameters: RoiParams
+    train_data_paths: RoiDataPaths

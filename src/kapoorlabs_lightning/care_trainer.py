@@ -150,7 +150,7 @@ class CareInception:
 
     # ── Dataset setup ──
 
-    def setup_care_h5_datasets(self):
+    def setup_care_h5_datasets(self, input_key="low", target_key="high"):
         train_transform = (
             self.train_transforms if hasattr(self, "train_transforms") else None
         )
@@ -159,10 +159,12 @@ class CareInception:
         )
 
         self.dataset_train = H5CareDataset(
-            self.h5_file, split="train", transforms=train_transform
+            self.h5_file, split="train", transforms=train_transform,
+            input_key=input_key, target_key=target_key,
         )
         self.dataset_val = H5CareDataset(
-            self.h5_file, split="val", transforms=val_transform
+            self.h5_file, split="val", transforms=val_transform,
+            input_key=input_key, target_key=target_key,
         )
 
         self.datamodule = GenericDataModule(

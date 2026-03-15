@@ -1,0 +1,6 @@
+base_data_dir: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/roi_training/'
+raw_dir: 'raw_roi'
+mask_dir: 'mask_roi'
+roi_h5_file: roi_segmentation.h5
+log_path: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/xenopus_roi_segmentation/'
+experiment_name: roi_segmentation
