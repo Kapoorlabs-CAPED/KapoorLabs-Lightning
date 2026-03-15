@@ -17,7 +17,7 @@ configstore.store(name="OneatClass", node=OneatClass)
 
 
 @hydra.main(
-    config_path="../conf", config_name="scenario_train_oneat"
+    config_path="../conf", config_name="scenario_train_oneat", version_base='1.3'
 )
 def main(config: OneatClass):
     num_classes = config.parameters.num_classes

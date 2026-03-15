@@ -43,4 +43,4 @@ file_type: '*.tif'
 
 # Scheduler
 scheduler:
-  _target_: kapoorlabs_lightning.schedulers.ReduceLROnPlateau
+  _target_: kapoorlabs_lightning.schedulers.WarmCosineAnnealingLR

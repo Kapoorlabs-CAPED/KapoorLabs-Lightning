@@ -16,7 +16,7 @@ configstore = ConfigStore.instance()
 configstore.store(name="CareTrainClass", node=CareTrainClass)
 
 
-@hydra.main(config_path="../conf", config_name="scenario_train_care")
+@hydra.main(config_path="../conf", config_name="scenario_train_care", version_base='1.3')
 def main(config: CareTrainClass):
     # Extract parameters
     unet_depth = config.parameters.unet_depth

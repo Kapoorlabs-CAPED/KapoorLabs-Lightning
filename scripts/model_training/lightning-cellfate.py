@@ -28,7 +28,7 @@ configstore.store(name="CellFateClass", node=CellFateClass)
 
 
 @hydra.main(
-    config_path="../conf", config_name="scenario_train_cellfate"
+    config_path="../conf", config_name="scenario_train_cellfate", version_base='1.3'
 )
 def main(config: CellFateClass):
     num_classes = config.parameters.num_classes

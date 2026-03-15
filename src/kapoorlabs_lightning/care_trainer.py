@@ -22,9 +22,7 @@ from .care_presets import (
 from .base_module import _restore_schedulers
 from .lightning_trainer import LightningModelTrain
 from .optimizers import Adam, AdamW, SGD
-from .pytorch_callbacks import CheckpointModel
 from .pytorch_datasets import GenericDataModule
-from .pytorch_loggers import CustomNPZLogger
 from .utils import load_checkpoint_model
 from careamics.models.unet import UNet
 
