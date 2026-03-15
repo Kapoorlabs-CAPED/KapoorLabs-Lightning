@@ -3,7 +3,7 @@
 #SBATCH --output=care_train_%j.out
 #SBATCH --error=care_train_%j.err
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2 
+#SBATCH --ntasks=2
 #SBATCH --cpus-per-task=10
 #SBATCH --gres=gpu:A100:2
 #SBATCH --partition=grete:shared
