@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH --time=48:00:00
 #SBATCH --job-name=oneat_default
 #SBATCH --output=oneat_default_%j.out
 #SBATCH --error=oneat_default_%j.err

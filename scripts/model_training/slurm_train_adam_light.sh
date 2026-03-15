@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH --time=48:00:00
 #SBATCH --job-name=oneat_adam_light
 #SBATCH --output=oneat_adam_light_%j.out
 #SBATCH --error=oneat_adam_light_%j.err

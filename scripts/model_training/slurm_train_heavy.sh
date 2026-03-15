@@ -1,4 +1,5 @@
 #!/bin/bash
+#SBATCH --time=48:00:00
 #SBATCH --job-name=oneat_heavy
 #SBATCH --output=oneat_heavy_%j.out
 #SBATCH --error=oneat_heavy_%j.err
