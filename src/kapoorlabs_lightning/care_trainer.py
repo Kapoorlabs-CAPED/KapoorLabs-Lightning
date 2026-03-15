@@ -22,11 +22,11 @@ from .care_presets import (
 from .base_module import _restore_schedulers
 from .lightning_trainer import LightningModelTrain
 from .optimizers import Adam, AdamW, SGD
-from .pytorch_callbacks import CheckpointModel, CustomProgressBar
+from .pytorch_callbacks import CheckpointModel
 from .pytorch_datasets import GenericDataModule
 from .pytorch_loggers import CustomNPZLogger
 from .utils import load_checkpoint_model
-
+from careamics.models.unet import UNet
 
 class CareInception:
     """
@@ -64,6 +64,7 @@ class CareInception:
         strategy: str = "auto",
         n_tiles: list = None,
         tile_overlap: float = 0.125,
+       
     ):
         self.h5_file = h5_file
         self.num_workers = num_workers
@@ -84,6 +85,7 @@ class CareInception:
         self.strategy = strategy
         self.n_tiles = n_tiles if n_tiles is not None else [1, 4, 4]
         self.tile_overlap = tile_overlap
+       
         self.map_location = "cuda" if torch.cuda.is_available() else "cpu"
         self.ckpt_path = load_checkpoint_model(self.log_path)
 
@@ -190,13 +192,16 @@ class CareInception:
         unet_depth=3,
         num_channels_init=64,
         use_batch_norm=True,
+        conv_dims=3,
+        in_channels=1,
+        num_classes=1,
     ):
-        from careamics.models.unet import UNet
+        
 
         self.model = UNet(
-            conv_dims=3,
-            in_channels=1,
-            num_classes=1,
+            conv_dims=conv_dims,
+            in_channels=in_channels,
+            num_classes=num_classes,
             depth=unet_depth,
             num_channels_init=num_channels_init,
             use_batch_norm=use_batch_norm,
@@ -208,7 +213,7 @@ class CareInception:
             f"CARE UNet: depth={unet_depth}, init_filters={num_channels_init}"
         )
 
-    # ── Optimizer setup ──
+    
 
     def setup_adam(self):
         self.optimizer = Adam(lr=self.learning_rate)
@@ -225,7 +230,7 @@ class CareInception:
             weight_decay=self.weight_decay,
         )
 
-    # ── Scheduler setup ──
+    
 
     def setup_learning_rate_scheduler(self, weights_only=False):
         if self.ckpt_path is not None:
@@ -244,11 +249,10 @@ class CareInception:
             except IndexError:
                 pass
 
-    # ── Lightning model setup ──
 
     def setup_care_lightning_model(self):
         self.loss = torch.nn.MSELoss()
-        self.progress = CustomProgressBar()
+        
 
         eval_transforms = getattr(self, "val_transforms", None)
 
@@ -282,19 +286,7 @@ class CareInception:
 
         print("CARE Lightning model set up")
 
-    # ── Logger and checkpoint ──
 
-    def setup_logger(self):
-        self.npz_logger = CustomNPZLogger(
-            save_dir=self.log_path, experiment_name=self.experiment_name
-        )
-        self.logger = self.npz_logger
-
-    def setup_checkpoint(self):
-        self.ckpt_path = load_checkpoint_model(self.log_path)
-        self.modelcheckpoint = CheckpointModel(save_dir=self.log_path)
-
-    # ── Training ──
 
     def train(self, logger=[], callbacks=[]):
         print("Starting CARE training")
