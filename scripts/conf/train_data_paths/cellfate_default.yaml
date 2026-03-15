@@ -1,4 +1,4 @@
-base_data_dir: '/mnt/lustre-mdc/workspaces/ws/nhr_ni_test_27040/u26482-Organoids/cellfate_training/'
+base_data_dir: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/cellfate_training/'
 cellfate_h5_file: 'cellfate_nuclei.h5'
-log_path: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/cellfate_model/'
+log_path: '/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/cellfate_model_medium/'
 experiment_name: 'cellfate_nuclei'

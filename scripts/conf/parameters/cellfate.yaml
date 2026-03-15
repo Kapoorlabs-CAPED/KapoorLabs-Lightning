@@ -9,7 +9,7 @@ seq_len: 25
 
 # Training parameters
 learning_rate: 0.001
-batch_size: 64
+batch_size: 6400
 epochs: 250
 num_workers: 4
 devices: 1

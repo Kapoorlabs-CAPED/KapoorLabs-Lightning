@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --time=48:00:00
-#SBATCH --job-name=oneat_combined
-#SBATCH --output=oneat_combined_%j.out
-#SBATCH --error=oneat_combined_%j.err
+#SBATCH --job-name=inception
+#SBATCH --output=inception_%j.out
+#SBATCH --error=inception_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -21,7 +21,4 @@ source activate torchenv
 
 # Run training with combined dataset
 # Uses --config-name to override default scenario with combined config
-srun --unbuffered python lightning-oneat-adam.py \
-    --config-name=scenario_train_oneat_combined \
-    parameters.learning_rate=1.0e-3 \
-    parameters.transform_preset=heavy
+srun --unbuffered python lightning-cellfate.py
