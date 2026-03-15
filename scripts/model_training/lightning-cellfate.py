@@ -108,8 +108,6 @@ def main(config: CellFateClass):
         slurm_auto_requeue=slurm_auto_requeue,
         weight_decay=weight_decay,
         momentum=momentum,
-        eta_min=eta_min,
-        t_warmup=t_warmup,
         gamma=gamma,
         experiment_name=experiment_name,
         scheduler=scheduler,

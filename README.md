@@ -25,16 +25,18 @@ This product is a testament to our expertise at KapoorLabs, where we specialize 
 PyTorch Lightning framework for training deep learning models on microscopy data, with specialized support for:
 - **ONEAT**: Spatio-temporal event detection in 3D+T microscopy data
 - **Cell Fate Classification**: Time series classification of cell fates (basal, goblet, radial) from tracking data
+- **CARE**: Content-Aware image REstoration — supervised 3D denoising with paired low/high SNR training data
 
 ----------------------------------
 
 ## Key Features
 
-- **Modular Architecture**: Base, ONEAT, and Cell Fate Lightning modules
+- **Modular Architecture**: Base, ONEAT, Cell Fate, and CARE Lightning modules
 - **YOLO-style Detection**: VolumeYoloLoss for multi-task learning (classification + localization)
-- **H5 Dataset Support**: Memory-efficient streaming from HDF5 files with YOLO labels
+- **H5 Dataset Support**: Memory-efficient streaming from HDF5 files — patches written incrementally, never held in memory
 - **Segmentation-Guided Prediction**: Uses instance segmentation to locate cells, carves patches from raw image, classifies each cell, and records global coordinates for positive events
-- **Transform Presets**: Light, Medium, Heavy augmentation pipelines for microscopy data
+- **CARE Denoising**: Supervised 3D denoising via UNet (careamics), tiled prediction with linear-blend overlap stitching
+- **Transform Presets**: Light, Medium, Heavy augmentation pipelines for microscopy data (including paired transforms for denoising)
 - **Multiple Optimizers**: Adam, SGD, LARS, AdamW with learning rate schedulers
 - **SLURM Integration**: Auto-requeue support for HPC clusters
 - **Hydra Configuration**: YAML-based experiment configuration
@@ -46,19 +48,24 @@ kapoorlabs_lightning/
 ├── Lightning Modules
 │   ├── base_module.py          # BaseModule - common functionality
 │   ├── oneat_module.py         # OneatActionModule - event detection
-│   └── cellfate_module.py      # CellFateModule - time series classification
+│   ├── cellfate_module.py      # CellFateModule - time series classification
+│   └── care_module.py          # CareModule - 3D denoising (MSE + PSNR, tiled predict)
 ├── Models
 │   ├── pytorch_models.py       # DenseVollNet, DenseNet, InceptionNet
 │   └── pytorch_losses.py       # VolumeYoloLoss, OneatClassificationLoss
 ├── Data
 │   ├── pytorch_datasets.py        # H5VisionDataset, H5MitosisDataset
-│   └── oneat_prediction_dataset.py # OneatPredictionDataset (seg-guided inference)
+│   ├── oneat_prediction_dataset.py # OneatPredictionDataset (seg-guided inference)
+│   └── care_dataset.py            # H5CareDataset, CarePredictionDataset
 ├── Transforms
 │   ├── oneat_transforms.py     # Microscopy-specific augmentations
 │   ├── oneat_presets.py        # Light/Medium/Heavy presets
-│   └── time_series_presets.py  # Cell fate transforms + presets (order-preserving)
+│   ├── time_series_presets.py  # Cell fate transforms + presets (order-preserving)
+│   ├── care_transforms.py      # Paired transforms for denoising (low+high in sync)
+│   └── care_presets.py         # CARE Light/Medium/Heavy/Eval presets
 ├── Training
 │   ├── lightning_trainer.py    # MitosisInception trainer class
+│   ├── care_trainer.py         # CareInception trainer class
 │   ├── optimizers.py           # Adam, SGD, LARS, AdamW
 │   └── schedulers.py           # Cosine, WarmCosine, Step
 ├── Utilities
@@ -85,6 +92,7 @@ To install latest development version :
 
 - [ONEAT Training Guide](README_ONEAT.md) - Complete workflow for event detection
 - [Cell Fate Classification Guide](README_CELLFATE.md) - Time series cell fate classification
+- [CARE Denoising Guide](README_CARE.md) - 3D supervised denoising workflow
 - [Lightning Modules](src/kapoorlabs_lightning/README_litmodules.md) - Module architecture details
 
 ## Quick Start
@@ -138,6 +146,29 @@ trainer.setup_inception_qkv_model()
 trainer.setup_adam()
 trainer.setup_cellfate_lightning_model()
 trainer.train()
+```
+
+### CARE 3D Denoising
+
+```python
+from kapoorlabs_lightning import CareInception
+
+trainer = CareInception(
+    h5_file="care_training_data.h5",
+    epochs=100,
+    batch_size=16,
+    learning_rate=4e-4,
+    n_tiles=[1, 4, 4],
+    tile_overlap=0.125,
+)
+
+trainer.setup_care_transforms_medium()
+trainer.setup_care_h5_datasets()
+trainer.setup_care_unet_model(unet_depth=3, num_channels_init=64)
+trainer.setup_adam()
+trainer.setup_learning_rate_scheduler()
+trainer.setup_care_lightning_model()
+trainer.train(logger=logger, callbacks=callbacks)
 ```
 
 ## Contributing

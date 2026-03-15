@@ -9,7 +9,8 @@ This package contains a hierarchical structure of PyTorch Lightning modules desi
 ```
 BaseModule (base_module.py)
     ├── OneatActionModule (oneat_module.py)
-    └── CellFateModule (cellfate_module.py)
+    ├── CellFateModule (cellfate_module.py)
+    └── CareModule (care_module.py)
 ```
 
 ## BaseModule
@@ -255,6 +256,51 @@ model, network = OneatActionModule.load_checkpoint(
     checkpoint_path="/path/to/specific_checkpoint.ckpt",  # Loads specific file
 )
 ```
+
+## CareModule
+
+**Location:** `care_module.py`
+
+**Inherits:** `BaseModule`
+
+**Purpose:** Supervised 3D denoising using paired low/high SNR volumes. Uses MSE loss and logs PSNR on validation. Supports tiled prediction with linear-blend overlap stitching for large volumes.
+
+**Key Features:**
+- MSE training loss
+- PSNR logging on validation (`val_psnr`)
+- `predict_step` tiles a full 3D volume, runs batched inference, and stitches with linear blend weights
+- `stitch_tiles()` helper exported at package level
+
+**Core Methods:**
+- `training_step()`: MSE loss on low→high pairs
+- `validation_step()`: MSE + PSNR logging
+- `predict_step()`: Tiled prediction for large 3D volumes
+
+**Parameters:**
+- `n_tiles`: Number of tiles per axis, e.g. `[1, 4, 4]`
+- `tile_overlap`: Fractional overlap between tiles (default `0.125`)
+- `eval_transforms`: Percentile normalization applied at inference time
+
+**Usage:**
+```python
+from kapoorlabs_lightning import CareModule
+import torch
+
+network = UNet(conv_dims=3, in_channels=1, num_classes=1, depth=3)
+loss_func = torch.nn.MSELoss()
+optim_func = torch.optim.Adam
+
+model = CareModule(
+    network=network,
+    loss_func=loss_func,
+    optim_func=optim_func,
+    n_tiles=[1, 4, 4],
+    tile_overlap=0.125,
+    eval_transforms=eval_preset,
+)
+```
+
+---
 
 ## Design Principles
 
