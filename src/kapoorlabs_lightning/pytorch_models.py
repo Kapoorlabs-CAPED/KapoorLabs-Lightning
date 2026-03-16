@@ -174,7 +174,7 @@ class InceptionNet(nn.Module):
         # --------------------------- stem ---------------------------------- #
         self.conv0 = nn.Sequential(
             nn.Conv1d(input_channels, num_init_features,
-                      kernel_size=7, bias=False),
+                      kernel_size=7, padding=3, bias=False),
             nn.BatchNorm1d(num_init_features),
             nn.ReLU(inplace=True),
         )
@@ -183,8 +183,8 @@ class InceptionNet(nn.Module):
         channels = num_init_features
         self.stages = nn.ModuleList()
         self.trans  = nn.ModuleList()
-        n_transitions = len(block_config) - 1    # 2
-        seq_len_attn = max(1, seq_len // (2**n_transitions)) 
+        n_transitions = len(block_config) - 1
+        seq_len_attn = max(1, seq_len // (2 ** n_transitions))
         for i, n_layers in enumerate(block_config):
             self.stages.append(
                 DenseBlock(
