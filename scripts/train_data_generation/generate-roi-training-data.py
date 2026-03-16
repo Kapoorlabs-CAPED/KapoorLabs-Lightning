@@ -101,10 +101,21 @@ def extract_and_write_patches(
     return total
 
 
-def _load_timelapse(filepath):
-    """Load a 2D timelapse (T, Y, X) from a tif file."""
+def _percentile_normalize(vol, pmin, pmax):
+    """Normalize volume to [0, 1] using percentile clipping."""
+    lo = np.percentile(vol, pmin)
+    hi = np.percentile(vol, pmax)
+    if hi - lo < 1e-8:
+        return np.zeros_like(vol, dtype=np.float32)
+    return ((vol.astype(np.float32) - lo) / (hi - lo)).clip(0, 1)
+
+
+def _load_timelapse(filepath, pmin=None, pmax=None):
+    """Load a 2D timelapse (T, Y, X), optionally percentile-normalize."""
     vol = imread(filepath)
     assert vol.ndim == 3, f"Expected TYX (3D), got shape {vol.shape} in {filepath}"
+    if pmin is not None and pmax is not None:
+        vol = _percentile_normalize(vol, pmin, pmax)
     return vol
 
 
@@ -113,6 +124,8 @@ def main(config: RoiDataClass):
     patch_y = config.parameters.patch_y
     patch_x = config.parameters.patch_x
     file_type = config.parameters.file_type
+    pmin = config.parameters.pmin
+    pmax = config.parameters.pmax
 
     base_data_dir = config.train_data_paths.base_data_dir
     raw_dir = os.path.join(base_data_dir, config.train_data_paths.raw_dir)
@@ -171,7 +184,7 @@ def main(config: RoiDataClass):
             basename = os.path.basename(raw_file)
             print(f"\n[TRAIN] Processing {basename}...")
 
-            raw_tl = _load_timelapse(raw_file)
+            raw_tl = _load_timelapse(raw_file, pmin, pmax)
             mask_tl = _load_timelapse(mask_file)
 
             assert raw_tl.shape == mask_tl.shape, (
@@ -189,7 +202,7 @@ def main(config: RoiDataClass):
             basename = os.path.basename(raw_file)
             print(f"\n[VAL] Processing {basename}...")
 
-            raw_tl = _load_timelapse(raw_file)
+            raw_tl = _load_timelapse(raw_file, pmin, pmax)
             mask_tl = _load_timelapse(mask_file)
 
             assert raw_tl.shape == mask_tl.shape

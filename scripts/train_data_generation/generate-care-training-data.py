@@ -82,11 +82,21 @@ def extract_and_write_patches(
     return total
 
 
-def _load_volume(filepath):
-    """Load a 3D volume from a tif file, taking first channel if 4D."""
+def _percentile_normalize(vol, pmin, pmax):
+    """Normalize volume to [0, 1] using percentile clipping."""
+    lo = np.percentile(vol, pmin)
+    hi = np.percentile(vol, pmax)
+    if hi - lo < 1e-8:
+        return np.zeros_like(vol, dtype=np.float32)
+    return ((vol.astype(np.float32) - lo) / (hi - lo)).clip(0, 1)
+
+
+def _load_volume(filepath, pmin=0.1, pmax=99.9):
+    """Load a 3D volume, take first channel if 4D, percentile-normalize."""
     vol = imread(filepath)
     if vol.ndim == 4:
         vol = vol[:, 0] if vol.shape[1] < vol.shape[0] else vol[0]
+    vol = _percentile_normalize(vol, pmin, pmax)
     return vol
 
 
@@ -96,6 +106,8 @@ def main(config: CareDataClass):
     patch_y = config.parameters.patch_y
     patch_x = config.parameters.patch_x
     file_type = config.parameters.file_type
+    pmin = config.parameters.pmin
+    pmax = config.parameters.pmax
 
     base_data_dir = config.train_data_paths.base_data_dir
     low_dir = os.path.join(base_data_dir, config.train_data_paths.low_dir)
@@ -155,8 +167,8 @@ def main(config: CareDataClass):
             basename = os.path.basename(low_file)
             print(f"\n[TRAIN] Processing {basename}...")
 
-            low_vol = _load_volume(low_file)
-            high_vol = _load_volume(high_file)
+            low_vol = _load_volume(low_file, pmin, pmax)
+            high_vol = _load_volume(high_file, pmin, pmax)
 
             assert low_vol.shape == high_vol.shape, (
                 f"Shape mismatch: low {low_vol.shape} vs high {high_vol.shape}"
@@ -173,8 +185,8 @@ def main(config: CareDataClass):
             basename = os.path.basename(low_file)
             print(f"\n[VAL] Processing {basename}...")
 
-            low_vol = _load_volume(low_file)
-            high_vol = _load_volume(high_file)
+            low_vol = _load_volume(low_file, pmin, pmax)
+            high_vol = _load_volume(high_file, pmin, pmax)
 
             assert low_vol.shape == high_vol.shape
 
