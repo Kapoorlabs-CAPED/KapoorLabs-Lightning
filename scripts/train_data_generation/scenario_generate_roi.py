@@ -42,6 +42,9 @@ class RoiParams:
     eta_min: float
     t_warmup: int
 
+    # Validation split
+    val_fraction: float  # fraction of timepoints per timelapse used for val (e.g. 0.1)
+
     # Prediction parameters
     n_tiles: list
     tile_overlap: float

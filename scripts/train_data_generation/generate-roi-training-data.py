@@ -2,11 +2,12 @@
 Generate ROI segmentation training data (H5 file) from paired 2D timelapse images.
 
 Expects:
-    raw_dir/  — raw 2D timelapse .tif files (TYX or TCYX)
+    raw_dir/  — raw 2D timelapse .tif files (TYX)
     mask_dir/ — segmentation mask .tif files (TYX, same filenames)
 
 Process:
-    Each timepoint is treated as an independent 2D frame.
+    Each timelapse is split by timepoints: last val_fraction goes to val,
+    rest to train. Each timepoint is treated as an independent 2D frame.
     Patches are extracted per-frame and written to H5 incrementally
     in batches — no large arrays held in memory.
 
@@ -126,6 +127,7 @@ def main(config: RoiDataClass):
     file_type = config.parameters.file_type
     pmin = config.parameters.pmin
     pmax = config.parameters.pmax
+    val_fraction = config.parameters.val_fraction
 
     base_data_dir = config.train_data_paths.base_data_dir
     raw_dir = os.path.join(base_data_dir, config.train_data_paths.raw_dir)
@@ -161,15 +163,8 @@ def main(config: RoiDataClass):
         print("Error: No valid pairs found")
         return
 
-    # Last timelapse reserved for validation
-    if len(paired_files) > 1:
-        train_pairs = paired_files[:-1]
-        val_pairs = paired_files[-1:]
-    else:
-        train_pairs = paired_files
-        val_pairs = paired_files
-
     print(f"\nPatch shape: {patch_shape}, train stride: {train_stride}")
+    print(f"Val fraction: {val_fraction} (last {val_fraction*100:.0f}% of timepoints per timelapse)")
 
     Path(os.path.dirname(h5_output_path)).mkdir(parents=True, exist_ok=True)
 
@@ -180,9 +175,9 @@ def main(config: RoiDataClass):
         train_grp = h5f.create_group("train")
         val_grp = h5f.create_group("val")
 
-        for raw_file, mask_file in train_pairs:
+        for raw_file, mask_file in paired_files:
             basename = os.path.basename(raw_file)
-            print(f"\n[TRAIN] Processing {basename}...")
+            print(f"\nProcessing {basename}...")
 
             raw_tl = _load_timelapse(raw_file, pmin, pmax)
             mask_tl = _load_timelapse(mask_file)
@@ -190,29 +185,31 @@ def main(config: RoiDataClass):
             assert raw_tl.shape == mask_tl.shape, (
                 f"Shape mismatch: raw {raw_tl.shape} vs mask {mask_tl.shape}"
             )
-            print(f"  Timelapse shape: {raw_tl.shape}  (T, Y, X)")
 
+            n_frames = raw_tl.shape[0]
+            n_val = max(1, int(n_frames * val_fraction))
+            n_train = n_frames - n_val
+
+            print(f"  Timelapse shape: {raw_tl.shape}  (T, Y, X)")
+            print(f"  Splitting: {n_train} train timepoints, {n_val} val timepoints")
+
+            # Train: first n_train timepoints with overlapping stride
+            raw_train = raw_tl[:n_train]
+            mask_train = mask_tl[:n_train]
             n = extract_and_write_patches(
-                raw_tl, mask_tl, patch_shape, train_stride, train_grp
+                raw_train, mask_train, patch_shape, train_stride, train_grp
             )
             train_total += n
-            print(f"  Wrote {n} patches (total: {train_total})")
+            print(f"  [TRAIN] {n} patches (total: {train_total})")
 
-        for raw_file, mask_file in val_pairs:
-            basename = os.path.basename(raw_file)
-            print(f"\n[VAL] Processing {basename}...")
-
-            raw_tl = _load_timelapse(raw_file, pmin, pmax)
-            mask_tl = _load_timelapse(mask_file)
-
-            assert raw_tl.shape == mask_tl.shape
-
-            # Non-overlapping stride for validation
+            # Val: last n_val timepoints with non-overlapping stride
+            raw_val = raw_tl[n_train:]
+            mask_val = mask_tl[n_train:]
             n = extract_and_write_patches(
-                raw_tl, mask_tl, patch_shape, patch_shape, val_grp
+                raw_val, mask_val, patch_shape, patch_shape, val_grp
             )
             val_total += n
-            print(f"  Wrote {n} val patches (total: {val_total})")
+            print(f"  [VAL]   {n} patches (total: {val_total})")
 
     file_size_mb = os.path.getsize(h5_output_path) / (1024 * 1024)
     print(f"\nTrain: {train_total} patches, Val: {val_total} patches")
