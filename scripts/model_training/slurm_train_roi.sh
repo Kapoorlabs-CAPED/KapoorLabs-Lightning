@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --time=48:00:00
-#SBATCH --job-name=care_train
-#SBATCH --output=care_train_%j.out
-#SBATCH --error=care_train_%j.err
+#SBATCH --job-name=roi_train
+#SBATCH --output=roi_train_%j.out
+#SBATCH --error=roi_train_%j.err
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2
+#SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=10
-#SBATCH --gres=gpu:A100:2
+#SBATCH --gres=gpu:A100:1
 #SBATCH --partition=grete:shared
 #SBATCH --mem=64G
 

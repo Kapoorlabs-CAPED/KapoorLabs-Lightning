@@ -12,7 +12,7 @@ conv_dims: 2
 
 # Training parameters
 learning_rate: 0.0004
-batch_size: 32
+batch_size: 4
 epochs: 100
 num_workers: 8
 devices: 'auto'
