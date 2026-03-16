@@ -38,6 +38,9 @@ weight_decay: 0.0
 eta_min: 1.0E-8
 t_warmup: 5
 
+# Validation split
+val_fraction: 0.1
+
 # Prediction parameters
 n_tiles: [1, 1]
 tile_overlap: 0.125
