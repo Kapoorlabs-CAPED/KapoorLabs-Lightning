@@ -45,7 +45,6 @@ def main(config: CellFateClass):
     slurm_auto_requeue = config.parameters.slurm_auto_requeue
     weight_decay = config.parameters.weight_decay
     momentum = config.parameters.momentum
-    eta_min = config.parameters.eta_min
     t_warmup = config.parameters.t_warmup
     gamma = config.parameters.gamma
     scheduler = hydra.utils.instantiate(

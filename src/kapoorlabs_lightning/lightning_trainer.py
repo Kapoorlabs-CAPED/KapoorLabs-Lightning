@@ -93,8 +93,6 @@ class MitosisInception:
         t_max: int = None,
         weight_decay: float = 1e-5,
         eps: float = 1e-1,
-        n_pos: list = (8,),
-        attention_dim: int = 64,
         strategy: str = "auto",
         attn_heads = 8,
         seq_len = 25
@@ -110,7 +108,6 @@ class MitosisInception:
         self.num_workers = num_workers
         self.epochs = epochs
         self.t_max = t_max if t_max is not None else self.epochs
-        self.n_pos = n_pos
         self.batch_size = batch_size
         self.log_path = log_path
         self.accelerator = accelerator
@@ -134,7 +131,6 @@ class MitosisInception:
         self.strategy = strategy
         self.weight_decay = weight_decay
         self.eps = eps
-        self.attention_dim = attention_dim
         self.attn_heads=attn_heads
         self.seq_len=seq_len
         self.ckpt_path = load_checkpoint_model(self.log_path)
