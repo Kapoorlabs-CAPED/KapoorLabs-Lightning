@@ -1,6 +1,6 @@
 # Model architecture parameters
-growth_rate: 32
-block_config: [6, 12, 24, 16]
+growth_rate: 4
+block_config: [6]
 num_init_features: 32
 bottleneck_size: 4
 kernel_size: 7
@@ -9,7 +9,7 @@ seq_len: 25
 
 # Training parameters
 learning_rate: 0.001
-batch_size: 6400
+batch_size: 98000
 epochs: 250
 num_workers: 4
 devices: 1
