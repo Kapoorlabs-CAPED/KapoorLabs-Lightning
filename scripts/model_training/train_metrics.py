@@ -5,7 +5,7 @@ import os
 
 
 # %%
-npz_directory_current=Path('/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/cellfate_model_medium/')
+npz_directory_current=Path('/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/xenopus_roi_segmentation/')
 #npz_directory_backup=Path('/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam/backup/')
 
 npz_file_current = [npz_directory_current/file for file in os.listdir(npz_directory_current) if file.endswith('.npz')][-1]
