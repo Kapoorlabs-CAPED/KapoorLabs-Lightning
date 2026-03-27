@@ -2,10 +2,10 @@ import os
 import re
 
 # Configuration
-directory = "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_combined/"  
-keep_n_first = 2
-keep_n_middle = 2
-keep_n_last = 2
+directory = "/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/oneat_mitosis_model_adam_light/"  
+keep_n_first = 0
+keep_n_middle = 0
+keep_n_last = 1
 
 def parse_checkpoint_name(filename):
     """Extract epoch and step numbers from checkpoint filename."""
