@@ -109,6 +109,52 @@ trainer.train(logger=logger, callbacks=callbacks)
 
 **Logged Metrics:** `train_loss`, `val_loss`, `val_psnr`
 
+---
+
+## PSNR — Peak Signal-to-Noise Ratio
+
+PSNR measures how close the denoised (predicted) volume is to the clean ground-truth (high SNR) volume. It is logged every validation epoch as `val_psnr`.
+
+### Formula
+
+```
+PSNR = 10 · log₁₀(MAX² / MSE)
+```
+
+where:
+
+- **MAX** is the maximum possible pixel value in the normalised data. Since `PairedPercentileNormalize` maps intensities to [0, 1], `MAX = 1.0`.
+- **MSE** is the Mean Squared Error between the predicted and target volumes, averaged over all voxels in the batch:
+
+```
+MSE = mean((predicted − target)²)
+```
+
+### Implementation
+
+```python
+def _compute_psnr(self, predicted, target, max_val=1.0):
+    mse = torch.mean((predicted - target) ** 2)
+    if mse == 0:
+        return torch.tensor(float("inf"))
+    return 10 * torch.log10(max_val**2 / mse)
+```
+
+### Interpretation
+
+| PSNR (dB) | Quality |
+|-----------|---------|
+| < 20      | Poor — significant noise remains |
+| 20 – 30   | Acceptable — moderate denoising |
+| 30 – 40   | Good — strong denoising, minor artefacts |
+| > 40      | Excellent — near-lossless reconstruction |
+
+Higher is better. Because the data is normalised to [0, 1], these ranges apply directly without any additional rescaling.
+
+A PSNR of infinity means the prediction is pixel-perfect (MSE = 0), which only occurs on trivial cases. In practice, values above 30 dB indicate effective denoising for 3D fluorescence microscopy data.
+
+---
+
 **Output:**
 - Checkpoints saved to `log_path/`
 - Hyperparameters saved as `{experiment_name}.json`
