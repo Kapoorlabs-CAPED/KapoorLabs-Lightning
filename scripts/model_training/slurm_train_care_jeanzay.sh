@@ -14,7 +14,7 @@ module purge # purging modules inherited by default
 module load anaconda-py3/2020.11
 #conda init bash # deactivating environments inherited by default
 conda deactivate
-conda activate kapoorlabsenv
+conda activate capedenv
 
 module load cuda/11.8.0
 srun --unbuffered python lightning-care.py
