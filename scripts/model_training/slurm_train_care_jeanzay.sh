@@ -4,7 +4,7 @@
 #SBATCH -C a100
 #SBATCH --gres=gpu:1       # Allocate 4 GPUs per node
 #SBATCH --partition=gpu_p5
-#SBATCH --job-name=Maskunet               # Jobname 
+#SBATCH --job-name=care_train               # Jobname 
 #SBATCH --cpus-per-task=40
 #SBATCH --output=cell.o%j            # Output file 
 #SBATCH --error=cell.o%j            # Error file 
