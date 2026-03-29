@@ -17,4 +17,4 @@ conda deactivate
 conda activate torchenv
 
 module load cuda/11.8.0
-srun --unbuffered python lightning-care.py
+srun --unbuffered python lightning-care.py train_data_paths=care_jeanzay
