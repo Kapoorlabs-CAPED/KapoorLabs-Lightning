@@ -1,4 +1,4 @@
 defaults:
     - _self_
-    - train_data_paths: care_default.yaml
+    - train_data_paths: care_jeanzay.yaml
     - parameters: care.yaml
