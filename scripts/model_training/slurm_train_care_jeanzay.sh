@@ -11,10 +11,10 @@
 #SBATCH --time=20:00:00       # Expected runtime HH:MM:SS (max 100h)
 module purge # purging modules inherited by default
 
-module load anaconda-py3/2020.11
+module load anaconda-py3
 #conda init bash # deactivating environments inherited by default
 conda deactivate
-conda activate capedenv
+conda activate torchenv
 
 module load cuda/11.8.0
-srun --unbuffered python lightning-care.py
+srun --unbuffered python lightning-care.py train_data_paths=care_jeanzay

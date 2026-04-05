@@ -1,23 +1,21 @@
 #!/bin/bash
-#SBATCH --nodes=1             # Number of nodes 
+#SBATCH --nodes=1
 #SBATCH -A lzc@a100
 #SBATCH -C a100
-#SBATCH --gres=gpu:1       # Allocate 4 GPUs per node
+#SBATCH --gres=gpu:1
 #SBATCH --partition=gpu_p5
-#SBATCH --job-name=care_train               # Jobname 
+#SBATCH --job-name=cellfate_train
 #SBATCH --cpus-per-task=40
-#SBATCH --output=cell.o%j            # Output file 
-#SBATCH --error=cell.o%j            # Error file 
-#SBATCH --time=20:00:00       # Expected runtime HH:MM:SS (max 100h)
-module purge # purging modules inherited by default
+#SBATCH --output=cellfate.o%j
+#SBATCH --error=cellfate.o%j
+#SBATCH --time=20:00:00
 
-module load anaconda-py3/2020.11
-#conda init bash # deactivating environments inherited by default
+module purge
+module load anaconda-py3
 conda deactivate
-conda activate capedenv
-
+conda activate torchenv
 module load cuda/11.8.0
 
-# Run training with combined dataset
-# Uses --config-name to override default scenario with combined config
-srun --unbuffered python lightning-cellfate.py
+# Override train_data_paths config group to use Jean Zay paths
+# without modifying scenario_train_cellfate.yaml
+srun --unbuffered python lightning-cellfate.py train_data_paths=cellfate_jeanzay
