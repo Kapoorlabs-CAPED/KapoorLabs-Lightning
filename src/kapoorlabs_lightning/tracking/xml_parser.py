@@ -15,7 +15,12 @@ from pathlib import Path
 
 @dataclass
 class SpotData:
-    """Properties of a single detected spot."""
+    """Properties of a single detected spot.
+
+    When the XML is a NapaTrackMater master XML (has ``unique_id`` etc.
+    on each Spot), pre-computed dynamic and shape features are stored in
+    ``master`` as a dict. Keys match the NapaTrackMater attribute names.
+    """
 
     cell_id: int
     frame: int
@@ -26,6 +31,7 @@ class SpotData:
     quality: float
     mean_intensity: float = -1.0
     total_intensity: float = -1.0
+    master: Optional[Dict] = None
 
 
 @dataclass
@@ -84,6 +90,7 @@ class TrackMateXML:
         self.edge_source_lookup: Dict[int, int] = {}
         self.tracks: Dict[int, TrackData] = {}
         self.detector_channel: int = 1
+        self.is_master: bool = False
 
         self._xml_content = None
         self._xml_tree = None
@@ -106,7 +113,7 @@ class TrackMateXML:
             int(track.get("TRACK_ID"))
             for track in filtered_tracks_node.findall("TrackID")
         ]
-        print(f'Filtered track ids {self.filtered_track_ids}')
+        print(f'Filtered track ids {len(self.filtered_track_ids)}')
         # Calibration
         settings = self._xml_content.find("Settings").find("ImageData")
         self.calibration = Calibration(
@@ -138,8 +145,44 @@ class TrackMateXML:
         # Parse tracks and edges
         self._parse_tracks()
 
+    # NapaTrackMater master-XML per-spot attribute names.
+    _MASTER_ATTRS = (
+        "unique_id",
+        "tracklet_id",
+        "generation_id",
+        "speed",
+        "acceleration",
+        "motion_angle_z",
+        "motion_angle_y",
+        "motion_angle_x",
+        "radial_angle_z_key",
+        "radial_angle_y_key",
+        "radial_angle_x_key",
+        "distance_cell_mask",
+        "local_density",
+        "dividing",
+        "number_dividing",
+        "track_displacement",
+        "total_distance_traveled",
+        "max_distance_traveled",
+        "track_duration",
+        "msd",
+        "cloud_eccentricity_comp_first",
+        "cloud_eccentricity_comp_second",
+        "cloud_eccentricity_comp_third",
+        "cloud_surfacearea",
+        "cell_axis_z_key",
+        "cell_axis_y_key",
+        "cell_axis_x_key",
+    )
+
     def _parse_spots(self):
-        """Extract all spots from the XML."""
+        """Extract all spots from the XML.
+
+        Auto-detects NapaTrackMater master XML by the presence of
+        the ``unique_id`` attribute on any Spot node. When detected,
+        every known master attribute is captured into ``SpotData.master``.
+        """
         spot_objects = self._xml_content.find("Model").find("AllSpots")
 
         for frame_node in spot_objects.findall("SpotsInFrame"):
@@ -165,6 +208,19 @@ class TrackMateXML:
                     else -1.0
                 )
 
+                master = None
+                if spot_node.get("unique_id") is not None:
+                    self.is_master = True
+                    master = {}
+                    for key in self._MASTER_ATTRS:
+                        raw = spot_node.get(key)
+                        if raw is None:
+                            continue
+                        try:
+                            master[key] = float(raw)
+                        except (TypeError, ValueError):
+                            master[key] = raw
+
                 self.spots[cell_id] = SpotData(
                     cell_id=cell_id,
                     frame=int(spot_node.get("FRAME")),
@@ -175,7 +231,11 @@ class TrackMateXML:
                     quality=float(spot_node.get("QUALITY")),
                     mean_intensity=mean_intensity,
                     total_intensity=total_intensity,
+                    master=master,
                 )
+
+        if self.is_master:
+            print(f"Detected NapaTrackMater master XML (pre-computed features present)")
 
     def _parse_tracks(self):
         """Extract all tracks and edges from the XML."""

@@ -4,6 +4,10 @@ goblet_gt_annotations: '/lustre/fsn1/projects/rech/jsy/uzj81mi/fifth_dataset/cel
 radially_intercalating_gt_annotations: '/lustre/fsn1/projects/rech/jsy/uzj81mi/fifth_dataset/cellfate_gt/radially_intercalating_cells_nuclei_annotations.csv'
 # XML mode
 xml_file: '/lustre/fsn1/projects/rech/jsy/uzj81mi/fifth_dataset/tracking/kapoorlabs_nuclei_tracking.xml'
+reuse_cached_features: true  # false to recompute features from XML
+is_master_xml: true  # true: read precomputed features from NapaTrackMater master XML;
+                     # false: recompute from basic TrackMate XML;
+                     # null: auto-detect
 seg_file: null
 mask_file: null
 voxel_size_xyz: [0.6918, 0.6918, 2.0]

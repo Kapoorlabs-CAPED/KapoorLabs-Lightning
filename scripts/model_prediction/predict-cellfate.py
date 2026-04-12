@@ -110,10 +110,12 @@ def load_dataframe(config: CellFatePredictInceptionClass):
         xml_file = config.experiment_data_paths.xml_file
         seg_file = config.experiment_data_paths.seg_file
         mask_file = config.experiment_data_paths.mask_file
-        output_dir = config.experiment_data_paths.output_dir
-        xml_stem = Path(xml_file).stem
-        cache_csv = os.path.join(output_dir, f"features_{xml_stem}.csv")
-        if os.path.exists(cache_csv):
+        xml_path = Path(xml_file)
+        cache_csv = str(xml_path.with_name(f"features_{xml_path.stem}.csv"))
+        reuse_cached = bool(
+            getattr(config.experiment_data_paths, "reuse_cached_features", True)
+        )
+        if reuse_cached and os.path.exists(cache_csv):
             print(f"Loading cached features: {cache_csv}")
             return pd.read_csv(cache_csv)
         voxel_size_xyz = getattr(config.experiment_data_paths, "voxel_size_xyz", None)
@@ -138,19 +140,24 @@ def load_dataframe(config: CellFatePredictInceptionClass):
         if voxel_size_xyz is not None:
             vx, vy, vz = (float(v) for v in voxel_size_xyz)
             cal = (vz, vy, vx)
+        is_master_xml = getattr(
+            config.experiment_data_paths, "is_master_xml", None
+        )
         tv = TrackVectors(
             xml_file,
             seg_image=seg_image,
             mask=mask_image,
             calibration=cal,
             variable_t_calibration=variable_t_calibration,
+            is_master_xml=is_master_xml,
         )
         df = tv.to_dataframe()
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        xml_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(cache_csv, index=False)
         print(f"Cached features to: {cache_csv}")
         print(f"Feature DataFrame preview ({len(df)} rows, {df.shape[1]} cols):")
-        print(df.head(10).to_string())
+        first = df.iloc[0]
+        print(", ".join(f"{col}={first[col]}" for col in df.columns))
         return df
 
 
@@ -244,6 +251,112 @@ def main(config: CellFatePredictInceptionClass):
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     pred_df.to_csv(full_csv, index=False)
     print(f"Saved all predictions to: {full_csv}")
+
+    # Optional GT comparison -> confusion matrix
+    evaluate_against_gt(
+        df, predictions, class_map, config.experiment_data_paths,
+        output_dir, prefix, track_id_column,
+    )
+
+
+def _gt_track_ids(df, gt_csv, track_id_column):
+    """Map each GT (T,Z,Y,X) to a Track_ID via nearest spot at that frame."""
+    from scipy.spatial import cKDTree
+    gt = pd.read_csv(gt_csv)
+    cols = {c.lower(): c for c in gt.columns}
+    T = gt[cols.get("t", "T")].astype(int).values
+    Z = gt[cols.get("z", "Z")].astype(float).values
+    Y = gt[cols.get("y", "Y")].astype(float).values
+    X = gt[cols.get("x", "X")].astype(float).values
+
+    track_ids = []
+    for t_val in np.unique(T):
+        frame_df = df[df["t"] == int(t_val)]
+        if frame_df.empty:
+            continue
+        tree = cKDTree(frame_df[["z", "y", "x"]].values)
+        mask = T == t_val
+        query = np.column_stack([Z[mask], Y[mask], X[mask]])
+        _, idx = tree.query(query)
+        track_ids.extend(frame_df.iloc[idx][track_id_column].tolist())
+    return track_ids
+
+
+def evaluate_against_gt(df, predictions, class_map, paths,
+                        output_dir, prefix, track_id_column):
+    """Build confusion matrix from GT csv files, if provided."""
+    gt_map = {
+        "Basal": getattr(paths, "basal_gt_annotations", None),
+        "Goblet": getattr(paths, "goblet_gt_annotations", None),
+        "Radial": getattr(paths, "radially_intercalating_gt_annotations", None),
+    }
+    gt_map = {k: v for k, v in gt_map.items() if v and os.path.exists(v)}
+    if not gt_map:
+        print("No GT annotation files found; skipping confusion matrix.")
+        return
+
+    track_true = {}  # track_id -> gt class
+    for cls, csv_path in gt_map.items():
+        tids = _gt_track_ids(df, csv_path, track_id_column)
+        print(f"GT {cls}: {len(tids)} points -> {len(set(tids))} unique tracks")
+        for tid in tids:
+            # First label wins; warn on conflict
+            if tid in track_true and track_true[tid] != cls:
+                print(f"  Warning: track {tid} labeled both "
+                      f"{track_true[tid]} and {cls}; keeping {track_true[tid]}")
+                continue
+            track_true[tid] = cls
+
+    # Pair with predictions
+    labels = list(class_map.values())
+    y_true, y_pred = [], []
+    for tid, true_cls in track_true.items():
+        if tid in predictions:
+            y_true.append(true_cls)
+            y_pred.append(predictions[tid])
+    if not y_true:
+        print("No overlap between GT tracks and predictions.")
+        return
+
+    n = len(labels)
+    idx = {c: i for i, c in enumerate(labels)}
+    cm = np.zeros((n, n), dtype=int)
+    for t, p in zip(y_true, y_pred):
+        if t in idx and p in idx:
+            cm[idx[t], idx[p]] += 1
+
+    cm_df = pd.DataFrame(cm, index=[f"true_{c}" for c in labels],
+                         columns=[f"pred_{c}" for c in labels])
+    print(f"\nConfusion matrix (rows=true, cols=pred) on {len(y_true)} tracks:")
+    print(cm_df.to_string())
+    correct = int(np.trace(cm))
+    print(f"Accuracy: {correct}/{len(y_true)} = {correct/len(y_true):.4f}")
+
+    cm_csv = os.path.join(output_dir, f"{prefix}confusion_matrix.csv")
+    cm_df.to_csv(cm_csv)
+    print(f"Saved confusion matrix to: {cm_csv}")
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(5, 4))
+        im = ax.imshow(cm, cmap="Blues")
+        ax.set_xticks(range(n)); ax.set_xticklabels(labels, rotation=45, ha="right")
+        ax.set_yticks(range(n)); ax.set_yticklabels(labels)
+        ax.set_xlabel("Predicted"); ax.set_ylabel("True")
+        for i in range(n):
+            for j in range(n):
+                ax.text(j, i, cm[i, j], ha="center", va="center",
+                        color="white" if cm[i, j] > cm.max() / 2 else "black")
+        fig.colorbar(im, ax=ax)
+        fig.tight_layout()
+        png = os.path.join(output_dir, f"{prefix}confusion_matrix.png")
+        fig.savefig(png, dpi=150)
+        plt.close(fig)
+        print(f"Saved confusion matrix plot to: {png}")
+    except Exception as e:
+        print(f"Plot skipped: {e}")
 
 
 if __name__ == "__main__":

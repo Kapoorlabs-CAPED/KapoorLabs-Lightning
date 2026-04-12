@@ -59,6 +59,7 @@ class TrackVectors:
         mask: Optional[np.ndarray] = None,
         calibration: Optional[Tuple[float, float, float]] = None,
         variable_t_calibration: Optional[Dict[int, float]] = None,
+        is_master_xml: Optional[bool] = None,
     ):
         self.xml = TrackMateXML(xml_path)
         self.seg_image = seg_image
@@ -66,6 +67,19 @@ class TrackVectors:
         self._variable_t_calibration = (
             dict(variable_t_calibration) if variable_t_calibration else None
         )
+        # Resolve master-XML mode:
+        #   None  -> auto-detect from XML contents
+        #   True  -> force master mode (fail loudly if attrs missing)
+        #   False -> recompute even if XML carries precomputed features
+        if is_master_xml is None:
+            self.is_master_xml = self.xml.is_master
+        else:
+            self.is_master_xml = bool(is_master_xml)
+        if self.is_master_xml and not self.xml.is_master:
+            raise ValueError(
+                "is_master_xml=True but XML has no master attributes "
+                "(e.g. 'unique_id' on <Spot>). Provide a NapaTrackMater master XML."
+            )
 
         if calibration is not None:
             self._cal = calibration
@@ -270,6 +284,9 @@ class TrackVectors:
                 - Dividing, Number_Dividing: mitosis info
                 - Shape features, dynamic features, track-level features
         """
+        if self.is_master_xml:
+            return self._master_dataframe()
+
         rows = []
         tracklet_counter = 0
 
@@ -288,28 +305,43 @@ class TrackVectors:
 
                 spot_ids_sorted = tlet["spot_ids"]
 
-                # MSD per tracklet
+                # MSD per tracklet (positions calibrated to physical units)
                 positions = []
                 for sid in spot_ids_sorted:
                     spot = self.xml.spots[sid]
-                    positions.append([spot.z, spot.y, spot.x])
+                    positions.append([
+                        spot.z * self._cal[0],
+                        spot.y * self._cal[1],
+                        spot.x * self._cal[2],
+                    ])
                 positions = np.array(positions)
                 tracklet_msd = compute_msd(positions)
 
-                prev_speed = 0.0
                 prev_pos = None
+                prev_prev_pos = None
 
                 for i, sid in enumerate(spot_ids_sorted):
                     spot = self.xml.spots[sid]
                     pos = (spot.z, spot.y, spot.x)
 
+                    dt = compute_dt(spot.frame, self._variable_t_calibration)
+
                     if prev_pos is not None:
-                        speed = compute_speed(pos, prev_pos, self._cal)
+                        # Speed in calibrated units per unit time
+                        speed = compute_speed(pos, prev_pos, self._cal) / dt
                     else:
                         speed = 0.0
 
-                    dt = compute_dt(spot.frame, self._variable_t_calibration)
-                    accel = compute_acceleration(speed, prev_speed, dt=dt)
+                    # Acceleration = ‖x[i] − 2 x[i-1] + x[i-2]‖ / dt²
+                    # (second-difference of position, matching NapaTrackMater)
+                    if prev_prev_pos is not None:
+                        diff2 = (
+                            np.array(pos) - 2.0 * np.array(prev_pos)
+                            + np.array(prev_prev_pos)
+                        ) * np.array(self._cal)
+                        accel = float(np.linalg.norm(diff2)) / (dt * dt)
+                    else:
+                        accel = 0.0
 
                     if prev_pos is not None:
                         m_z, m_y, m_x = compute_motion_angles(pos, prev_pos)
@@ -374,8 +406,84 @@ class TrackVectors:
                     }
                     rows.append(row)
 
-                    prev_speed = speed
+                    prev_prev_pos = prev_pos
                     prev_pos = pos
+
+        return pd.DataFrame(rows)
+
+    def _master_dataframe(self) -> pd.DataFrame:
+        """Build the feature DataFrame directly from master-XML spot attrs.
+
+        No recomputation: every dynamic / shape feature is read from the
+        pre-populated ``SpotData.master`` dict. Tracklet lineage is still
+        computed from the edge graph so ``Track_ID``, ``Generation_ID``,
+        and ``Tracklet_Number`` remain consistent with the recompute path.
+        """
+        rows = []
+        tracklet_counter = 0
+
+        def g(m: Dict, key: str, default=np.nan):
+            return m.get(key, default) if m is not None else default
+
+        for track_id in self.xml.filtered_track_ids:
+            track = self.xml.tracks.get(track_id)
+            if track is None:
+                continue
+
+            is_dividing = self.xml.is_dividing(track_id)
+            tracklets = self._get_tracklets(track_id)
+
+            for tlet in tracklets:
+                tlet["tracklet_id"] = tracklet_counter
+                tracklet_counter += 1
+
+                for sid in tlet["spot_ids"]:
+                    spot = self.xml.spots[sid]
+                    m = spot.master or {}
+
+                    row = {
+                        "Track_ID": tlet["tracklet_id"],
+                        "TrackMate_Track_ID": track_id,
+                        "Generation_ID": int(g(m, "generation_id", tlet["generation"])),
+                        "Tracklet_Number": tlet["tracklet_number"],
+                        "Unique_ID": int(g(m, "unique_id", sid)),
+                        "t": spot.frame,
+                        "z": spot.z,
+                        "y": spot.y,
+                        "x": spot.x,
+                        "Dividing": int(g(m, "dividing", int(is_dividing))),
+                        "Number_Dividing": int(g(m, "number_dividing", track.num_splits)),
+                        "Radius": spot.radius,
+                        "Eccentricity_Comp_First": g(m, "cloud_eccentricity_comp_first"),
+                        "Eccentricity_Comp_Second": g(m, "cloud_eccentricity_comp_second"),
+                        "Eccentricity_Comp_Third": g(m, "cloud_eccentricity_comp_third"),
+                        "Local_Cell_Density": g(m, "local_density", 0),
+                        "Surface_Area": g(m, "cloud_surfacearea"),
+                        "Speed": g(m, "speed", 0.0),
+                        "Motion_Angle_Z": g(m, "motion_angle_z", 0.0),
+                        "Motion_Angle_Y": g(m, "motion_angle_y", 0.0),
+                        "Motion_Angle_X": g(m, "motion_angle_x", 0.0),
+                        "Acceleration": g(m, "acceleration", 0.0),
+                        "Distance_Cell_mask": g(m, "distance_cell_mask", 0.0),
+                        "Radial_Angle_Z": g(m, "radial_angle_z_key", 0.0),
+                        "Radial_Angle_Y": g(m, "radial_angle_y_key", 0.0),
+                        "Radial_Angle_X": g(m, "radial_angle_x_key", 0.0),
+                        "Cell_Axis_Z": g(m, "cell_axis_z_key"),
+                        "Cell_Axis_Y": g(m, "cell_axis_y_key"),
+                        "Cell_Axis_X": g(m, "cell_axis_x_key"),
+                        "MSD": g(m, "msd", 0.0),
+                        "Track_Displacement": g(m, "track_displacement", track.displacement),
+                        "Total_Track_Distance": g(
+                            m, "total_distance_traveled", track.total_distance
+                        ),
+                        "Max_Track_Distance": g(
+                            m, "max_distance_traveled", track.max_distance
+                        ),
+                        "Track_Duration": g(m, "track_duration", track.duration),
+                        "Total_Intensity": spot.total_intensity,
+                        "Mean_Intensity": spot.mean_intensity,
+                    }
+                    rows.append(row)
 
         return pd.DataFrame(rows)
 
