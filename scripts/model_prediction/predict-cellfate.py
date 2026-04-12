@@ -238,7 +238,10 @@ def main(config: CellFatePredictInceptionClass):
     tracklet_length = config.parameters.tracklet_length
     print(f"Using {len(feature_cols)} features, tracklet_length={tracklet_length}")
 
-    # Run predictions
+    # Predictions are keyed on TrackMate_Track_ID (parent track).
+    parent_id_column = "TrackMate_Track_ID"
+
+    # Run predictions (two-level aggregation: parent -> tracklet -> window)
     predictions = predict_all_tracks(
         df,
         tracklet_length=tracklet_length,
@@ -247,11 +250,12 @@ def main(config: CellFatePredictInceptionClass):
         device=device,
         feature_columns=feature_cols,
         track_id_column=track_id_column,
+        trackmate_track_id_column=parent_id_column,
         t_min=config.parameters.t_min,
         t_max=config.parameters.t_max,
     )
 
-    print(f"Predicted {len(predictions)} tracks")
+    print(f"Predicted {len(predictions)} parent tracks")
 
     # Count per class
     class_counts = Counter(predictions.values())
@@ -264,24 +268,24 @@ def main(config: CellFatePredictInceptionClass):
 
     save_cell_type_predictions(
         df, class_map, predictions, output_dir,
-        prefix=prefix, track_id_column=track_id_column,
+        prefix=prefix, track_id_column=parent_id_column,
     )
 
     # Save combined predictions CSV
     full_csv_name = f"{prefix}all_predictions.csv" if prefix else "all_predictions.csv"
     full_csv = os.path.join(output_dir, full_csv_name)
     pred_df = pd.DataFrame([
-        {"Track_ID": tid, "Predicted_Class": cls}
+        {parent_id_column: tid, "Predicted_Class": cls}
         for tid, cls in predictions.items()
     ])
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     pred_df.to_csv(full_csv, index=False)
     print(f"Saved all predictions to: {full_csv}")
 
-    # Optional GT comparison -> confusion matrix
+    # Optional GT comparison -> confusion matrix (GT points mapped to parent track)
     evaluate_against_gt(
         df, predictions, class_map, config.experiment_data_paths,
-        output_dir, prefix, track_id_column,
+        output_dir, prefix, parent_id_column,
     )
 
 

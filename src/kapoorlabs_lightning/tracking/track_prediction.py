@@ -138,50 +138,71 @@ def predict_all_tracks(
     device: str = "cpu",
     feature_columns: Optional[List[str]] = None,
     track_id_column: str = "Track_ID",
+    trackmate_track_id_column: str = "TrackMate_Track_ID",
     t_min: Optional[int] = None,
     t_max: Optional[int] = None,
 ) -> Dict[int, str]:
     """
-    Predict cell type for all tracks in a DataFrame.
+    Predict cell type per TrackMate parent track via two-level aggregation.
 
-    Args:
-        dataframe: Track features DataFrame.
-        tracklet_length: Required sub-array length.
-        class_map: Dict mapping class index → class name.
-        model: Trained model.
-        device: Device string.
-        feature_columns: Feature columns to use.
-        track_id_column: Column for track ID.
-        t_min: Optional minimum timepoint filter.
-        t_max: Optional maximum timepoint filter.
+    For each ``TrackMate_Track_ID``:
+      1. Split into tracklets using ``track_id_column`` (sub-lineage IDs).
+      2. Discard tracklets shorter than ``tracklet_length``.
+      3. For each remaining tracklet, majority-vote across window
+         predictions → a tracklet class.
+      4. Duration-weighted vote across tracklets (weight = number of
+         rows in the tracklet) → the final parent-track class.
+
+    Matches NapaTrackMater's ``inception_model_prediction`` aggregation.
 
     Returns:
-        Dict mapping track_id → predicted class name.
+        Dict mapping ``TrackMate_Track_ID`` → predicted class name.
     """
+    if feature_columns is None:
+        feature_columns = SHAPE_DYNAMIC_FEATURES
+
     df = dataframe.copy()
     if t_min is not None:
         df = df[df["t"] > t_min]
     if t_max is not None:
         df = df[df["t"] <= t_max]
 
-    # Filter to tracks long enough
-    track_lengths = df.groupby(track_id_column).size()
-    valid_tracks = track_lengths[track_lengths >= tracklet_length].index
+    if trackmate_track_id_column not in df.columns:
+        # Fallback: treat each tracklet as its own parent track
+        df[trackmate_track_id_column] = df[track_id_column]
 
-    predictions = {}
-    for track_id in valid_tracks:
-        pred = predict_track(
-            df,
-            track_id,
-            tracklet_length,
-            class_map,
-            model,
-            device=device,
-            feature_columns=feature_columns,
-            track_id_column=track_id_column,
-        )
-        if pred != "UnClassified":
-            predictions[track_id] = pred
+    predictions: Dict[int, str] = {}
+
+    for parent_id, parent_df in df.groupby(trackmate_track_id_column):
+        tracklet_votes: Counter = Counter()
+
+        for tracklet_id, tracklet_df in parent_df.groupby(track_id_column):
+            if len(tracklet_df) < tracklet_length:
+                continue
+
+            tracklet_df = tracklet_df.sort_values("t")
+            features = tracklet_df[feature_columns].values
+            subarrays = sample_subarrays(features, tracklet_length, len(features))
+            if not subarrays:
+                continue
+
+            window_preds = [
+                make_prediction(sub, model, device) for sub in subarrays
+            ]
+            tracklet_class = _get_most_frequent(window_preds)
+            if tracklet_class is None:
+                continue
+
+            # Weight this tracklet's vote by its duration (row count)
+            tracklet_votes[int(tracklet_class)] += len(tracklet_df)
+
+        if not tracklet_votes:
+            continue
+
+        final_class_idx = tracklet_votes.most_common(1)[0][0]
+        final_class = class_map.get(final_class_idx)
+        if final_class:
+            predictions[int(parent_id)] = final_class
 
     return predictions
 
