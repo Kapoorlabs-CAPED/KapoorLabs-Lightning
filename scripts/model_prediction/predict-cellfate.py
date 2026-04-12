@@ -149,6 +149,8 @@ def load_dataframe(config: CellFatePredictInceptionClass):
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         df.to_csv(cache_csv, index=False)
         print(f"Cached features to: {cache_csv}")
+        print(f"Feature DataFrame preview ({len(df)} rows, {df.shape[1]} cols):")
+        print(df.head(10).to_string())
         return df
 
 

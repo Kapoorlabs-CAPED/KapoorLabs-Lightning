@@ -7,6 +7,7 @@ calibration data, and filtered track IDs into clean data structures.
 
 import numpy as np
 import lxml.etree as et
+from tqdm import tqdm
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
@@ -105,7 +106,7 @@ class TrackMateXML:
             int(track.get("TRACK_ID"))
             for track in filtered_tracks_node.findall("TrackID")
         ]
-
+        print(f'Filtered track ids {self.filtered_track_ids}')
         # Calibration
         settings = self._xml_content.find("Settings").find("ImageData")
         self.calibration = Calibration(
@@ -118,6 +119,7 @@ class TrackMateXML:
             height=int(float(settings.get("height"))),
             width=int(float(settings.get("width"))),
         )
+        print(f'Image calibration {self.calibration}')
 
         # Detector channel
         detector_settings = self._xml_content.find("Settings").find(
@@ -179,11 +181,14 @@ class TrackMateXML:
         """Extract all tracks and edges from the XML."""
         all_tracks = self._xml_content.find("Model").find("AllTracks")
 
-        for track_node in all_tracks.findall("Track"):
+        track_nodes = all_tracks.findall("Track")
+        pbar = tqdm(track_nodes, desc="Parsing tracks")
+        for track_node in pbar:
             track_id = int(track_node.get("TRACK_ID"))
 
             if track_id not in self.filtered_track_ids:
                 continue
+            pbar.set_postfix(track_id=track_id)
 
             # Track-level features
             track_data = TrackData(
