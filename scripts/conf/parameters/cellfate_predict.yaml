@@ -15,6 +15,11 @@ features: 'shape_dynamic'
 track_id_column: 'Track_ID'
 t_min: null
 t_max: null
+# Prediction time window [start, end] in frame units (inclusive).
+# DataFrame is truncated to t in [start, end]. Use -1 for `end` to mean
+# the last available frame. Span (end - start + 1) must be > 50.
+# Set to null to disable.
+time_window: [100, -1]
 
 # Input mode: 'csv' or 'xml'
 input_mode: 'xml'

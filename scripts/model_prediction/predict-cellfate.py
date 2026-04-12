@@ -196,6 +196,32 @@ def main(config: CellFatePredictInceptionClass):
     track_id_column = config.parameters.track_id_column
     print(f"Loaded {len(df)} rows, {df[track_id_column].nunique()} tracks")
 
+    # Restrict to user-chosen [start, end] frame range (inclusive, pixel/frame units).
+    # Span must be > 50. Set to null to disable.
+    time_window = getattr(config.parameters, "time_window", None)
+    window_tag = ""
+    if time_window is not None:
+        tw = list(time_window)
+        if len(tw) != 2:
+            raise ValueError(
+                f"time_window must be [start, end]; got {tw}"
+            )
+        t_start, t_end = int(tw[0]), int(tw[1])
+        if t_end == -1:
+            t_end = int(df["t"].max())
+        if t_end - t_start + 1 <= 50:
+            raise ValueError(
+                f"time_window span must be > 50; got [{t_start}, {t_end}] "
+                f"(span={t_end - t_start + 1}). Set to null to disable."
+            )
+        before = len(df)
+        df = df[(df["t"] >= t_start) & (df["t"] <= t_end)].reset_index(drop=True)
+        window_tag = f"t{t_start}-{t_end}_"
+        print(
+            f"Time window: t in [{t_start}, {t_end}], "
+            f"{before} -> {len(df)} rows, {df[track_id_column].nunique()} tracks"
+        )
+
     # Parse class map
     class_map = parse_class_map(config.experiment_data_paths.class_map)
     print(f"Class map: {class_map}")
@@ -234,7 +260,7 @@ def main(config: CellFatePredictInceptionClass):
 
     # Save predictions
     output_dir = config.experiment_data_paths.output_dir
-    prefix = config.experiment_data_paths.output_prefix
+    prefix = f"{config.experiment_data_paths.output_prefix}{window_tag}"
 
     save_cell_type_predictions(
         df, class_map, predictions, output_dir,
@@ -296,24 +322,34 @@ def evaluate_against_gt(df, predictions, class_map, paths,
         return
 
     track_true = {}  # track_id -> gt class
+    conflicts = set()
     for cls, csv_path in gt_map.items():
         tids = _gt_track_ids(df, csv_path, track_id_column)
         print(f"GT {cls}: {len(tids)} points -> {len(set(tids))} unique tracks")
         for tid in tids:
-            # First label wins; warn on conflict
             if tid in track_true and track_true[tid] != cls:
-                print(f"  Warning: track {tid} labeled both "
-                      f"{track_true[tid]} and {cls}; keeping {track_true[tid]}")
+                conflicts.add(tid)
                 continue
             track_true[tid] = cls
+    if conflicts:
+        print(f"Discarding {len(conflicts)} tracks with conflicting GT labels: "
+              f"{sorted(conflicts)[:10]}{'...' if len(conflicts) > 10 else ''}")
+        for tid in conflicts:
+            track_true.pop(tid, None)
 
-    # Pair with predictions
+    # Pair with predictions (GT tracks absent from predictions are discarded)
     labels = list(class_map.values())
     y_true, y_pred = [], []
+    dropped = 0
     for tid, true_cls in track_true.items():
         if tid in predictions:
             y_true.append(true_cls)
             y_pred.append(predictions[tid])
+        else:
+            dropped += 1
+    if dropped:
+        print(f"Discarded {dropped} GT tracks not present in predictions "
+              f"(likely filtered by time_window / tracklet_length).")
     if not y_true:
         print("No overlap between GT tracks and predictions.")
         return
@@ -329,8 +365,15 @@ def evaluate_against_gt(df, predictions, class_map, paths,
                          columns=[f"pred_{c}" for c in labels])
     print(f"\nConfusion matrix (rows=true, cols=pred) on {len(y_true)} tracks:")
     print(cm_df.to_string())
+    # Accuracy: fraction of GT-labeled tracks (that have predictions)
+    # whose prediction matches GT. Prediction-only tracks without GT
+    # do not enter this denominator.
     correct = int(np.trace(cm))
-    print(f"Accuracy: {correct}/{len(y_true)} = {correct/len(y_true):.4f}")
+    total_gt_with_pred = len(y_true)
+    print(
+        f"Accuracy (GT tracks correctly predicted): "
+        f"{correct}/{total_gt_with_pred} = {correct/total_gt_with_pred:.4f}"
+    )
 
     cm_csv = os.path.join(output_dir, f"{prefix}confusion_matrix.csv")
     cm_df.to_csv(cm_csv)
