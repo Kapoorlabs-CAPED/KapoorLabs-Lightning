@@ -24,4 +24,4 @@ module load cuda/11.8.0
 
 # Override train_data_paths config group to use Jean Zay paths
 # without modifying scenario_train_cellfate.yaml
-srun --unbuffered python lightning-cellfate.py train_data_paths=cellfate_jeanzay
+srun --unbuffered python lightning-cellfate.py 

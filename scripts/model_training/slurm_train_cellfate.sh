@@ -26,4 +26,7 @@ source activate torchenv
 
 # Run training with combined dataset
 # Uses --config-name to override default scenario with combined config
-srun --unbuffered python lightning-cellfate.py
+srun --unbuffered python lightning-cellfate.py \
+    parameters.transform_preset=heavy \
+    train_data_paths.log_path=/projects/extern/nhr/nhr_ni/nhr_ni_test/nhr_ni_test_27040/dir.project/cellfate_model_heavy/ \
+    train_data_paths.experiment_name=cellfate_nuclei_heavy
