@@ -114,6 +114,7 @@ def main(config: CellFatePredictClass):
         map_location=device,
         network=network,
         weights_only=False,
+        strict=False,
     )
     lightning_model.eval()
     lightning_model.to(device)
