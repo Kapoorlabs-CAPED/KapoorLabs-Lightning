@@ -268,7 +268,8 @@ def main(config: CellFatePredictInceptionClass):
 
     # Save predictions
     output_dir = config.experiment_data_paths.output_dir
-    prefix = f"{config.experiment_data_paths.output_prefix}{window_tag}"
+    base_prefix = str(config.experiment_data_paths.output_prefix)
+    prefix = f"{base_prefix}{window_tag}"
 
     save_cell_type_predictions(
         df, class_map, predictions, output_dir,
@@ -302,7 +303,7 @@ def main(config: CellFatePredictInceptionClass):
             window_span=span,
             window_stride=stride,
         )
-        conf_csv = os.path.join(output_dir, f"{prefix}transition_confidence.csv")
+        conf_csv = os.path.join(output_dir, f"{base_prefix}transition_confidence.csv")
         conf_df.to_csv(conf_csv, index=False)
         print(f"Saved transition-confidence table to: {conf_csv}")
         print("Peak-confidence window per class (coarse):")
@@ -334,7 +335,7 @@ def main(config: CellFatePredictInceptionClass):
                 {"class": cls, "window_start": ws, "window_end": we}
                 for cls, (ws, we) in refined.items()
             ]
-            refined_csv = os.path.join(output_dir, f"{prefix}transition_refined.csv")
+            refined_csv = os.path.join(output_dir, f"{base_prefix}transition_refined.csv")
             pd.DataFrame(refined_rows).to_csv(refined_csv, index=False)
             print(f"Saved refined transitions to: {refined_csv}")
             transitions = refined
@@ -356,7 +357,7 @@ def main(config: CellFatePredictInceptionClass):
             ax.set_title(f"Per-class transition confidence (span={span}, stride={stride})")
             ax.legend()
             fig.tight_layout()
-            png = os.path.join(output_dir, f"{prefix}transition_confidence.png")
+            png = os.path.join(output_dir, f"{base_prefix}transition_confidence.png")
             fig.savefig(png, dpi=150)
             plt.close(fig)
             print(f"Saved transition-confidence plot to: {png}")
