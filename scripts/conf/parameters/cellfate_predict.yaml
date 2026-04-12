@@ -21,6 +21,12 @@ t_max: null
 # Set to null to disable.
 time_window: [100, -1]
 
+# Transition-time determination: sweep sliding windows to find when
+# per-class predictions become stable vs. flip-flopping. On by default.
+transition_time_determination: true
+transition_window_span: 50
+transition_window_stride: 25
+
 # Input mode: 'csv' or 'xml'
 input_mode: 'xml'
 accelerator: 'cuda'

@@ -29,6 +29,7 @@ from kapoorlabs_lightning.tracking.track_features import (
 from kapoorlabs_lightning.tracking.track_prediction import (
     predict_all_tracks,
     save_cell_type_predictions,
+    determine_transition_times,
 )
 from scenario_predict_cellfate_inception import CellFatePredictInceptionClass
 from kapoorlabs_lightning.tracking.track_vectors import TrackVectors
@@ -281,6 +282,53 @@ def main(config: CellFatePredictInceptionClass):
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     pred_df.to_csv(full_csv, index=False)
     print(f"Saved all predictions to: {full_csv}")
+
+    # Transition-time determination via sliding windows (on by default)
+    if bool(getattr(config.parameters, "transition_time_determination", True)):
+        span = int(getattr(config.parameters, "transition_window_span", 50))
+        stride = int(getattr(config.parameters, "transition_window_stride", 25))
+        conf_df, transitions = determine_transition_times(
+            df,
+            tracklet_length=tracklet_length,
+            class_map=class_map,
+            model=model.network,
+            device=device,
+            feature_columns=feature_cols,
+            track_id_column=track_id_column,
+            trackmate_track_id_column=parent_id_column,
+            window_span=span,
+            window_stride=stride,
+        )
+        conf_csv = os.path.join(output_dir, f"{prefix}transition_confidence.csv")
+        conf_df.to_csv(conf_csv, index=False)
+        print(f"Saved transition-confidence table to: {conf_csv}")
+        print("Peak-confidence window per class:")
+        for cls, (ws, we) in transitions.items():
+            print(f"  {cls}: t in [{ws}, {we}]")
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            centers = (conf_df["window_start"] + conf_df["window_end"]) / 2.0
+            fig, ax = plt.subplots(figsize=(7, 4))
+            for cls in class_map.values():
+                col = f"conf_{cls}"
+                if col in conf_df.columns:
+                    ax.plot(centers, conf_df[col], marker="o", label=cls)
+            for cls, (ws, we) in transitions.items():
+                ax.axvline((ws + we) / 2.0, linestyle="--", alpha=0.3)
+            ax.set_xlabel("Window center (t, frames)")
+            ax.set_ylabel("Confidence (fraction agreeing with consensus)")
+            ax.set_ylim(0, 1.05)
+            ax.set_title(f"Per-class transition confidence (span={span}, stride={stride})")
+            ax.legend()
+            fig.tight_layout()
+            png = os.path.join(output_dir, f"{prefix}transition_confidence.png")
+            fig.savefig(png, dpi=150)
+            plt.close(fig)
+            print(f"Saved transition-confidence plot to: {png}")
+        except Exception as e:
+            print(f"Transition plot skipped: {e}")
 
     # Optional GT comparison -> confusion matrix (GT points mapped to parent track)
     evaluate_against_gt(

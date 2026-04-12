@@ -221,6 +221,136 @@ def predict_all_tracks(
     return predictions
 
 
+def determine_transition_times(
+    dataframe: pd.DataFrame,
+    tracklet_length: int,
+    class_map: Dict[int, str],
+    model: torch.nn.Module,
+    device: str = "cpu",
+    feature_columns: Optional[List[str]] = None,
+    track_id_column: str = "Track_ID",
+    trackmate_track_id_column: str = "TrackMate_Track_ID",
+    window_span: int = 50,
+    window_stride: int = 25,
+) -> Tuple[pd.DataFrame, Dict[str, Tuple[int, int]]]:
+    """
+    Sweep overlapping time windows and measure per-class prediction confidence.
+
+    For each sliding window [t0, t0+window_span) on ``dataframe["t"]`` with
+    stride ``window_stride``:
+      - Truncate the DataFrame to rows in that window.
+      - Run ``predict_all_tracks`` to get a {parent_track_id: class} map.
+
+    Then, for each parent track the "consensus class" is the majority vote
+    across all windows. For each window w and class c, the **confidence**
+    is the fraction of consensus-c tracks whose window-w prediction also
+    equals c. A high value means the model speaks with one voice about
+    that class in that time interval; a low value means the predictions
+    flip-flop.
+
+    The "transition time window" for class c is argmax over windows of
+    its confidence.
+
+    Args:
+        window_span: Width of each window in timepoints (>= tracklet_length).
+        window_stride: Step between successive window starts.
+
+    Returns:
+        (confidence_df, transition_windows):
+          - confidence_df: columns ``window_start, window_end, n_tracks,
+            conf_<class>`` for each class in ``class_map``.
+          - transition_windows: ``{class_name: (window_start, window_end)}``
+            giving each class's peak-confidence window.
+    """
+    if feature_columns is None:
+        feature_columns = SHAPE_DYNAMIC_FEATURES
+    if window_span < tracklet_length:
+        raise ValueError(
+            f"window_span ({window_span}) must be >= tracklet_length "
+            f"({tracklet_length}) or no tracklet will fit."
+        )
+
+    t_min_df = int(dataframe["t"].min())
+    t_max_df = int(dataframe["t"].max())
+
+    class_names = list(class_map.values())
+    window_records: List[Dict] = []
+    # per parent track: list of (window_idx, predicted_class)
+    track_history: Dict[int, List[Tuple[int, str]]] = {}
+
+    starts = list(range(t_min_df, t_max_df - window_span + 2, window_stride))
+    if not starts:
+        starts = [t_min_df]
+
+    for w_idx, w_start in enumerate(starts):
+        w_end = w_start + window_span - 1
+        sub = dataframe[
+            (dataframe["t"] >= w_start) & (dataframe["t"] <= w_end)
+        ]
+        if sub.empty:
+            continue
+
+        preds = predict_all_tracks(
+            sub,
+            tracklet_length=tracklet_length,
+            class_map=class_map,
+            model=model,
+            device=device,
+            feature_columns=feature_columns,
+            track_id_column=track_id_column,
+            trackmate_track_id_column=trackmate_track_id_column,
+        )
+
+        for pid, cls in preds.items():
+            track_history.setdefault(pid, []).append((w_idx, cls))
+
+        window_records.append({
+            "window_idx": w_idx,
+            "window_start": w_start,
+            "window_end": w_end,
+            "n_tracks": len(preds),
+            "preds": preds,
+        })
+
+    # Consensus class per track = majority across windows it was predicted in
+    consensus: Dict[int, str] = {}
+    for pid, hist in track_history.items():
+        cls_counter = Counter(c for _, c in hist)
+        consensus[pid] = cls_counter.most_common(1)[0][0]
+
+    rows: List[Dict] = []
+    for rec in window_records:
+        row = {
+            "window_start": rec["window_start"],
+            "window_end": rec["window_end"],
+            "n_tracks": rec["n_tracks"],
+        }
+        for cls in class_names:
+            consensus_tracks = [pid for pid, c in consensus.items() if c == cls]
+            agreeing = [
+                pid for pid in consensus_tracks
+                if rec["preds"].get(pid) == cls
+            ]
+            row[f"conf_{cls}"] = (
+                len(agreeing) / len(consensus_tracks)
+                if consensus_tracks else 0.0
+            )
+            row[f"n_{cls}"] = len(consensus_tracks)
+        rows.append(row)
+
+    conf_df = pd.DataFrame(rows)
+
+    transitions: Dict[str, Tuple[int, int]] = {}
+    for cls in class_names:
+        col = f"conf_{cls}"
+        if col not in conf_df.columns or conf_df[col].isna().all():
+            continue
+        best = conf_df.loc[conf_df[col].idxmax()]
+        transitions[cls] = (int(best["window_start"]), int(best["window_end"]))
+
+    return conf_df, transitions
+
+
 def save_cell_type_predictions(
     dataframe: pd.DataFrame,
     class_map: Dict[int, str],
