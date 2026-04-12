@@ -171,6 +171,20 @@ def predict_all_tracks(
         # Fallback: treat each tracklet as its own parent track
         df[trackmate_track_id_column] = df[track_id_column]
 
+    # Per-column z-score normalization — matches the preprocessing
+    # applied before the training H5 was built (master_tracking.normalize_features).
+    # Without this, inference on raw physical-unit features is catastrophically off.
+    for col in feature_columns:
+        if col not in df.columns:
+            continue
+        series = df[col].astype(float)
+        mean = series.mean()
+        std = series.std()
+        if std and std > 0:
+            df[col] = (series - mean) / std
+        else:
+            df[col] = 0.0
+
     predictions: Dict[int, str] = {}
 
     for parent_id, parent_df in df.groupby(trackmate_track_id_column):
