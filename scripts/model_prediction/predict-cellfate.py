@@ -127,7 +127,7 @@ def load_dataframe(config: CellFatePredictInceptionClass):
 
 
 @hydra.main(
-    config_path="../conf", config_name="scenario_predict_cellfate_inception"
+    config_path="../conf", config_name="scenario_predict_cellfate_inception", version_base='1.3'
 )
 def main(config: CellFatePredictInceptionClass):
     accelerator = config.parameters.accelerator
@@ -137,14 +137,21 @@ def main(config: CellFatePredictInceptionClass):
     # Build model
     network = build_network(config)
 
-    # Load checkpoint
+    # Load checkpoint (resolve directory to latest .ckpt if needed)
     checkpoint_path = config.experiment_data_paths.checkpoint_path
+    if os.path.isdir(checkpoint_path):
+        from kapoorlabs_lightning.utils import load_checkpoint_model
+        resolved = load_checkpoint_model(checkpoint_path)
+        if resolved is None:
+            raise FileNotFoundError(f"No .ckpt file found in {checkpoint_path}")
+        checkpoint_path = resolved
     print(f"Loading checkpoint: {checkpoint_path}")
     model = CellFateModule.load_from_checkpoint(
         checkpoint_path,
         map_location=device,
         network=network,
         weights_only=False,
+        strict=False,
     )
     model.eval()
     model.to(device)

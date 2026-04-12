@@ -29,7 +29,7 @@ configstore = ConfigStore.instance()
 configstore.store(name="CarePredictClass", node=CarePredictClass)
 
 
-@hydra.main(config_path="../conf", config_name="scenario_predict_care")
+@hydra.main(config_path="../conf", config_name="scenario_predict_care", version_base='1.3')
 def main(config: CarePredictClass):
     # Model architecture
     unet_depth = config.parameters.unet_depth

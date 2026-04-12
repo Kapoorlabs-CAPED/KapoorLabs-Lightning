@@ -23,7 +23,7 @@ configstore = ConfigStore.instance()
 configstore.store(name="OneatPredictClass", node=OneatPredictClass)
 
 
-@hydra.main(config_path="../conf", config_name="scenario_predict_oneat")
+@hydra.main(config_path="../conf", config_name="scenario_predict_oneat", version_base='1.3')
 def main(config: OneatPredictClass):
     # Extract parameters
     num_classes = config.parameters.num_classes
