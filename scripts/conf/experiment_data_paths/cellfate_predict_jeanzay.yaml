@@ -1,0 +1,22 @@
+# CSV mode: path to features CSV
+basal_gt_annotations: '/lustre/fsn1/projects/rech/jsy/uzj81mi/fifth_dataset/basal_cells_nuclei_annotations.csv'
+goblet_gt_annotations: '/lustre/fsn1/projects/rech/jsy/uzj81mi/fifth_dataset/goblet_cells_nuclei_annotations.csv'
+radially_intercalating_gt_annotations: '/lustre/fsn1/projects/rech/jsy/uzj81mi/fifth_dataset/radially_intercalating_cells_nuclei_annotations.csv'
+# XML mode
+xml_file: '/lustre/fsn1/projects/rech/jsy/uzj81mi/fifth_dataset/tracking/kapoorlabs_nuclei_tracking.xml'
+seg_file: null
+mask_file: null
+calibration: {115: 251, 192: 392}
+
+# Model checkpoint
+checkpoint_path: '/lustre/fsn1/projects/rech/jsy/uzj81mi/cellfate_model/'
+
+# Class mapping: '0:Basal,1:Radial,2:Goblet'
+class_map:  {
+    0: "Basal",
+    1: "Radial",
+    2: "Goblet"
+}
+# Output
+output_dir: '/lustre/fsn1/projects/rech/jsy/uzj81mi/fifth_dataset/cellfate_predictions/'
+output_prefix: ''

@@ -1,4 +1,4 @@
 defaults:
     - _self_
-    - train_data_paths: cellfate_predict_default.yaml
+    - experiment_data_paths: cellfate_predict_jeanzay.yaml
     - parameters: cellfate_predict.yaml

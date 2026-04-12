@@ -1,6 +1,6 @@
 # Model architecture parameters (must match training config)
 growth_rate: 32
-block_config: [6, 12, 24, 16]
+block_config: [6]
 num_init_features: 32
 bottleneck_size: 4
 kernel_size: 7
@@ -17,5 +17,5 @@ t_min: null
 t_max: null
 
 # Input mode: 'csv' or 'xml'
-input_mode: 'csv'
+input_mode: 'xml'
 accelerator: 'cuda'
