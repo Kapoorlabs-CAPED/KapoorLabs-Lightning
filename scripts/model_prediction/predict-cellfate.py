@@ -37,13 +37,15 @@ configstore = ConfigStore.instance()
 configstore.store(name="CellFatePredictInceptionClass", node=CellFatePredictInceptionClass)
 
 
-def parse_class_map(class_map_str):
-    """Parse '0:Basal,1:Radial,2:Goblet' into {0: 'Basal', ...}."""
-    mapping = {}
-    for pair in class_map_str.split(","):
-        idx, name = pair.strip().split(":", 1)
-        mapping[int(idx)] = name.strip()
-    return mapping
+def parse_class_map(class_map):
+    """Parse class map from string '0:Basal,1:Radial' or dict {0: 'Basal'}."""
+    if isinstance(class_map, str):
+        mapping = {}
+        for pair in class_map.split(","):
+            idx, name = pair.strip().split(":", 1)
+            mapping[int(idx)] = name.strip()
+        return mapping
+    return {int(k): str(v) for k, v in dict(class_map).items()}
 
 
 def build_network(config: CellFatePredictInceptionClass):
@@ -108,6 +110,12 @@ def load_dataframe(config: CellFatePredictInceptionClass):
         xml_file = config.experiment_data_paths.xml_file
         seg_file = config.experiment_data_paths.seg_file
         mask_file = config.experiment_data_paths.mask_file
+        output_dir = config.experiment_data_paths.output_dir
+        xml_stem = Path(xml_file).stem
+        cache_csv = os.path.join(output_dir, f"features_{xml_stem}.csv")
+        if os.path.exists(cache_csv):
+            print(f"Loading cached features: {cache_csv}")
+            return pd.read_csv(cache_csv)
         voxel_size_xyz = getattr(config.experiment_data_paths, "voxel_size_xyz", None)
         variable_t_calibration = getattr(
             config.experiment_data_paths, "variable_t_calibration", None
@@ -137,7 +145,11 @@ def load_dataframe(config: CellFatePredictInceptionClass):
             calibration=cal,
             variable_t_calibration=variable_t_calibration,
         )
-        return tv.to_dataframe()
+        df = tv.to_dataframe()
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        df.to_csv(cache_csv, index=False)
+        print(f"Cached features to: {cache_csv}")
+        return df
 
 
 @hydra.main(
