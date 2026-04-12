@@ -7,7 +7,7 @@ and other dynamic features from tracked cell positions over time.
 
 import math
 import numpy as np
-from typing import Tuple
+from typing import Dict, Optional, Tuple
 
 # Feature name constants
 SHAPE_FEATURES = [
@@ -71,6 +71,39 @@ def compute_speed(
     cal = np.array(calibration)
     calibrated_diff = diff * cal
     return float(np.linalg.norm(calibrated_diff))
+
+
+def compute_dt(
+    frame: int,
+    variable_t_calibration: Optional[Dict[int, float]] = None,
+    default: float = 1.0,
+) -> float:
+    """Look up the time-per-frame interval for a given frame.
+
+    The mapping uses frame-index upper bounds as keys, e.g.
+    ``{160: 182, 260: 283}`` means: for frame < 160 use dt=182,
+    for 160 <= frame < 260 use dt=283. For frames at or beyond the
+    largest key, the last value is carried over.
+
+    Args:
+        frame: Frame index.
+        variable_t_calibration: Mapping of upper-bound frame -> dt.
+            If None or empty, returns ``default``.
+        default: Fallback dt when no mapping is provided.
+
+    Returns:
+        The dt value for the given frame.
+    """
+    if not variable_t_calibration:
+        return default
+    sorted_items = sorted(
+        ((int(k), float(v)) for k, v in variable_t_calibration.items()),
+        key=lambda kv: kv[0],
+    )
+    for upper, dt in sorted_items:
+        if frame < upper:
+            return dt
+    return sorted_items[-1][1]
 
 
 def compute_acceleration(

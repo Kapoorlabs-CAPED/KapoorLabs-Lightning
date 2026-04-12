@@ -23,6 +23,7 @@ from .xml_parser import TrackMateXML
 from .track_features import (
     compute_speed,
     compute_acceleration,
+    compute_dt,
     compute_motion_angles,
     compute_radial_angles,
     compute_msd,
@@ -57,10 +58,14 @@ class TrackVectors:
         seg_image: Optional[np.ndarray] = None,
         mask: Optional[np.ndarray] = None,
         calibration: Optional[Tuple[float, float, float]] = None,
+        variable_t_calibration: Optional[Dict[int, float]] = None,
     ):
         self.xml = TrackMateXML(xml_path)
         self.seg_image = seg_image
         self.mask = mask
+        self._variable_t_calibration = (
+            dict(variable_t_calibration) if variable_t_calibration else None
+        )
 
         if calibration is not None:
             self._cal = calibration
@@ -303,7 +308,8 @@ class TrackVectors:
                     else:
                         speed = 0.0
 
-                    accel = compute_acceleration(speed, prev_speed)
+                    dt = compute_dt(spot.frame, self._variable_t_calibration)
+                    accel = compute_acceleration(speed, prev_speed, dt=dt)
 
                     if prev_pos is not None:
                         m_z, m_y, m_x = compute_motion_angles(pos, prev_pos)

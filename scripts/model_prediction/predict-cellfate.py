@@ -108,7 +108,14 @@ def load_dataframe(config: CellFatePredictInceptionClass):
         xml_file = config.experiment_data_paths.xml_file
         seg_file = config.experiment_data_paths.seg_file
         mask_file = config.experiment_data_paths.mask_file
-        calibration = config.experiment_data_paths.calibration
+        voxel_size_xyz = getattr(config.experiment_data_paths, "voxel_size_xyz", None)
+        variable_t_calibration = getattr(
+            config.experiment_data_paths, "variable_t_calibration", None
+        )
+        if variable_t_calibration is not None:
+            variable_t_calibration = {
+                int(k): float(v) for k, v in dict(variable_t_calibration).items()
+            }
 
         print(f"Computing features from XML: {xml_file}")
         seg_image = None
@@ -120,9 +127,16 @@ def load_dataframe(config: CellFatePredictInceptionClass):
             import tifffile
             mask_image = tifffile.imread(mask_file)
         cal = None
-        if calibration:
-            cal = tuple(float(c) for c in calibration.split(","))
-        tv = TrackVectors(xml_file, seg_image=seg_image, mask=mask_image, calibration=cal)
+        if voxel_size_xyz is not None:
+            vx, vy, vz = (float(v) for v in voxel_size_xyz)
+            cal = (vz, vy, vx)
+        tv = TrackVectors(
+            xml_file,
+            seg_image=seg_image,
+            mask=mask_image,
+            calibration=cal,
+            variable_t_calibration=variable_t_calibration,
+        )
         return tv.to_dataframe()
 
 
