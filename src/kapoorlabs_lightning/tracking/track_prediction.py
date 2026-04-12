@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from collections import Counter
+from tqdm import tqdm
 from typing import Dict, List, Optional, Tuple
 
 from .track_features import SHAPE_DYNAMIC_FEATURES
@@ -187,7 +188,10 @@ def predict_all_tracks(
 
     predictions: Dict[int, str] = {}
 
-    for parent_id, parent_df in df.groupby(trackmate_track_id_column):
+    parent_groups = list(df.groupby(trackmate_track_id_column))
+    for parent_id, parent_df in tqdm(
+        parent_groups, desc="Predicting parent tracks", leave=False
+    ):
         tracklet_votes: Counter = Counter()
 
         for tracklet_id, tracklet_df in parent_df.groupby(track_id_column):
@@ -282,7 +286,9 @@ def determine_transition_times(
     if not starts:
         starts = [t_min_df]
 
-    for w_idx, w_start in enumerate(starts):
+    pbar = tqdm(list(enumerate(starts)), desc="Transition windows")
+    for w_idx, w_start in pbar:
+        pbar.set_postfix(t_start=w_start)
         w_end = w_start + window_span - 1
         sub = dataframe[
             (dataframe["t"] >= w_start) & (dataframe["t"] <= w_end)
@@ -349,6 +355,101 @@ def determine_transition_times(
         transitions[cls] = (int(best["window_start"]), int(best["window_end"]))
 
     return conf_df, transitions
+
+
+def refine_transition_times(
+    dataframe: pd.DataFrame,
+    tracklet_length: int,
+    class_map: Dict[int, str],
+    model: torch.nn.Module,
+    coarse_transitions: Dict[str, Tuple[int, int]],
+    device: str = "cpu",
+    feature_columns: Optional[List[str]] = None,
+    track_id_column: str = "Track_ID",
+    trackmate_track_id_column: str = "TrackMate_Track_ID",
+    initial_span: int = 50,
+    initial_stride: int = 25,
+    levels: int = 2,
+    refine_factor: int = 2,
+) -> Tuple[Dict[str, Tuple[int, int]], Dict[str, pd.DataFrame]]:
+    """
+    Coarse-to-fine refinement of per-class transition windows.
+
+    Starting from each class's coarse peak-confidence window, sweep a
+    narrowed neighborhood (previous peak ± initial_span/2) with smaller
+    window span and stride (both divided by ``refine_factor`` per level,
+    floored at ``tracklet_length`` and 1 respectively). Repeat for
+    ``levels`` iterations.
+
+    Args:
+        coarse_transitions: Output from ``determine_transition_times``.
+        initial_span: Span used in the coarse sweep (for neighborhood sizing).
+        initial_stride: Stride used in the coarse sweep.
+        levels: Number of refinement passes per class.
+        refine_factor: Integer factor by which span/stride shrink per level.
+
+    Returns:
+        (refined_transitions, per_class_conf_df):
+          - refined: ``{class_name: (window_start, window_end)}`` after refinement.
+          - per_class_conf_df: final-level confidence DataFrame per class.
+    """
+    t_min_df = int(dataframe["t"].min())
+    t_max_df = int(dataframe["t"].max())
+
+    refined: Dict[str, Tuple[int, int]] = {}
+    per_class_conf: Dict[str, pd.DataFrame] = {}
+
+    for cls, (ws, we) in coarse_transitions.items():
+        span = initial_span
+        stride = initial_stride
+        cur_lo, cur_hi = ws, we
+
+        for lvl in range(levels):
+            new_span = max(tracklet_length, span // refine_factor)
+            new_stride = max(1, stride // refine_factor)
+            if new_span < tracklet_length:
+                break
+
+            pad = span // 2
+            search_lo = max(t_min_df, cur_lo - pad)
+            search_hi = min(t_max_df, cur_hi + pad)
+            if search_hi - search_lo + 1 < new_span:
+                break
+
+            sub = dataframe[
+                (dataframe["t"] >= search_lo) & (dataframe["t"] <= search_hi)
+            ]
+            if sub.empty:
+                break
+
+            single_class_map = {
+                idx: name for idx, name in class_map.items() if name == cls
+            }
+            if not single_class_map:
+                single_class_map = class_map
+
+            conf_df, trans = determine_transition_times(
+                sub,
+                tracklet_length=tracklet_length,
+                class_map=class_map,
+                model=model,
+                device=device,
+                feature_columns=feature_columns,
+                track_id_column=track_id_column,
+                trackmate_track_id_column=trackmate_track_id_column,
+                window_span=new_span,
+                window_stride=new_stride,
+            )
+
+            per_class_conf[cls] = conf_df
+            if cls not in trans:
+                break
+            cur_lo, cur_hi = trans[cls]
+            span, stride = new_span, new_stride
+
+        refined[cls] = (cur_lo, cur_hi)
+
+    return refined, per_class_conf
 
 
 def save_cell_type_predictions(

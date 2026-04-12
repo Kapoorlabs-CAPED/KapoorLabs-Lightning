@@ -30,6 +30,7 @@ from kapoorlabs_lightning.tracking.track_prediction import (
     predict_all_tracks,
     save_cell_type_predictions,
     determine_transition_times,
+    refine_transition_times,
 )
 from scenario_predict_cellfate_inception import CellFatePredictInceptionClass
 from kapoorlabs_lightning.tracking.track_vectors import TrackVectors
@@ -201,6 +202,7 @@ def main(config: CellFatePredictInceptionClass):
     # Span must be > 50. Set to null to disable.
     time_window = getattr(config.parameters, "time_window", None)
     window_tag = ""
+    full_df = df  # default: no truncation, so full == truncated
     if time_window is not None:
         tw = list(time_window)
         if len(tw) != 2:
@@ -216,6 +218,7 @@ def main(config: CellFatePredictInceptionClass):
                 f"(span={t_end - t_start + 1}). Set to null to disable."
             )
         before = len(df)
+        full_df = df  # keep full-range df for transition-time analysis
         df = df[(df["t"] >= t_start) & (df["t"] <= t_end)].reset_index(drop=True)
         window_tag = f"t{t_start}-{t_end}_"
         print(
@@ -288,7 +291,7 @@ def main(config: CellFatePredictInceptionClass):
         span = int(getattr(config.parameters, "transition_window_span", 50))
         stride = int(getattr(config.parameters, "transition_window_stride", 25))
         conf_df, transitions = determine_transition_times(
-            df,
+            full_df,
             tracklet_length=tracklet_length,
             class_map=class_map,
             model=model.network,
@@ -302,9 +305,39 @@ def main(config: CellFatePredictInceptionClass):
         conf_csv = os.path.join(output_dir, f"{prefix}transition_confidence.csv")
         conf_df.to_csv(conf_csv, index=False)
         print(f"Saved transition-confidence table to: {conf_csv}")
-        print("Peak-confidence window per class:")
+        print("Peak-confidence window per class (coarse):")
         for cls, (ws, we) in transitions.items():
             print(f"  {cls}: t in [{ws}, {we}]")
+
+        refine_levels = int(getattr(config.parameters, "transition_refine_levels", 2))
+        refine_factor = int(getattr(config.parameters, "transition_refine_factor", 2))
+        if refine_levels > 0 and transitions:
+            refined, _ = refine_transition_times(
+                full_df,
+                tracklet_length=tracklet_length,
+                class_map=class_map,
+                model=model.network,
+                coarse_transitions=transitions,
+                device=device,
+                feature_columns=feature_cols,
+                track_id_column=track_id_column,
+                trackmate_track_id_column=parent_id_column,
+                initial_span=span,
+                initial_stride=stride,
+                levels=refine_levels,
+                refine_factor=refine_factor,
+            )
+            print("Refined peak-confidence window per class:")
+            for cls, (ws, we) in refined.items():
+                print(f"  {cls}: t in [{ws}, {we}]")
+            refined_rows = [
+                {"class": cls, "window_start": ws, "window_end": we}
+                for cls, (ws, we) in refined.items()
+            ]
+            refined_csv = os.path.join(output_dir, f"{prefix}transition_refined.csv")
+            pd.DataFrame(refined_rows).to_csv(refined_csv, index=False)
+            print(f"Saved refined transitions to: {refined_csv}")
+            transitions = refined
         try:
             import matplotlib
             matplotlib.use("Agg")
