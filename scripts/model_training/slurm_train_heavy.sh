@@ -10,6 +10,12 @@
 #SBATCH --partition=grete:shared
 #SBATCH --mem=32G
 
+#SBATCH --requeue
+#SBATCH --signal=SIGTERM@180
+echo "running in shell: " "$SHELL"
+export NCCL_SOCKET_IFNAME=lo
+
+
 # No time restriction (infinite/max allowed by cluster)
 
 # Load modules (adjust as needed for your HPC)

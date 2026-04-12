@@ -9,6 +9,11 @@
 #SBATCH --mem=64G
 ##SBATCH --partition=standard96
 
+#SBATCH --requeue
+#SBATCH --signal=SIGTERM@180
+echo "running in shell: " "$SHELL"
+export NCCL_SOCKET_IFNAME=lo
+
 # Load modules
 module purge
 module load miniforge3

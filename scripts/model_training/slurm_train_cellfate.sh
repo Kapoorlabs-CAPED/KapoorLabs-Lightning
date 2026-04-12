@@ -10,6 +10,11 @@
 #SBATCH --partition=grete:shared
 #SBATCH --mem=32G
 
+#SBATCH --requeue
+#SBATCH --signal=SIGTERM@180
+echo "running in shell: " "$SHELL"
+export NCCL_SOCKET_IFNAME=lo
+
 
 # Load modules
 module purge

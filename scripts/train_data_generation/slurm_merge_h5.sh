@@ -8,6 +8,12 @@
 #SBATCH --mem=128G
 #SBATCH --partition=grete:shared
 
+#SBATCH --requeue
+#SBATCH --signal=SIGTERM@180
+echo "running in shell: " "$SHELL"
+export NCCL_SOCKET_IFNAME=lo
+
+
 # Load modules
 module purge
 module load miniforge3

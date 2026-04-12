@@ -10,6 +10,12 @@
 #SBATCH --error=cellfate.o%j
 #SBATCH --time=20:00:00
 
+#SBATCH --requeue
+#SBATCH --signal=SIGTERM@180
+echo "running in shell: " "$SHELL"
+export NCCL_SOCKET_IFNAME=lo
+
+
 module purge
 module load anaconda-py3
 conda deactivate

@@ -9,6 +9,14 @@
 #SBATCH --output=cell.o%j            # Output file 
 #SBATCH --error=cell.o%j            # Error file 
 #SBATCH --time=20:00:00       # Expected runtime HH:MM:SS (max 100h)
+
+#SBATCH --requeue
+#SBATCH --signal=SIGTERM@180
+echo "running in shell: " "$SHELL"
+export NCCL_SOCKET_IFNAME=lo
+
+
+
 module purge # purging modules inherited by default
 
 module load anaconda-py3
