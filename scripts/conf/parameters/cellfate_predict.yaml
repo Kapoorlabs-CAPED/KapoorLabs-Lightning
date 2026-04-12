@@ -1,5 +1,5 @@
 # Model architecture parameters (must match training config)
-growth_rate: 32
+growth_rate: 4
 block_config: [6]
 num_init_features: 32
 bottleneck_size: 4
