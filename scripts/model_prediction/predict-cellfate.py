@@ -7,7 +7,7 @@ predicts cell type for each track, and saves per-class CSV annotations.
 
 Usage:
     python predict-cellfate.py
-    python predict-cellfate.py train_data_paths=cellfate_predict_default
+    python predict-cellfate.py train_experiment_data_paths=cellfate_predict_default
     python predict-cellfate.py parameters.tracklet_length=30
 """
 
@@ -101,14 +101,14 @@ def build_network(config: CellFatePredictInceptionClass):
 def load_dataframe(config: CellFatePredictInceptionClass):
     """Load feature DataFrame from CSV or XML."""
     if config.parameters.input_mode == "csv":
-        print(f"Loading CSV: {config.data_paths.csv_file}")
-        return pd.read_csv(config.data_paths.csv_file)
+        print(f"Loading CSV: {config.experiment_data_paths.csv_file}")
+        return pd.read_csv(config.experiment_data_paths.csv_file)
     else:
         
-        xml_file = config.data_paths.xml_file
-        seg_file = config.data_paths.seg_file
-        mask_file = config.data_paths.mask_file
-        calibration = config.data_paths.calibration
+        xml_file = config.experiment_data_paths.xml_file
+        seg_file = config.experiment_data_paths.seg_file
+        mask_file = config.experiment_data_paths.mask_file
+        calibration = config.experiment_data_paths.calibration
 
         print(f"Computing features from XML: {xml_file}")
         seg_image = None
@@ -138,7 +138,7 @@ def main(config: CellFatePredictInceptionClass):
     network = build_network(config)
 
     # Load checkpoint
-    checkpoint_path = config.data_paths.checkpoint_path
+    checkpoint_path = config.experiment_data_paths.checkpoint_path
     print(f"Loading checkpoint: {checkpoint_path}")
     model = CellFateModule.load_from_checkpoint(
         checkpoint_path,
@@ -155,7 +155,7 @@ def main(config: CellFatePredictInceptionClass):
     print(f"Loaded {len(df)} rows, {df[track_id_column].nunique()} tracks")
 
     # Parse class map
-    class_map = parse_class_map(config.data_paths.class_map)
+    class_map = parse_class_map(config.experiment_data_paths.class_map)
     print(f"Class map: {class_map}")
 
     # Select features
@@ -191,8 +191,8 @@ def main(config: CellFatePredictInceptionClass):
         print(f"  {cls}: {cnt} tracks")
 
     # Save predictions
-    output_dir = config.data_paths.output_dir
-    prefix = config.data_paths.output_prefix
+    output_dir = config.experiment_data_paths.output_dir
+    prefix = config.experiment_data_paths.output_prefix
 
     save_cell_type_predictions(
         df, class_map, predictions, output_dir,

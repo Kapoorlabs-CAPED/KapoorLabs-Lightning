@@ -28,7 +28,7 @@ class Params:
 
 
 @dataclass
-class Data_Paths:
+class Experiment_Data_Paths:
     # CSV mode
     csv_file: str
 
@@ -52,4 +52,4 @@ class Data_Paths:
 @dataclass
 class CellFatePredictInceptionClass:
     parameters: Params
-    data_paths: Data_Paths
+    experiment_data_paths: Experiment_Data_Paths
