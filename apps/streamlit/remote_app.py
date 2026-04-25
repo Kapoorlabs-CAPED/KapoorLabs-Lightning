@@ -176,13 +176,10 @@ def create_detection_overlay(raw_slice_2d, detections_df, timepoint):
 
 
 def _write_roi_config(job_uploads_dir):
-    """Write ROI crop config JSON into the job uploads folder."""
+    """Write centered ROI crop config JSON into the job uploads folder."""
     roi = {
-        "x_start": st.session_state.get("roi_xs", 0),
         "x_size": st.session_state.get("roi_xw", 256),
-        "y_start": st.session_state.get("roi_ys", 0),
         "y_size": st.session_state.get("roi_yw", 256),
-        "z_start": st.session_state.get("roi_zs", 0),
         "z_size": st.session_state.get("roi_zw", 0),
     }
     roi_path = Path(job_uploads_dir) / "roi.json"
@@ -293,21 +290,30 @@ def main():
         seg_path = None
         has_defaults = False
 
-    # --- Sidebar: ROI crop ---
+    # --- Sidebar: ROI crop (centered) ---
     st.sidebar.header("ROI Crop")
-    st.sidebar.caption("Crop region for prediction (smaller = faster demo)")
-    roi_col1, roi_col2 = st.sidebar.columns(2)
-    roi_x_start = roi_col1.number_input("X start", value=0, min_value=0, step=1, key="roi_xs")
-    roi_x_size = roi_col2.number_input("X size", value=256, min_value=1, step=1, key="roi_xw")
-    roi_y_start = roi_col1.number_input("Y start", value=0, min_value=0, step=1, key="roi_ys")
-    roi_y_size = roi_col2.number_input("Y size", value=256, min_value=1, step=1, key="roi_yw")
-    roi_z_start = roi_col1.number_input("Z start", value=0, min_value=0, step=1, key="roi_zs")
-    roi_z_size = roi_col2.number_input("Z size", value=0, min_value=0, step=0, key="roi_zw",
-                                        help="0 = full Z dimension")
+    st.sidebar.caption("Crop region centered on the image (smaller = faster demo)")
+    roi_x_size = st.sidebar.number_input("X size", value=256, min_value=1, step=1, key="roi_xw")
+    roi_y_size = st.sidebar.number_input("Y size", value=256, min_value=1, step=1, key="roi_yw")
+    roi_z_size = st.sidebar.number_input("Z size (0 = full)", value=0, min_value=0, step=1, key="roi_zw")
 
     # --- Preview default images with T and Z sliders ---
     if use_defaults and has_defaults:
         st.subheader("Input Data Preview")
+
+        # Show full image dimensions
+        try:
+            with TiffFile(str(raw_path)) as tif:
+                full_shape = tif.series[0].shape
+            if len(full_shape) >= 4:
+                st.info(
+                    f"Image size: T={full_shape[0]}, Z={full_shape[1]}, "
+                    f"Y={full_shape[2]}, X={full_shape[3]}"
+                )
+            elif len(full_shape) == 3:
+                st.info(f"Image size: Z={full_shape[0]}, Y={full_shape[1]}, X={full_shape[2]}")
+        except Exception:
+            pass
 
         try:
             with TiffFile(str(raw_path)) as tif:
@@ -372,10 +378,12 @@ def main():
                 raw_slice,
                 f"Raw  ({raw_shape}, t={preview_t}, z={preview_z})",
             )
-            x0 = roi_x_start
-            y0 = roi_y_start
-            x1 = min(x0 + roi_x_size, raw_slice.shape[1])
-            y1 = min(y0 + roi_y_size, raw_slice.shape[0])
+            h, w = raw_slice.shape[:2]
+            cx, cy = w // 2, h // 2
+            x0 = max(cx - roi_x_size // 2, 0)
+            y0 = max(cy - roi_y_size // 2, 0)
+            x1 = min(x0 + roi_x_size, w)
+            y1 = min(y0 + roi_y_size, h)
             fig.add_shape(
                 type="rect", x0=x0, y0=y0, x1=x1, y1=y1,
                 line=dict(color="cyan", width=2, dash="dash"),
@@ -551,13 +559,22 @@ def main():
 
         with tab_viewer:
             st.subheader("Detection Overlay Viewer")
+            job_id = st.session_state.get("job_id")
+            cropped_path = UPLOADS_DIR / job_id / "raw_cropped.tif" if job_id else None
             raw_mount_path = st.session_state.get("raw_path_on_mount")
+            viewer_path = (
+                str(cropped_path)
+                if cropped_path and cropped_path.exists()
+                else raw_mount_path
+            )
 
-            if raw_mount_path and os.path.exists(raw_mount_path):
-                with TiffFile(raw_mount_path) as tif:
+            if viewer_path and os.path.exists(viewer_path):
+                with TiffFile(viewer_path) as tif:
                     shape = tif.series[0].shape
                     num_t = shape[0] if len(shape) >= 4 else 1
                     nz = shape[1] if len(shape) >= 4 else shape[0]
+                if cropped_path and cropped_path.exists():
+                    st.caption(f"Showing cropped ROI ({shape})")
 
                 det_timepoints = sorted(df["t"].unique().tolist())
 
@@ -608,9 +625,25 @@ def main():
                     )
 
                     slice_2d, _ = read_single_slice(
-                        raw_mount_path, t=selected_t, z_mid=selected_z
+                        viewer_path, t=selected_t, z_mid=selected_z
                     )
-                    fig = create_detection_overlay(slice_2d, df, selected_t)
+                    view_df = df.copy()
+                    if cropped_path and cropped_path.exists():
+                        roi_file = UPLOADS_DIR / job_id / "roi.json"
+                        if roi_file.exists():
+                            with open(roi_file) as f:
+                                roi_cfg = json.load(f)
+                            with TiffFile(st.session_state.get("raw_path_on_mount", viewer_path)) as orig:
+                                orig_shape = orig.series[0].shape
+                            if len(orig_shape) >= 4:
+                                oy = orig_shape[2] // 2 - roi_cfg["y_size"] // 2
+                                ox = orig_shape[3] // 2 - roi_cfg["x_size"] // 2
+                            else:
+                                oy = orig_shape[1] // 2 - roi_cfg["y_size"] // 2
+                                ox = orig_shape[2] // 2 - roi_cfg["x_size"] // 2
+                            view_df["x"] = view_df["x"] - max(ox, 0)
+                            view_df["y"] = view_df["y"] - max(oy, 0)
+                    fig = create_detection_overlay(slice_2d, view_df, selected_t)
                     st.plotly_chart(fig, use_container_width=True)
 
                     dets_at_t = df[df["t"] == selected_t]
