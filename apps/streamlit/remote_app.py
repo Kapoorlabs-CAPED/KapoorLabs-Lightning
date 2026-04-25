@@ -545,8 +545,7 @@ def main():
                         raw_mount_path, t=selected_t, z_mid=selected_z
                     )
                     fig = create_detection_overlay(slice_2d, df, selected_t)
-                    st.pyplot(fig)
-                    plt.close(fig)
+                    st.plotly_chart(fig, use_container_width=True)
 
                     dets_at_t = df[df["t"] == selected_t]
                     if len(dets_at_t) > 0:
