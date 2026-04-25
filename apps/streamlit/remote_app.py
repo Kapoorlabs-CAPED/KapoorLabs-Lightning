@@ -82,8 +82,12 @@ def load_json(path):
         return json.load(f)
 
 
-def read_single_slice(tif_path, t=0, z_mid=None):
-    """Read a single Z-slice from a TZYX timelapse via page-level access."""
+def read_single_slice(tif_path, t=0, z_mid=None, crop=None):
+    """Read a single Z-slice from a TZYX timelapse via page-level access.
+
+    Args:
+        crop: Optional dict with x_size, y_size keys. Crop is centered.
+    """
     with TiffFile(str(tif_path)) as tif:
         series = tif.series[0]
         shape = series.shape
@@ -102,7 +106,17 @@ def read_single_slice(tif_path, t=0, z_mid=None):
             page_idx = 0
 
         page_idx = min(page_idx, n_pages - 1)
-        return np.asarray(tif.pages[page_idx].asarray()), shape
+        img = np.asarray(tif.pages[page_idx].asarray())
+
+    if crop:
+        h, w = img.shape[:2]
+        xw = min(crop.get("x_size", w), w)
+        yw = min(crop.get("y_size", h), h)
+        x0 = max(w // 2 - xw // 2, 0)
+        y0 = max(h // 2 - yw // 2, 0)
+        img = img[y0:y0+yw, x0:x0+xw]
+
+    return img, shape
 
 
 def _normalize_slice(img_2d):
@@ -559,22 +573,23 @@ def main():
 
         with tab_viewer:
             st.subheader("Detection Overlay Viewer")
-            job_id = st.session_state.get("job_id")
-            cropped_path = UPLOADS_DIR / job_id / "raw_cropped.tif" if job_id else None
             raw_mount_path = st.session_state.get("raw_path_on_mount")
-            viewer_path = (
-                str(cropped_path)
-                if cropped_path and cropped_path.exists()
-                else raw_mount_path
-            )
 
-            if viewer_path and os.path.exists(viewer_path):
-                with TiffFile(viewer_path) as tif:
+            if raw_mount_path and os.path.exists(raw_mount_path):
+                with TiffFile(raw_mount_path) as tif:
                     shape = tif.series[0].shape
                     num_t = shape[0] if len(shape) >= 4 else 1
                     nz = shape[1] if len(shape) >= 4 else shape[0]
-                if cropped_path and cropped_path.exists():
-                    st.caption(f"Showing cropped ROI ({shape})")
+                    ny = shape[2] if len(shape) >= 4 else shape[1] if len(shape) >= 3 else 1
+                    nx = shape[3] if len(shape) >= 4 else shape[2] if len(shape) >= 3 else 1
+
+                viewer_crop = {"x_size": roi_x_size, "y_size": roi_y_size}
+                cx_off = max(nx // 2 - roi_x_size // 2, 0)
+                cy_off = max(ny // 2 - roi_y_size // 2, 0)
+                st.caption(
+                    f"Showing {roi_x_size}x{roi_y_size} crop centered on "
+                    f"{nx}x{ny} image"
+                )
 
                 det_timepoints = sorted(df["t"].unique().tolist())
 
@@ -625,24 +640,12 @@ def main():
                     )
 
                     slice_2d, _ = read_single_slice(
-                        viewer_path, t=selected_t, z_mid=selected_z
+                        raw_mount_path, t=selected_t, z_mid=selected_z,
+                        crop=viewer_crop,
                     )
                     view_df = df.copy()
-                    if cropped_path and cropped_path.exists():
-                        roi_file = UPLOADS_DIR / job_id / "roi.json"
-                        if roi_file.exists():
-                            with open(roi_file) as f:
-                                roi_cfg = json.load(f)
-                            with TiffFile(st.session_state.get("raw_path_on_mount", viewer_path)) as orig:
-                                orig_shape = orig.series[0].shape
-                            if len(orig_shape) >= 4:
-                                oy = orig_shape[2] // 2 - roi_cfg["y_size"] // 2
-                                ox = orig_shape[3] // 2 - roi_cfg["x_size"] // 2
-                            else:
-                                oy = orig_shape[1] // 2 - roi_cfg["y_size"] // 2
-                                ox = orig_shape[2] // 2 - roi_cfg["x_size"] // 2
-                            view_df["x"] = view_df["x"] - max(ox, 0)
-                            view_df["y"] = view_df["y"] - max(oy, 0)
+                    view_df["x"] = view_df["x"] - cx_off
+                    view_df["y"] = view_df["y"] - cy_off
                     fig = create_detection_overlay(slice_2d, view_df, selected_t)
                     st.plotly_chart(fig, use_container_width=True)
 
