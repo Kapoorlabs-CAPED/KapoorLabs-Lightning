@@ -175,6 +175,22 @@ def create_detection_overlay(raw_slice_2d, detections_df, timepoint):
     return fig
 
 
+def _write_roi_config(job_uploads_dir):
+    """Write ROI crop config JSON into the job uploads folder."""
+    roi = {
+        "x_start": st.session_state.get("roi_xs", 0),
+        "x_size": st.session_state.get("roi_xw", 256),
+        "y_start": st.session_state.get("roi_ys", 0),
+        "y_size": st.session_state.get("roi_yw", 256),
+        "z_start": st.session_state.get("roi_zs", 0),
+        "z_size": st.session_state.get("roi_zw", 0),
+    }
+    roi_path = Path(job_uploads_dir) / "roi.json"
+    with open(roi_path, "w") as f:
+        json.dump(roi, f)
+    log.info("ROI config: %s", roi)
+
+
 def submit_to_jeanzay(job_id):
     """SSH to kapoorlabslogin node and sbatch the prediction job."""
     log.info("Submitting job %s via %s", job_id, SUBMIT_SCRIPT)
@@ -277,6 +293,18 @@ def main():
         seg_path = None
         has_defaults = False
 
+    # --- Sidebar: ROI crop ---
+    st.sidebar.header("ROI Crop")
+    st.sidebar.caption("Crop region for prediction (smaller = faster demo)")
+    roi_col1, roi_col2 = st.sidebar.columns(2)
+    roi_x_start = roi_col1.number_input("X start", value=0, min_value=0, step=1, key="roi_xs")
+    roi_x_size = roi_col2.number_input("X size", value=256, min_value=1, step=1, key="roi_xw")
+    roi_y_start = roi_col1.number_input("Y start", value=0, min_value=0, step=1, key="roi_ys")
+    roi_y_size = roi_col2.number_input("Y size", value=256, min_value=1, step=1, key="roi_yw")
+    roi_z_start = roi_col1.number_input("Z start", value=0, min_value=0, step=1, key="roi_zs")
+    roi_z_size = roi_col2.number_input("Z size", value=0, min_value=0, step=0, key="roi_zw",
+                                        help="0 = full Z dimension")
+
     # --- Preview default images with T and Z sliders ---
     if use_defaults and has_defaults:
         st.subheader("Input Data Preview")
@@ -287,11 +315,17 @@ def main():
             if len(preview_shape) >= 4:
                 preview_nt = preview_shape[0]
                 preview_nz = preview_shape[1]
-            else:
+                preview_ny = preview_shape[2]
+                preview_nx = preview_shape[3]
+            elif len(preview_shape) == 3:
                 preview_nt = 1
-                preview_nz = preview_shape[0] if len(preview_shape) == 3 else 1
+                preview_nz = preview_shape[0]
+                preview_ny = preview_shape[1]
+                preview_nx = preview_shape[2]
+            else:
+                preview_nt, preview_nz, preview_ny, preview_nx = 1, 1, 1, 1
         except Exception:
-            preview_nt, preview_nz = 1, 1
+            preview_nt, preview_nz, preview_ny, preview_nx = 1, 1, 1, 1
 
         max_pt = max(preview_nt - 1, 0)
         max_pz = max(preview_nz - 1, 0)
@@ -337,6 +371,20 @@ def main():
             fig = preview_slice_figure(
                 raw_slice,
                 f"Raw  ({raw_shape}, t={preview_t}, z={preview_z})",
+            )
+            x0 = roi_x_start
+            y0 = roi_y_start
+            x1 = min(x0 + roi_x_size, raw_slice.shape[1])
+            y1 = min(y0 + roi_y_size, raw_slice.shape[0])
+            fig.add_shape(
+                type="rect", x0=x0, y0=y0, x1=x1, y1=y1,
+                line=dict(color="cyan", width=2, dash="dash"),
+            )
+            fig.add_annotation(
+                x=x0, y=max(y0 - 5, 0),
+                text=f"ROI {roi_x_size}x{roi_y_size}",
+                showarrow=False, font=dict(color="cyan", size=11),
+                xanchor="left",
             )
             st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
@@ -391,6 +439,7 @@ def main():
                     lustre_seg = LUSTRE_DEMO / "uploads" / seg_path.name
                     raw_dest.symlink_to(lustre_raw)
                     seg_dest.symlink_to(lustre_seg)
+                    _write_roi_config(job_uploads)
                     st.session_state["raw_path_on_mount"] = str(raw_path)
 
                 with st.spinner("SSH → kapoorlabs login node → sbatch..."):
@@ -419,6 +468,7 @@ def main():
                     seg_dest = job_uploads / f"seg_{seg_file.name}"
                     raw_dest.write_bytes(raw_file.read())
                     seg_dest.write_bytes(seg_file.read())
+                    _write_roi_config(job_uploads)
                     st.session_state["raw_path_on_mount"] = str(raw_dest)
 
                 with st.spinner("SSH → kapoorlabs login node → sbatch..."):
