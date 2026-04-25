@@ -342,6 +342,27 @@ def main():
         except Exception as e:
             st.warning(f"Cannot preview raw: {e}")
 
+        st.subheader("Download Demo Data")
+        dl_raw, dl_seg = st.columns(2)
+        with dl_raw:
+            if raw_path.exists():
+                with open(raw_path, "rb") as f:
+                    st.download_button(
+                        "Download Raw Timelapse",
+                        data=f,
+                        file_name=raw_path.name,
+                        mime="image/tiff",
+                    )
+        with dl_seg:
+            if seg_path.exists():
+                with open(seg_path, "rb") as f:
+                    st.download_button(
+                        "Download Segmentation Timelapse",
+                        data=f,
+                        file_name=seg_path.name,
+                        mime="image/tiff",
+                    )
+
     # --- Submit button ---
     run_btn = st.button(
         "Run Prediction on KapoorLabs", type="primary", use_container_width=True
@@ -459,13 +480,20 @@ def main():
 
         with tab_table:
             st.subheader(f"Detected Events ({len(df)})")
+
+            if "event_name" in df.columns:
+                event_counts = df["event_name"].value_counts()
+                cols = st.columns(len(event_counts))
+                for i, (event, count) in enumerate(event_counts.items()):
+                    cols[i].metric(event, count)
+
             st.dataframe(df, use_container_width=True, hide_index=True)
 
             csv_path = st.session_state.get("csv_path")
             if csv_path and os.path.exists(csv_path):
                 with open(csv_path, "rb") as f:
                     st.download_button(
-                        "Download CSV",
+                        "Download Predictions CSV",
                         data=f,
                         file_name="oneat_detections.csv",
                         mime="text/csv",
