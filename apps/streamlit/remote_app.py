@@ -332,27 +332,15 @@ def main():
         preview_t = st.session_state["prev_t_slider"]
         preview_z = st.session_state["prev_z_slider"]
 
-        col_raw, col_seg = st.columns(2)
-        with col_raw:
-            try:
-                raw_slice, raw_shape = read_single_slice(raw_path, t=preview_t, z_mid=preview_z)
-                fig = preview_slice_figure(
-                    raw_slice,
-                    f"Raw  ({raw_shape}, t={preview_t}, z={preview_z})",
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                st.warning(f"Cannot preview raw: {e}")
-        with col_seg:
-            try:
-                seg_slice, seg_shape = read_single_slice(seg_path, t=preview_t, z_mid=preview_z)
-                fig = preview_slice_figure(
-                    seg_slice,
-                    f"Segmentation  ({seg_shape}, t={preview_t}, z={preview_z})",
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                st.warning(f"Cannot preview segmentation: {e}")
+        try:
+            raw_slice, raw_shape = read_single_slice(raw_path, t=preview_t, z_mid=preview_z)
+            fig = preview_slice_figure(
+                raw_slice,
+                f"Raw  ({raw_shape}, t={preview_t}, z={preview_z})",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Cannot preview raw: {e}")
 
     # --- Submit button ---
     run_btn = st.button(
