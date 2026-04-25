@@ -26,7 +26,7 @@ log = logging.getLogger("oneat-demo")
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import streamlit as st
 from tifffile import TiffFile
 
@@ -105,50 +105,73 @@ def read_single_slice(tif_path, t=0, z_mid=None):
         return np.asarray(tif.pages[page_idx].asarray()), shape
 
 
-def preview_slice_figure(img_2d, title=""):
-    """Percentile-normalized grayscale figure from a 2D array."""
+def _normalize_slice(img_2d):
+    """Percentile-normalize a 2D array to uint8 for display."""
     vmin, vmax = np.percentile(img_2d, (1, 99.8))
     if vmax > vmin:
         normed = np.clip((img_2d.astype(float) - vmin) / (vmax - vmin), 0, 1)
     else:
         normed = np.zeros_like(img_2d, dtype=float)
-    fig, ax = plt.subplots(figsize=(5, 5))
-    ax.imshow(normed, cmap="gray")
-    ax.set_title(title, fontsize=10)
-    ax.axis("off")
-    fig.tight_layout()
+    return (normed * 255).astype(np.uint8)
+
+
+def preview_slice_figure(img_2d, title=""):
+    """Interactive plotly figure with zoom/pan from a 2D array."""
+    img8 = _normalize_slice(img_2d)
+    fig = go.Figure(go.Image(z=np.stack([img8, img8, img8], axis=-1)))
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=12)),
+        margin=dict(l=0, r=0, t=30, b=0),
+        height=500,
+        dragmode="zoom",
+    )
+    fig.update_xaxes(showticklabels=False)
+    fig.update_yaxes(showticklabels=False)
     return fig
 
 
 def create_detection_overlay(raw_slice_2d, detections_df, timepoint):
-    """Overlay detection markers on a 2D slice."""
+    """Interactive plotly figure with detections as markers."""
     dets_at_t = detections_df[detections_df["t"] == timepoint]
+    img8 = _normalize_slice(raw_slice_2d)
+    h, w = img8.shape
 
-    vmin, vmax = np.percentile(raw_slice_2d, (1, 99.8))
-    if vmax > vmin:
-        img = np.clip((raw_slice_2d.astype(float) - vmin) / (vmax - vmin), 0, 1)
-    else:
-        img = np.zeros_like(raw_slice_2d, dtype=float)
-
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.imshow(img, cmap="gray")
+    fig = go.Figure(go.Image(z=np.stack([img8, img8, img8], axis=-1)))
 
     if len(dets_at_t) > 0:
-        ax.scatter(
-            dets_at_t["x"].values,
-            dets_at_t["y"].values,
-            c="red",
-            s=80,
-            marker="o",
-            facecolors="none",
-            linewidths=2,
-            label=f"Detections ({len(dets_at_t)})",
-        )
-        ax.legend(loc="upper right", fontsize=9)
+        hover_text = [
+            f"x={row['x']:.0f}, y={row['y']:.0f}"
+            + (f", z={row['z']:.0f}" if "z" in row.index else "")
+            + (f"<br>{row['event_name']}" if "event_name" in row.index else "")
+            for _, row in dets_at_t.iterrows()
+        ]
+        fig.add_trace(go.Scatter(
+            x=dets_at_t["x"].values,
+            y=dets_at_t["y"].values,
+            mode="markers",
+            marker=dict(
+                size=14,
+                color="rgba(255, 0, 0, 0)",
+                line=dict(color="red", width=2),
+            ),
+            text=hover_text,
+            hoverinfo="text",
+            name=f"Detections ({len(dets_at_t)})",
+        ))
 
-    ax.set_title(f"Mid-Z slice   t={timepoint}   ({len(dets_at_t)} detections)")
-    ax.axis("off")
-    fig.tight_layout()
+    fig.update_layout(
+        title=dict(
+            text=f"t={timepoint}, {len(dets_at_t)} detections",
+            font=dict(size=12),
+        ),
+        margin=dict(l=0, r=0, t=30, b=0),
+        height=600,
+        dragmode="zoom",
+        xaxis=dict(range=[0, w], showticklabels=False, scaleanchor="y"),
+        yaxis=dict(range=[h, 0], showticklabels=False),
+        showlegend=True,
+        legend=dict(x=1, y=1, xanchor="right", bgcolor="rgba(255,255,255,0.7)"),
+    )
     return fig
 
 
@@ -214,15 +237,6 @@ def main():
         )
         model_info = available_models[model_name]
         st.sidebar.caption(f"Checkpoint: {Path(model_info['ckpt']).name}")
-
-        model_config = load_json(model_info["config_json"])
-        training_config = load_json(model_info["training_json"])
-        if model_config:
-            with st.sidebar.expander("Model architecture"):
-                st.json(model_config)
-        if training_config:
-            with st.sidebar.expander("Training config"):
-                st.json(training_config)
     else:
         st.sidebar.warning(
             f"No models found in {MODELS_DIR}. "
@@ -326,8 +340,7 @@ def main():
                     raw_slice,
                     f"Raw  ({raw_shape}, t={preview_t}, z={preview_z})",
                 )
-                st.pyplot(fig)
-                plt.close(fig)
+                st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.warning(f"Cannot preview raw: {e}")
         with col_seg:
@@ -337,8 +350,7 @@ def main():
                     seg_slice,
                     f"Segmentation  ({seg_shape}, t={preview_t}, z={preview_z})",
                 )
-                st.pyplot(fig)
-                plt.close(fig)
+                st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 st.warning(f"Cannot preview segmentation: {e}")
 
