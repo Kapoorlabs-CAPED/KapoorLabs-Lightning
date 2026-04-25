@@ -11,12 +11,10 @@ Usage (called by SLURM script, not directly):
 """
 
 import argparse
-import os
-import sys
+
 from pathlib import Path
 from glob import glob
 
-import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
@@ -25,7 +23,6 @@ from lightning import Trainer
 from kapoorlabs_lightning.oneat_module import OneatActionModule
 from kapoorlabs_lightning.oneat_presets import OneatEvalPreset
 from kapoorlabs_lightning.oneat_prediction_dataset import OneatPredictionDataset
-from kapoorlabs_lightning.nms_utils import nms_space_time, group_detections_by_event
 from kapoorlabs_lightning.pytorch_models import DenseVollNet
 from kapoorlabs_lightning.utils import load_checkpoint_model
 
@@ -55,6 +52,7 @@ DEFAULT_PARAMS = {
     "nms_time": 2,
     "pmin": 1.0,
     "pmax": 99.8,
+    "event_threshold": 0.999,
     "event_names": ["normal", "mitosis"],
 }
 
@@ -81,6 +79,8 @@ def run_prediction(job_id, checkpoint_path=None):
         seg_path = seg_files[0]
         print(f"Raw: {raw_path}")
         print(f"Seg: {seg_path}")
+
+      
 
         # Find checkpoint
         if checkpoint_path is None:
@@ -130,6 +130,9 @@ def run_prediction(job_id, checkpoint_path=None):
             size_tplus=p["size_tplus"],
             event_names=p["event_names"],
             num_classes=p["num_classes"],
+            event_threshold=p["event_threshold"],
+            nms_space=p["nms_space"],
+            nms_time=p["nms_time"]
         )
 
         # Dataset
@@ -148,7 +151,7 @@ def run_prediction(job_id, checkpoint_path=None):
             pred_dataset,
             batch_size=1,
             shuffle=False,
-            num_workers=0,
+            num_workers=4,
         )
 
         status_file.write_text("predicting")
@@ -172,27 +175,16 @@ def run_prediction(job_id, checkpoint_path=None):
         status_file.write_text("postprocessing")
 
         if len(all_detections) > 0:
-            grouped = group_detections_by_event(all_detections)
-            all_nms = []
-            for event_name, event_dets in grouped.items():
-                nms_dets = nms_space_time(
-                    event_dets, nms_space=p["nms_space"], nms_time=p["nms_time"]
-                )
-                print(f"{event_name}: {len(event_dets)} -> {len(nms_dets)} after NMS")
-                all_nms.extend(nms_dets)
-
-            if all_nms:
-                df = pd.DataFrame(all_nms)
-                display_df = df[["time", "z", "y", "x", "event_name", "cell_id"]].copy()
+           
+                df = pd.DataFrame(all_detections)
+                display_df = df[["time", "z", "y", "x", "event_threshold",  "event_name", "cell_id"]].copy()
                 display_df = display_df.rename(columns={"time": "t"})
                 csv_path = results_dir / "oneat_detections.csv"
                 display_df.to_csv(csv_path, index=False)
                 print(f"Results saved: {csv_path}")
-            else:
-                (results_dir / "oneat_detections.csv").write_text("t,z,y,x,event_name,cell_id\n")
-                print("No events after NMS")
+           
         else:
-            (results_dir / "oneat_detections.csv").write_text("t,z,y,x,event_name,cell_id\n")
+            (results_dir / "oneat_detections.csv").write_text("t,z,y,x,event_threshold,event_name,cell_id\n")
             print("No events detected")
 
         status_file.write_text("done")

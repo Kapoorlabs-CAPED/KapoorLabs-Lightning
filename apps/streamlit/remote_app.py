@@ -82,12 +82,8 @@ def load_json(path):
         return json.load(f)
 
 
-def read_single_slice(tif_path, t=0, z_mid=None, crop=None):
-    """Read a single Z-slice from a TZYX timelapse via page-level access.
-
-    Args:
-        crop: Optional dict with x_size, y_size keys. Crop is centered.
-    """
+def read_single_slice(tif_path, t=0, z_mid=None):
+    """Read a single Z-slice from a TZYX timelapse via page-level access."""
     with TiffFile(str(tif_path)) as tif:
         series = tif.series[0]
         shape = series.shape
@@ -106,17 +102,7 @@ def read_single_slice(tif_path, t=0, z_mid=None, crop=None):
             page_idx = 0
 
         page_idx = min(page_idx, n_pages - 1)
-        img = np.asarray(tif.pages[page_idx].asarray())
-
-    if crop:
-        h, w = img.shape[:2]
-        xw = min(crop.get("x_size", w), w)
-        yw = min(crop.get("y_size", h), h)
-        x0 = max(w // 2 - xw // 2, 0)
-        y0 = max(h // 2 - yw // 2, 0)
-        img = img[y0:y0+yw, x0:x0+xw]
-
-    return img, shape
+        return np.asarray(tif.pages[page_idx].asarray()), shape
 
 
 def _normalize_slice(img_2d):
@@ -132,6 +118,20 @@ def _normalize_slice(img_2d):
 def preview_slice_figure(img_2d, title=""):
     """Interactive plotly figure with zoom/pan from a 2D array."""
     img8 = _normalize_slice(img_2d)
+    fig = go.Figure(go.Image(z=np.stack([img8, img8, img8], axis=-1)))
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=12)),
+        margin=dict(l=0, r=0, t=30, b=0),
+        height=500,
+        dragmode="zoom",
+    )
+    fig.update_xaxes(showticklabels=False)
+    fig.update_yaxes(showticklabels=False)
+    return fig
+
+def preview_seg_slice_figure(img_2d, title=""):
+    """Interactive plotly figure with zoom/pan from a 2D array."""
+    img8 = img_2d.astype(np.uint16)
     fig = go.Figure(go.Image(z=np.stack([img8, img8, img8], axis=-1)))
     fig.update_layout(
         title=dict(text=title, font=dict(size=12)),
@@ -187,19 +187,6 @@ def create_detection_overlay(raw_slice_2d, detections_df, timepoint):
         legend=dict(x=1, y=1, xanchor="right", bgcolor="rgba(255,255,255,0.7)"),
     )
     return fig
-
-
-def _write_roi_config(job_uploads_dir):
-    """Write centered ROI crop config JSON into the job uploads folder."""
-    roi = {
-        "x_size": st.session_state.get("roi_xw", 256),
-        "y_size": st.session_state.get("roi_yw", 256),
-        "z_size": st.session_state.get("roi_zw", 0),
-    }
-    roi_path = Path(job_uploads_dir) / "roi.json"
-    with open(roi_path, "w") as f:
-        json.dump(roi, f)
-    log.info("ROI config: %s", roi)
 
 
 def submit_to_jeanzay(job_id):
@@ -304,30 +291,9 @@ def main():
         seg_path = None
         has_defaults = False
 
-    # --- Sidebar: ROI crop (centered) ---
-    st.sidebar.header("ROI Crop")
-    st.sidebar.caption("Crop region centered on the image (smaller = faster demo)")
-    roi_x_size = st.sidebar.number_input("X size", value=256, min_value=1, step=1, key="roi_xw")
-    roi_y_size = st.sidebar.number_input("Y size", value=256, min_value=1, step=1, key="roi_yw")
-    roi_z_size = st.sidebar.number_input("Z size (0 = full)", value=0, min_value=0, step=1, key="roi_zw")
-
     # --- Preview default images with T and Z sliders ---
     if use_defaults and has_defaults:
         st.subheader("Input Data Preview")
-
-        # Show full image dimensions
-        try:
-            with TiffFile(str(raw_path)) as tif:
-                full_shape = tif.series[0].shape
-            if len(full_shape) >= 4:
-                st.info(
-                    f"Image size: T={full_shape[0]}, Z={full_shape[1]}, "
-                    f"Y={full_shape[2]}, X={full_shape[3]}"
-                )
-            elif len(full_shape) == 3:
-                st.info(f"Image size: Z={full_shape[0]}, Y={full_shape[1]}, X={full_shape[2]}")
-        except Exception:
-            pass
 
         try:
             with TiffFile(str(raw_path)) as tif:
@@ -335,17 +301,11 @@ def main():
             if len(preview_shape) >= 4:
                 preview_nt = preview_shape[0]
                 preview_nz = preview_shape[1]
-                preview_ny = preview_shape[2]
-                preview_nx = preview_shape[3]
-            elif len(preview_shape) == 3:
-                preview_nt = 1
-                preview_nz = preview_shape[0]
-                preview_ny = preview_shape[1]
-                preview_nx = preview_shape[2]
             else:
-                preview_nt, preview_nz, preview_ny, preview_nx = 1, 1, 1, 1
+                preview_nt = 1
+                preview_nz = preview_shape[0] if len(preview_shape) == 3 else 1
         except Exception:
-            preview_nt, preview_nz, preview_ny, preview_nx = 1, 1, 1, 1
+            preview_nt, preview_nz = 1, 1
 
         max_pt = max(preview_nt - 1, 0)
         max_pz = max(preview_nz - 1, 0)
@@ -386,31 +346,17 @@ def main():
         preview_t = st.session_state["prev_t_slider"]
         preview_z = st.session_state["prev_z_slider"]
 
+       
         try:
             raw_slice, raw_shape = read_single_slice(raw_path, t=preview_t, z_mid=preview_z)
             fig = preview_slice_figure(
                 raw_slice,
                 f"Raw  ({raw_shape}, t={preview_t}, z={preview_z})",
             )
-            h, w = raw_slice.shape[:2]
-            cx, cy = w // 2, h // 2
-            x0 = max(cx - roi_x_size // 2, 0)
-            y0 = max(cy - roi_y_size // 2, 0)
-            x1 = min(x0 + roi_x_size, w)
-            y1 = min(y0 + roi_y_size, h)
-            fig.add_shape(
-                type="rect", x0=x0, y0=y0, x1=x1, y1=y1,
-                line=dict(color="cyan", width=2, dash="dash"),
-            )
-            fig.add_annotation(
-                x=x0, y=max(y0 - 5, 0),
-                text=f"ROI {roi_x_size}x{roi_y_size}",
-                showarrow=False, font=dict(color="cyan", size=11),
-                xanchor="left",
-            )
             st.plotly_chart(fig, use_container_width=True)
         except Exception as e:
             st.warning(f"Cannot preview raw: {e}")
+    
 
     # --- Submit button ---
     run_btn = st.button(
@@ -440,7 +386,6 @@ def main():
                     lustre_seg = LUSTRE_DEMO / "uploads" / seg_path.name
                     raw_dest.symlink_to(lustre_raw)
                     seg_dest.symlink_to(lustre_seg)
-                    _write_roi_config(job_uploads)
                     st.session_state["raw_path_on_mount"] = str(raw_path)
 
                 with st.spinner("SSH → kapoorlabs login node → sbatch..."):
@@ -469,7 +414,6 @@ def main():
                     seg_dest = job_uploads / f"seg_{seg_file.name}"
                     raw_dest.write_bytes(raw_file.read())
                     seg_dest.write_bytes(seg_file.read())
-                    _write_roi_config(job_uploads)
                     st.session_state["raw_path_on_mount"] = str(raw_dest)
 
                 with st.spinner("SSH → kapoorlabs login node → sbatch..."):
@@ -552,16 +496,6 @@ def main():
                     shape = tif.series[0].shape
                     num_t = shape[0] if len(shape) >= 4 else 1
                     nz = shape[1] if len(shape) >= 4 else shape[0]
-                    ny = shape[2] if len(shape) >= 4 else shape[1] if len(shape) >= 3 else 1
-                    nx = shape[3] if len(shape) >= 4 else shape[2] if len(shape) >= 3 else 1
-
-                viewer_crop = {"x_size": roi_x_size, "y_size": roi_y_size}
-                cx_off = max(nx // 2 - roi_x_size // 2, 0)
-                cy_off = max(ny // 2 - roi_y_size // 2, 0)
-                st.caption(
-                    f"Showing {roi_x_size}x{roi_y_size} crop centered on "
-                    f"{nx}x{ny} image"
-                )
 
                 det_timepoints = sorted(df["t"].unique().tolist())
 
@@ -612,13 +546,9 @@ def main():
                     )
 
                     slice_2d, _ = read_single_slice(
-                        raw_mount_path, t=selected_t, z_mid=selected_z,
-                        crop=viewer_crop,
+                        raw_mount_path, t=selected_t, z_mid=selected_z
                     )
-                    view_df = df.copy()
-                    view_df["x"] = view_df["x"] - cx_off
-                    view_df["y"] = view_df["y"] - cy_off
-                    fig = create_detection_overlay(slice_2d, view_df, selected_t)
+                    fig = create_detection_overlay(slice_2d, df, selected_t)
                     st.plotly_chart(fig, use_container_width=True)
 
                     dets_at_t = df[df["t"] == selected_t]
