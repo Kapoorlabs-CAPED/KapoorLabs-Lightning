@@ -11,10 +11,14 @@ Usage:
 import json
 import logging
 import os
+import re
 import subprocess
 import time
+import urllib.parse
+import urllib.request
+import urllib.error
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 logging.basicConfig(
@@ -42,8 +46,131 @@ LUSTRE_DEMO = Path("/lustre/fsn1/projects/rech/jsy/uzj81mi/demo")
 DEFAULT_RAW = UPLOADS_DIR / "raw_demo_default.tif"
 DEFAULT_SEG = UPLOADS_DIR / "seg_demo_default.tif"
 
-# Submit script on the lustre mount
-SUBMIT_SCRIPT = JEANZAY_MOUNT / "submit_job.sh"
+# Submit scripts on the lustre mount
+SUBMIT_SCRIPT_FREE = JEANZAY_MOUNT / "submit_job.sh"
+SUBMIT_SCRIPT_HEAVY = JEANZAY_MOUNT / "submit_heavy_job.sh"
+
+# Accounting + quota
+USAGE_LOG = JEANZAY_MOUNT / "usage_log.jsonl"
+
+# ORCID-based gating
+ORCID_RE = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
+HEAVY_QUOTA_PER_WEEK = 10
+HEAVY_COOLDOWN_HOURS = 24
+
+
+def heavy_quota_status(orcid):
+    """Inspect usage log for `orcid`. Return (count_7d, last_heavy_ts_or_None)."""
+    if not USAGE_LOG.exists() or not orcid:
+        return 0, None
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    count = 0
+    last_ts = None
+    with USAGE_LOG.open() as f:
+        for line in f:
+            try:
+                e = json.loads(line)
+            except Exception:
+                continue
+            if e.get("orcid") != orcid or e.get("mode") != "heavy":
+                continue
+            if e.get("slurm_id") is None:
+                continue  # only count successful submissions
+            try:
+                ts = datetime.fromisoformat(e["ts"].replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if ts < cutoff:
+                continue
+            count += 1
+            if last_ts is None or ts > last_ts:
+                last_ts = ts
+    return count, last_ts
+
+
+ORCID_AUTH_URL = "https://orcid.org/oauth/authorize"
+ORCID_TOKEN_URL = "https://orcid.org/oauth/token"
+
+
+def orcid_oauth_config():
+    """Return (client_id, client_secret, redirect_uri) or (None, None, None) if unset."""
+    try:
+        cfg = st.secrets["orcid"]
+        return cfg["client_id"], cfg["client_secret"], cfg["redirect_uri"]
+    except Exception:
+        return None, None, None
+
+
+def build_orcid_login_url(client_id, redirect_uri):
+    """Build the ORCID OAuth authorize URL with /authenticate scope."""
+    params = {
+        "client_id": client_id,
+        "response_type": "code",
+        "scope": "/authenticate",
+        "redirect_uri": redirect_uri,
+    }
+    return f"{ORCID_AUTH_URL}?{urllib.parse.urlencode(params)}"
+
+
+def exchange_orcid_code(code, client_id, client_secret, redirect_uri):
+    """Exchange auth code for an access token + verified ORCID iD.
+
+    Returns the JSON dict (containing 'orcid', 'name', 'access_token', ...)
+    or None on failure.
+    """
+    data = urllib.parse.urlencode({
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+    }).encode()
+    req = urllib.request.Request(
+        ORCID_TOKEN_URL,
+        data=data,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as e:
+        log.warning("ORCID token exchange failed: %s", e)
+        return None
+
+
+def heavy_embargo_until(orcid):
+    """Return a datetime if the user is currently embargoed, else None."""
+    count, last_ts = heavy_quota_status(orcid)
+    if count >= HEAVY_QUOTA_PER_WEEK and last_ts is not None:
+        embargo_end = last_ts + timedelta(hours=HEAVY_COOLDOWN_HOURS)
+        if embargo_end > datetime.now(timezone.utc):
+            return embargo_end
+    return None
+
+
+def get_client_ip():
+    """Best-effort client IP from Streamlit request headers."""
+    try:
+        headers = st.context.headers
+    except Exception:
+        return "unknown"
+    fwd = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return headers.get("Host") or "unknown"
+
+
+def log_usage(event):
+    """Append a JSON line to the usage log. Never raises."""
+    try:
+        USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with USAGE_LOG.open("a") as f:
+            f.write(json.dumps(event) + "\n")
+    except Exception as e:
+        log.warning("usage log write failed: %s", e)
 
 
 def discover_models():
@@ -189,15 +316,36 @@ def create_detection_overlay(raw_slice_2d, detections_df, timepoint):
     return fig
 
 
-def submit_to_jeanzay(job_id):
+def mount_to_lustre(mount_path):
+    """Translate a path on the local sshfs mount to its lustre equivalent."""
+    rel = Path(mount_path).resolve().relative_to(JEANZAY_MOUNT.resolve())
+    return str(LUSTRE_DEMO / rel)
+
+
+def submit_to_jeanzay(submit_script, job_id, ckpt_lustre, config_lustre=None):
     """SSH to kapoorlabslogin node and sbatch the prediction job."""
-    log.info("Submitting job %s via %s", job_id, SUBMIT_SCRIPT)
-    result = subprocess.run(
-        [str(SUBMIT_SCRIPT), job_id],
-        capture_output=True,
-        text=True,
-        timeout=60,
+    log.info(
+        "Submitting job %s via %s ckpt=%s config=%s",
+        job_id, submit_script.name, ckpt_lustre, config_lustre,
     )
+    cmd = [str(submit_script), job_id, ckpt_lustre]
+    if config_lustre:
+        cmd.append(config_lustre)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired as e:
+        log.error(
+            "SSH submit timed out after %ss. partial stdout=%r stderr=%r",
+            e.timeout,
+            (e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, (bytes, bytearray)) else (e.stdout or ""),
+            (e.stderr or b"").decode("utf-8", "replace") if isinstance(e.stderr, (bytes, bytearray)) else (e.stderr or ""),
+        )
+        raise
     log.info("SSH stdout: %s", result.stdout.strip())
     if result.stderr.strip():
         log.warning("SSH stderr: %s", result.stderr.strip())
@@ -243,6 +391,7 @@ def main():
     st.sidebar.header("Model")
     available_models = discover_models()
 
+    model_info = None
     if available_models:
         model_name = st.sidebar.selectbox(
             "Select model",
@@ -256,6 +405,68 @@ def main():
             f"No models found in {MODELS_DIR}. "
             "Place model directories (with .ckpt + .json) there."
         )
+
+    # --- Sidebar: identity (ORCID OAuth-gated A100 access + usage accounting) ---
+    st.sidebar.header("User (ORCID)")
+    client_id, client_secret, redirect_uri = orcid_oauth_config()
+
+    # Handle the OAuth callback: ORCID redirects back with ?code=...
+    qp = st.query_params
+    code = qp.get("code")
+    if code and not st.session_state.get("verified_orcid") and client_id:
+        with st.spinner("Verifying ORCID sign-in..."):
+            tok = exchange_orcid_code(code, client_id, client_secret, redirect_uri)
+        if tok and tok.get("orcid"):
+            st.session_state["verified_orcid"] = tok["orcid"]
+            st.session_state["verified_name"] = tok.get("name")
+            log.info("ORCID OAuth success for %s", tok["orcid"])
+        else:
+            st.sidebar.error("ORCID sign-in failed. Please try again.")
+        # Clear ?code from URL so a refresh doesn't re-exchange it
+        st.query_params.clear()
+
+    verified_orcid = st.session_state.get("verified_orcid")
+    verified_name = st.session_state.get("verified_name")
+
+    if not client_id:
+        st.sidebar.error(
+            "ORCID OAuth not configured. Add `[orcid]` block to "
+            ".streamlit/secrets.toml."
+        )
+    elif verified_orcid:
+        st.sidebar.success(
+            f"Signed in as {verified_name or verified_orcid}\n\n`{verified_orcid}`"
+        )
+        if st.sidebar.button("Sign out", use_container_width=True):
+            st.session_state.pop("verified_orcid", None)
+            st.session_state.pop("verified_name", None)
+            st.rerun()
+    else:
+        login_url = build_orcid_login_url(client_id, redirect_uri)
+        st.sidebar.markdown(
+            f"<a href='{login_url}' target='_self'>"
+            f"<button style='width:100%;padding:0.5em;border-radius:0.5em;"
+            f"border:1px solid #A6CE39;background:#A6CE39;color:white;"
+            f"cursor:pointer;font-weight:600;'>Sign in with ORCID</button></a>",
+            unsafe_allow_html=True,
+        )
+        st.sidebar.caption("Required for A100 (heavy) jobs.")
+
+    embargo_end = heavy_embargo_until(verified_orcid) if verified_orcid else None
+    runs_7d = heavy_quota_status(verified_orcid)[0] if verified_orcid else 0
+    is_heavy_allowed = bool(verified_orcid) and embargo_end is None
+
+    if verified_orcid:
+        st.sidebar.caption(
+            f"Heavy runs in last 7 days: {runs_7d} / {HEAVY_QUOTA_PER_WEEK}"
+        )
+        if embargo_end is not None:
+            st.sidebar.warning(
+                f"Quota exceeded. Embargo until "
+                f"{embargo_end.strftime('%Y-%m-%d %H:%M UTC')}."
+            )
+        else:
+            st.sidebar.success("A100 access enabled.")
 
     # --- Sidebar: input files ---
     st.sidebar.header("Input Files")
@@ -358,57 +569,62 @@ def main():
             st.warning(f"Cannot preview raw: {e}")
     
 
-    # --- Submit button ---
-    run_btn = st.button(
-        "Run Prediction on KapoorLabs", type="primary", use_container_width=True
+    # --- Submit buttons: free (visu) vs A100 heavy (gated) ---
+    col_free, col_heavy = st.columns(2)
+    run_free = col_free.button(
+        "Run (free, less powerful GPU)", type="primary", use_container_width=True
+    )
+    run_heavy = col_heavy.button(
+        "Run on A100 (gated, provide your Orcid ID)",
+        type="secondary",
+        use_container_width=True,
+        disabled=not is_heavy_allowed,
+        help=None if is_heavy_allowed else "Enter an allowlisted email in the sidebar.",
     )
 
-    if run_btn:
-        log.info("=== User clicked Run Prediction (use_defaults=%s) ===", use_defaults)
-        if not SUBMIT_SCRIPT.exists():
+    if run_free or run_heavy:
+        mode = "heavy" if run_heavy else "free"
+        submit_script = SUBMIT_SCRIPT_HEAVY if run_heavy else SUBMIT_SCRIPT_FREE
+        client_ip = get_client_ip()
+        log.info(
+            "=== Run clicked mode=%s use_defaults=%s orcid=%s ip=%s ===",
+            mode, use_defaults, verified_orcid or "<none>", client_ip,
+        )
+
+        # Re-check embargo at click time — log on disk is the source of truth
+        if run_heavy:
+            recheck = heavy_embargo_until(verified_orcid)
+            if recheck is not None:
+                st.error(
+                    f"Quota exceeded. Embargo until "
+                    f"{recheck.strftime('%Y-%m-%d %H:%M UTC')}."
+                )
+                st.stop()
+
+        if not submit_script.exists():
             st.error(
-                f"Submit script not found at {SUBMIT_SCRIPT}. "
+                f"Submit script not found at {submit_script}. "
                 "Ensure the lustre mount is active."
             )
-        elif use_defaults:
-            if not has_defaults:
-                st.error("Default demo files are missing from the mount.")
-            else:
-                job_id = uuid.uuid4().hex[:8]
-                job_uploads = UPLOADS_DIR / job_id
-                job_uploads.mkdir(parents=True, exist_ok=True)
+        elif use_defaults and not has_defaults:
+            st.error("Default demo files are missing from the mount.")
+        elif not use_defaults and (raw_file is None or seg_file is None):
+            st.error("Upload both raw and segmentation timelapse files.")
+        elif model_info is None:
+            st.error("No model selected.")
+        else:
+            job_id = uuid.uuid4().hex[:8]
+            job_uploads = UPLOADS_DIR / job_id
+            job_uploads.mkdir(parents=True, exist_ok=True)
 
-                log.info("Job %s: linking demo files", job_id)
+            if use_defaults:
                 with st.spinner("Linking demo files..."):
                     raw_dest = job_uploads / f"raw_{raw_path.name}"
                     seg_dest = job_uploads / f"seg_{seg_path.name}"
-                    lustre_raw = LUSTRE_DEMO / "uploads" / raw_path.name
-                    lustre_seg = LUSTRE_DEMO / "uploads" / seg_path.name
-                    raw_dest.symlink_to(lustre_raw)
-                    seg_dest.symlink_to(lustre_seg)
+                    raw_dest.symlink_to(LUSTRE_DEMO / "uploads" / raw_path.name)
+                    seg_dest.symlink_to(LUSTRE_DEMO / "uploads" / seg_path.name)
                     st.session_state["raw_path_on_mount"] = str(raw_path)
-
-                with st.spinner("SSH → kapoorlabs login node → sbatch..."):
-                    try:
-                        slurm_id, output = submit_to_jeanzay(job_id)
-                        st.session_state["job_id"] = job_id
-                        st.session_state["slurm_id"] = slurm_id
-                        st.session_state.pop("results_df", None)
-                        st.success(
-                            f"Job submitted! ID: {job_id} (SLURM: {slurm_id})"
-                        )
-                    except Exception as e:
-                        log.error("Job %s submission failed: %s", job_id, e)
-                        st.error(f"Submission failed: {e}")
-        else:
-            if raw_file is None or seg_file is None:
-                st.error("Upload both raw and segmentation timelapse files.")
             else:
-                job_id = uuid.uuid4().hex[:8]
-                job_uploads = UPLOADS_DIR / job_id
-                job_uploads.mkdir(parents=True, exist_ok=True)
-
-                log.info("Job %s: uploading user files (%s, %s)", job_id, raw_file.name, seg_file.name)
                 with st.spinner("Writing files to KapoorLabs mount..."):
                     raw_dest = job_uploads / f"raw_{raw_file.name}"
                     seg_dest = job_uploads / f"seg_{seg_file.name}"
@@ -416,18 +632,39 @@ def main():
                     seg_dest.write_bytes(seg_file.read())
                     st.session_state["raw_path_on_mount"] = str(raw_dest)
 
-                with st.spinner("SSH → kapoorlabs login node → sbatch..."):
-                    try:
-                        slurm_id, output = submit_to_jeanzay(job_id)
-                        st.session_state["job_id"] = job_id
-                        st.session_state["slurm_id"] = slurm_id
-                        st.session_state.pop("results_df", None)
-                        st.success(
-                            f"Job submitted! ID: {job_id} (SLURM: {slurm_id})"
-                        )
-                    except Exception as e:
-                        log.error("Job %s submission failed: %s", job_id, e)
-                        st.error(f"Submission failed: {e}")
+            ckpt_lustre = mount_to_lustre(model_info["ckpt"])
+            config_lustre = (
+                mount_to_lustre(model_info["training_json"])
+                if model_info.get("training_json") else None
+            )
+
+            slurm_id = None
+            err = None
+            with st.spinner("SSH → kapoorlabs login node → sbatch..."):
+                try:
+                    slurm_id, _ = submit_to_jeanzay(
+                        submit_script, job_id, ckpt_lustre, config_lustre
+                    )
+                    st.session_state["job_id"] = job_id
+                    st.session_state["slurm_id"] = slurm_id
+                    st.session_state.pop("results_df", None)
+                    st.success(f"Job submitted! ID: {job_id} (SLURM: {slurm_id})")
+                except Exception as e:
+                    err = str(e)
+                    log.error("Job %s submission failed: %s", job_id, e)
+                    st.error(f"Submission failed: {e}")
+
+            log_usage({
+                "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "ip": client_ip,
+                "orcid": verified_orcid,
+                "job_id": job_id,
+                "slurm_id": slurm_id,
+                "mode": mode,
+                "model": model_info["dir"],
+                "use_defaults": use_defaults,
+                "error": err,
+            })
 
     # --- Poll for status ---
     if "job_id" in st.session_state and "results_df" not in st.session_state:
@@ -513,8 +750,34 @@ def main():
                         st.session_state["det_z_slider"] = nz // 2
                         st.session_state["det_z_box"] = nz // 2
 
+                    def _jump_event(direction):
+                        cur = st.session_state.get(
+                            "det_t_slider", det_timepoints[0]
+                        )
+                        if direction == "next":
+                            cands = [t for t in det_timepoints if t > cur]
+                            new_t = cands[0] if cands else det_timepoints[0]
+                        else:
+                            cands = [t for t in det_timepoints if t < cur]
+                            new_t = cands[-1] if cands else det_timepoints[-1]
+                        st.session_state["det_t_slider"] = int(new_t)
+                        st.session_state["det_t_box"] = int(new_t)
+
                     col_dt, col_dz = st.columns(2)
                     with col_dt:
+                        b_prev, b_next = st.columns(2)
+                        b_prev.button(
+                            "< Prev event",
+                            on_click=_jump_event, args=("prev",),
+                            use_container_width=True,
+                            help="Jump to the previous timepoint with detections (wraps).",
+                        )
+                        b_next.button(
+                            "Next event >",
+                            on_click=_jump_event, args=("next",),
+                            use_container_width=True,
+                            help="Jump to the next timepoint with detections (wraps).",
+                        )
                         st.slider(
                             "Timepoint", 0, max_t, step=1,
                             key="det_t_slider",

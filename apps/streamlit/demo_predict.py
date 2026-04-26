@@ -11,6 +11,7 @@ Usage (called by SLURM script, not directly):
 """
 
 import argparse
+import json
 
 from pathlib import Path
 from glob import glob
@@ -57,7 +58,25 @@ DEFAULT_PARAMS = {
 }
 
 
-def run_prediction(job_id, checkpoint_path=None):
+def load_params_from_config(config_path):
+    """Load model architecture params from a training_config.json.
+
+    Merges the file's `parameters` block over DEFAULT_PARAMS and flattens
+    the nested `depth` dict so downstream keys (`depth_0`, `depth_1`, ...) work.
+    """
+    with open(config_path) as f:
+        cfg = json.load(f)
+    params = dict(DEFAULT_PARAMS)
+    file_params = cfg.get("parameters", cfg)
+    for k, v in file_params.items():
+        if k == "depth" and isinstance(v, dict):
+            params.update(v)
+        else:
+            params[k] = v
+    return params
+
+
+def run_prediction(job_id, checkpoint_path=None, config_path=None):
     uploads_dir = DEMO_BASE / "uploads" / job_id
     results_dir = DEMO_BASE / "results" / job_id
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -91,7 +110,11 @@ def run_prediction(job_id, checkpoint_path=None):
 
         print(f"Checkpoint: {checkpoint_path}")
 
-        p = DEFAULT_PARAMS
+        if config_path:
+            p = load_params_from_config(config_path)
+            print(f"Config: {config_path}")
+        else:
+            p = DEFAULT_PARAMS
         imaget = p["size_tminus"] + p["size_tplus"] + 1
         input_shape = (imaget, p["imagez"], p["imagey"], p["imagex"])
         depth = {"depth_0": p["depth_0"], "depth_1": p["depth_1"], "depth_2": p["depth_2"]}
@@ -177,14 +200,14 @@ def run_prediction(job_id, checkpoint_path=None):
         if len(all_detections) > 0:
            
                 df = pd.DataFrame(all_detections)
-                display_df = df[["time", "z", "y", "x", "event_threshold",  "event_name", "cell_id"]].copy()
+                display_df = df[["time", "z", "y", "x", "score",  "event_name", "cell_id"]].copy()
                 display_df = display_df.rename(columns={"time": "t"})
                 csv_path = results_dir / "oneat_detections.csv"
                 display_df.to_csv(csv_path, index=False)
                 print(f"Results saved: {csv_path}")
            
         else:
-            (results_dir / "oneat_detections.csv").write_text("t,z,y,x,event_threshold,event_name,cell_id\n")
+            (results_dir / "oneat_detections.csv").write_text("t,z,y,x,score,event_name,cell_id\n")
             print("No events detected")
 
         status_file.write_text("done")
@@ -198,9 +221,10 @@ def main():
     parser = argparse.ArgumentParser(description="Demo ONEAT prediction")
     parser.add_argument("--job-id", required=True, help="Unique job identifier")
     parser.add_argument("--checkpoint", default=None, help="Override checkpoint path")
+    parser.add_argument("--config", default=None, help="Path to training_config.json with model params")
     args = parser.parse_args()
 
-    run_prediction(args.job_id, checkpoint_path=args.checkpoint)
+    run_prediction(args.job_id, checkpoint_path=args.checkpoint, config_path=args.config)
 
 
 if __name__ == "__main__":
