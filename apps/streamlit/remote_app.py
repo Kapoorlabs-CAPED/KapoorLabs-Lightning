@@ -46,6 +46,41 @@ MODELS_DIR = JEANZAY_MOUNT / "models"
 # Lustre-side path that Jean Zay compute nodes see
 LUSTRE_DEMO = Path("/lustre/fsn1/projects/rech/jsy/uzj81mi/demo")
 
+# Per-demo metadata. Key = subdir name under UPLOADS_DIR. Anything not listed
+# here falls back to a generic label so adding a new demo dir Just Works.
+# `order` controls dropdown placement (lower = shown first).
+DEMO_META = {
+    "last_timepoint": {
+        "label": "Later Timepoints (~3h runtime)",
+        "blurb": (
+            "Representative of the data we handle in production — full 3D+T "
+            "Xenopus timelapse, multi-hour A100 inference."
+        ),
+        "order": 0,
+    },
+     "first_timepoint": {
+        "label": "Early Timepoints (~1h runtime)",
+        "blurb": (
+            "Representative of the data we handle in production — full 3D+T "
+            "Xenopus timelapse, multi-hour A100 inference."
+        ),
+        "order": 1,
+    },
+    "simple_data": {
+        "label": "Toy demo (~15 min runtime)",
+        "blurb": (
+            "Small synthetic timelapse. Useful for a quick sanity check; not "
+            "representative of real-world data sizes."
+        ),
+        "order": 2,
+    },
+}
+
+
+def demo_meta(name):
+    return DEMO_META.get(name, {"label": name, "blurb": None, "order": 99})
+
+
 def discover_demos():
     """Scan UPLOADS_DIR for curated demo datasets.
 
@@ -312,6 +347,132 @@ def preview_seg_slice_figure(img_2d, title=""):
     return fig
 
 
+def render_image_viewer(raw_image_path, results_df=None):
+    """One viewer to rule them both — pre-submit preview and post-submit overlay.
+
+    If `results_df` is provided and non-empty, detection markers and
+    prev/next-event buttons are layered onto the slice. Otherwise the
+    same widgets render a plain preview.
+
+    Reads slices via tifffile page-level access (one page at a time, no
+    full-volume load), so this is cheap to call on every Streamlit rerun.
+    """
+    if not raw_image_path or not os.path.exists(raw_image_path):
+        return
+
+    has_results = results_df is not None and len(results_df) > 0
+
+    try:
+        with TiffFile(str(raw_image_path)) as tif:
+            shape = tif.series[0].shape
+        if len(shape) >= 4:
+            num_t, num_z = shape[0], shape[1]
+        elif len(shape) == 3:
+            num_t, num_z = 1, shape[0]
+        else:
+            num_t, num_z = 1, 1
+    except Exception as e:
+        st.warning(f"Cannot read raw image: {e}")
+        return
+
+    max_t = max(num_t - 1, 0)
+    max_z = max(num_z - 1, 0)
+
+    det_timepoints = sorted(results_df["t"].unique().tolist()) if has_results else []
+    initial_t = int(det_timepoints[0]) if det_timepoints else 0
+
+    def _sync(src, dst):
+        st.session_state[dst] = st.session_state[src]
+
+    if "view_t_slider" not in st.session_state:
+        st.session_state["view_t_slider"] = initial_t
+        st.session_state["view_t_box"] = initial_t
+    if "view_z_slider" not in st.session_state:
+        st.session_state["view_z_slider"] = num_z // 2
+        st.session_state["view_z_box"] = num_z // 2
+
+    def _jump_event(direction):
+        if not det_timepoints:
+            return
+        cur = st.session_state.get("view_t_slider", det_timepoints[0])
+        if direction == "next":
+            cands = [t for t in det_timepoints if t > cur]
+            new_t = cands[0] if cands else det_timepoints[0]
+        else:
+            cands = [t for t in det_timepoints if t < cur]
+            new_t = cands[-1] if cands else det_timepoints[-1]
+        st.session_state["view_t_slider"] = int(new_t)
+        st.session_state["view_t_box"] = int(new_t)
+
+    col_t, col_z = st.columns(2)
+    with col_t:
+        if has_results:
+            b_prev, b_next = st.columns(2)
+            b_prev.button(
+                "< Prev event", on_click=_jump_event, args=("prev",),
+                use_container_width=True, key="view_btn_prev",
+                help="Jump to the previous timepoint with detections (wraps).",
+            )
+            b_next.button(
+                "Next event >", on_click=_jump_event, args=("next",),
+                use_container_width=True, key="view_btn_next",
+                help="Jump to the next timepoint with detections (wraps).",
+            )
+        st.slider(
+            "Timepoint", 0, max_t, step=1,
+            key="view_t_slider",
+            on_change=_sync, args=("view_t_slider", "view_t_box"),
+        )
+        st.number_input(
+            "t", 0, max_t,
+            key="view_t_box",
+            on_change=_sync, args=("view_t_box", "view_t_slider"),
+        )
+    with col_z:
+        st.slider(
+            "Z-slice", 0, max_z, step=1,
+            key="view_z_slider",
+            on_change=_sync, args=("view_z_slider", "view_z_box"),
+        )
+        st.number_input(
+            "z", 0, max_z,
+            key="view_z_box",
+            on_change=_sync, args=("view_z_box", "view_z_slider"),
+        )
+    selected_t = st.session_state["view_t_slider"]
+    selected_z = st.session_state["view_z_slider"]
+
+    if has_results:
+        n_at_t = len(results_df[results_df["t"] == selected_t])
+        st.caption(
+            f"t={selected_t}, z={selected_z} — {n_at_t} detections at this t  |  "
+            f"Timepoints with events: {det_timepoints}"
+        )
+    else:
+        st.caption(f"t={selected_t}, z={selected_z}")
+
+    try:
+        slice_2d, raw_shape = read_single_slice(
+            raw_image_path, t=selected_t, z_mid=selected_z
+        )
+    except Exception as e:
+        st.warning(f"Cannot read slice: {e}")
+        return
+
+    if has_results:
+        fig = create_detection_overlay(slice_2d, results_df, selected_t)
+    else:
+        fig = preview_slice_figure(
+            slice_2d, f"Raw  ({raw_shape}, t={selected_t}, z={selected_z})"
+        )
+    st.plotly_chart(fig, use_container_width=True)
+
+    if has_results:
+        dets_at_t = results_df[results_df["t"] == selected_t]
+        if len(dets_at_t) > 0:
+            st.dataframe(dets_at_t, use_container_width=True, hide_index=True)
+
+
 def create_detection_overlay(raw_slice_2d, detections_df, timepoint):
     """Interactive plotly figure with detections as markers."""
     dets_at_t = detections_df[detections_df["t"] == timepoint]
@@ -512,13 +673,19 @@ def main():
     # --- Sidebar: input files ---
     st.sidebar.header("Input Files")
     available_demos = discover_demos()
-    demo_names = list(available_demos.keys())
+    # Sort by configured order, unknown demos fall to the bottom.
+    demo_names = sorted(
+        available_demos.keys(),
+        key=lambda n: (demo_meta(n)["order"], n),
+    )
 
-    options = [f"Demo: {n}" for n in demo_names] + ["Upload my own"]
+    # Display label includes the runtime hint from DEMO_META.
+    label_to_name = {f"Demo — {demo_meta(n)['label']}": n for n in demo_names}
+    options = list(label_to_name.keys()) + ["Upload my own"]
     if not demo_names:
         options = ["Upload my own"]
     choice = st.sidebar.selectbox("Source", options, index=0)
-    use_defaults = choice.startswith("Demo: ")
+    use_defaults = choice in label_to_name
 
     raw_file = None
     seg_file = None
@@ -528,11 +695,14 @@ def main():
     demo_name = None
 
     if use_defaults:
-        demo_name = choice[len("Demo: "):]
+        demo_name = label_to_name[choice]
         demo = available_demos[demo_name]
         raw_path = demo["raw"]
         seg_path = demo["seg"]
         has_defaults = raw_path.exists() and seg_path.exists()
+        blurb = demo_meta(demo_name)["blurb"]
+        if blurb:
+            st.sidebar.caption(blurb)
         if has_defaults:
             st.sidebar.success(
                 f"Raw: {raw_path.name}\nSeg: {seg_path.name}"
@@ -570,72 +740,22 @@ def main():
         "`pip install KapoorLabs-Lightning`"
     )
 
-    # --- Preview default images with T and Z sliders ---
-    if use_defaults and has_defaults:
-        st.subheader("Input Data Preview")
+    # --- Unified image viewer ---
+    # Same viewer is used pre-submit (preview) and post-results (overlay).
+    # We pick the most up-to-date raw path: post-submit session state if
+    # available, otherwise the demo raw_path for pre-submit preview.
+    viewer_raw = (
+        st.session_state.get("raw_path_on_mount")
+        or (str(raw_path) if (use_defaults and has_defaults) else None)
+    )
+    viewer_df = st.session_state.get("results_df")
+    if viewer_raw:
+        st.subheader(
+            "Detection Overlay" if (viewer_df is not None and len(viewer_df) > 0)
+            else "Input Data Preview"
+        )
+        render_image_viewer(viewer_raw, results_df=viewer_df)
 
-        try:
-            with TiffFile(str(raw_path)) as tif:
-                preview_shape = tif.series[0].shape
-            if len(preview_shape) >= 4:
-                preview_nt = preview_shape[0]
-                preview_nz = preview_shape[1]
-            else:
-                preview_nt = 1
-                preview_nz = preview_shape[0] if len(preview_shape) == 3 else 1
-        except Exception:
-            preview_nt, preview_nz = 1, 1
-
-        max_pt = max(preview_nt - 1, 0)
-        max_pz = max(preview_nz - 1, 0)
-
-        def _sync_preview(src, dst):
-            st.session_state[dst] = st.session_state[src]
-
-        if "prev_t_slider" not in st.session_state:
-            st.session_state["prev_t_slider"] = 0
-            st.session_state["prev_t_box"] = 0
-        if "prev_z_slider" not in st.session_state:
-            st.session_state["prev_z_slider"] = preview_nz // 2
-            st.session_state["prev_z_box"] = preview_nz // 2
-
-        col_t, col_z = st.columns(2)
-        with col_t:
-            st.slider(
-                "Timepoint (preview)", 0, max_pt, step=1,
-                key="prev_t_slider",
-                on_change=_sync_preview, args=("prev_t_slider", "prev_t_box"),
-            )
-            st.number_input(
-                "t", 0, max_pt,
-                key="prev_t_box",
-                on_change=_sync_preview, args=("prev_t_box", "prev_t_slider"),
-            )
-        with col_z:
-            st.slider(
-                "Z-slice (preview)", 0, max_pz, step=1,
-                key="prev_z_slider",
-                on_change=_sync_preview, args=("prev_z_slider", "prev_z_box"),
-            )
-            st.number_input(
-                "z", 0, max_pz,
-                key="prev_z_box",
-                on_change=_sync_preview, args=("prev_z_box", "prev_z_slider"),
-            )
-        preview_t = st.session_state["prev_t_slider"]
-        preview_z = st.session_state["prev_z_slider"]
-
-       
-        try:
-            raw_slice, raw_shape = read_single_slice(raw_path, t=preview_t, z_mid=preview_z)
-            fig = preview_slice_figure(
-                raw_slice,
-                f"Raw  ({raw_shape}, t={preview_t}, z={preview_z})",
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.warning(f"Cannot preview raw: {e}")
-    
 
     # --- Submit: single ORCID-gated A100 button ---
     # Paint it green when unlocked so the run-state is obvious.
@@ -819,6 +939,11 @@ def main():
             if df is not None and len(df) > 0:
                 st.session_state["results_df"] = df
                 st.session_state["csv_path"] = str(csv_path)
+                # Snap viewer to the first detection so the user lands on
+                # an interesting frame instead of wherever preview was.
+                first_t = int(sorted(df["t"].unique().tolist())[0])
+                st.session_state["view_t_slider"] = first_t
+                st.session_state["view_t_box"] = first_t
                 st.rerun()
             else:
                 st.warning("No events detected.")
@@ -834,174 +959,73 @@ def main():
         df = st.session_state["results_df"]
         st.markdown("---")
 
-        tab_table, tab_viewer = st.tabs(["Results Table", "Detection Viewer"])
+        # Image + overlay are rendered by the unified viewer up the page;
+        # this block now only handles the table + downloads + plugin pointer.
+        st.subheader(f"Detected Events ({len(df)})")
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-        with tab_table:
-            st.subheader(f"Detected Events ({len(df)})")
-            st.dataframe(df, use_container_width=True, hide_index=True)
+        csv_path = st.session_state.get("csv_path")
+        raw_mount_path = st.session_state.get("raw_path_on_mount")
+        seg_mount_path = st.session_state.get("seg_path_on_mount")
+        used_defaults = st.session_state.get("used_defaults", False)
+        job_id = st.session_state.get("job_id", "results")
 
-            csv_path = st.session_state.get("csv_path")
-            raw_mount_path = st.session_state.get("raw_path_on_mount")
-            seg_mount_path = st.session_state.get("seg_path_on_mount")
-            used_defaults = st.session_state.get("used_defaults", False)
-            job_id = st.session_state.get("job_id", "results")
+        # When the user uploaded their own data they already have the raw +
+        # seg locally — only bundle them when this was a demo run.
+        if used_defaults:
+            col_csv, col_zip = st.columns(2)
+        else:
+            col_csv = st.container()
+            col_zip = None
 
-            # When the user uploaded their own data they already have the raw +
-            # seg locally — only bundle them when this was a demo run.
-            if used_defaults:
-                col_csv, col_zip = st.columns(2)
-            else:
-                col_csv = st.container()
-                col_zip = None
-
-            if csv_path and os.path.exists(csv_path):
-                with open(csv_path, "rb") as f:
-                    col_csv.download_button(
-                        "Download CSV",
-                        data=f,
-                        file_name="oneat_detections.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
-
-            if used_defaults and col_zip is not None:
-                zip_cache_key = f"results_zip::{job_id}"
-                zip_bytes = st.session_state.get(zip_cache_key)
-                if zip_bytes is None and (csv_path or raw_mount_path or seg_mount_path):
-                    zip_bytes = build_results_zip({
-                        "oneat_detections.csv": csv_path,
-                        (f"raw_{Path(raw_mount_path).name}" if raw_mount_path else "raw"):
-                            raw_mount_path,
-                        (f"seg_{Path(seg_mount_path).name}" if seg_mount_path else "seg"):
-                            seg_mount_path,
-                    })
-                    st.session_state[zip_cache_key] = zip_bytes
-
-                if zip_bytes:
-                    col_zip.download_button(
-                        "Download all (raw + seg + CSV)",
-                        data=zip_bytes,
-                        file_name=f"oneat_results_{job_id}.zip",
-                        mime="application/zip",
-                        use_container_width=True,
-                        help="Open the raw + seg TIFs in napari or Fiji for 3D inspection.",
-                    )
-
-            with st.expander("Want full 3D inspection? Use our napari plugin"):
-                st.markdown(
-                    "We ship a napari plugin that loads the raw + seg + "
-                    "detections CSV and lets you scrub through events in true 3D, "
-                    "edit annotations, and re-export.\n\n"
-                    "**Install:**\n"
-                    "```bash\n"
-                    "pip install KapoorLabs-Lightning napari\n"
-                    "```\n\n"
-                    "**Run** the plugin script directly from the repo:\n"
-                    "[oneat_event_visualizer.py on GitHub]"
-                    "(https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning"
-                    "/blob/main/plugins/oneat_event_visualizer.py)\n\n"
-                    "Point it at the unzipped folder you just downloaded."
+        if csv_path and os.path.exists(csv_path):
+            with open(csv_path, "rb") as f:
+                col_csv.download_button(
+                    "Download CSV",
+                    data=f,
+                    file_name="oneat_detections.csv",
+                    mime="text/csv",
+                    use_container_width=True,
                 )
 
-        with tab_viewer:
-            st.subheader("Detection Overlay Viewer")
-            raw_mount_path = st.session_state.get("raw_path_on_mount")
+        if used_defaults and col_zip is not None:
+            zip_cache_key = f"results_zip::{job_id}"
+            zip_bytes = st.session_state.get(zip_cache_key)
+            if zip_bytes is None and (csv_path or raw_mount_path or seg_mount_path):
+                zip_bytes = build_results_zip({
+                    "oneat_detections.csv": csv_path,
+                    (f"raw_{Path(raw_mount_path).name}" if raw_mount_path else "raw"):
+                        raw_mount_path,
+                    (f"seg_{Path(seg_mount_path).name}" if seg_mount_path else "seg"):
+                        seg_mount_path,
+                })
+                st.session_state[zip_cache_key] = zip_bytes
 
-            if raw_mount_path and os.path.exists(raw_mount_path):
-                with TiffFile(raw_mount_path) as tif:
-                    shape = tif.series[0].shape
-                    num_t = shape[0] if len(shape) >= 4 else 1
-                    nz = shape[1] if len(shape) >= 4 else shape[0]
+            if zip_bytes:
+                col_zip.download_button(
+                    "Download all (raw + seg + CSV)",
+                    data=zip_bytes,
+                    file_name=f"oneat_results_{job_id}.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                    help="Open the raw + seg TIFs in napari or Fiji for 3D inspection.",
+                )
 
-                det_timepoints = sorted(df["t"].unique().tolist())
-
-                if det_timepoints:
-                    max_t = max(num_t - 1, 1)
-                    max_z = max(nz - 1, 0)
-
-                    def _sync(src, dst):
-                        st.session_state[dst] = st.session_state[src]
-
-                    if "det_t_slider" not in st.session_state:
-                        st.session_state["det_t_slider"] = int(det_timepoints[0])
-                        st.session_state["det_t_box"] = int(det_timepoints[0])
-                    if "det_z_slider" not in st.session_state:
-                        st.session_state["det_z_slider"] = nz // 2
-                        st.session_state["det_z_box"] = nz // 2
-
-                    def _jump_event(direction):
-                        cur = st.session_state.get(
-                            "det_t_slider", det_timepoints[0]
-                        )
-                        if direction == "next":
-                            cands = [t for t in det_timepoints if t > cur]
-                            new_t = cands[0] if cands else det_timepoints[0]
-                        else:
-                            cands = [t for t in det_timepoints if t < cur]
-                            new_t = cands[-1] if cands else det_timepoints[-1]
-                        st.session_state["det_t_slider"] = int(new_t)
-                        st.session_state["det_t_box"] = int(new_t)
-
-                    col_dt, col_dz = st.columns(2)
-                    with col_dt:
-                        b_prev, b_next = st.columns(2)
-                        b_prev.button(
-                            "< Prev event",
-                            on_click=_jump_event, args=("prev",),
-                            use_container_width=True,
-                            help="Jump to the previous timepoint with detections (wraps).",
-                        )
-                        b_next.button(
-                            "Next event >",
-                            on_click=_jump_event, args=("next",),
-                            use_container_width=True,
-                            help="Jump to the next timepoint with detections (wraps).",
-                        )
-                        st.slider(
-                            "Timepoint", 0, max_t, step=1,
-                            key="det_t_slider",
-                            on_change=_sync, args=("det_t_slider", "det_t_box"),
-                        )
-                        st.number_input(
-                            "t", 0, max_t,
-                            key="det_t_box",
-                            on_change=_sync, args=("det_t_box", "det_t_slider"),
-                        )
-                    with col_dz:
-                        st.slider(
-                            "Z-slice", 0, max_z, step=1,
-                            key="det_z_slider",
-                            on_change=_sync, args=("det_z_slider", "det_z_box"),
-                        )
-                        st.number_input(
-                            "z", 0, max_z,
-                            key="det_z_box",
-                            on_change=_sync, args=("det_z_box", "det_z_slider"),
-                        )
-                    selected_t = st.session_state["det_t_slider"]
-                    selected_z = st.session_state["det_z_slider"]
-
-                    n_at_t = len(df[df["t"] == selected_t])
-                    st.caption(
-                        f"t={selected_t}, z={selected_z} — {n_at_t} detections at this t  |  "
-                        f"Timepoints with events: {det_timepoints}"
-                    )
-
-                    slice_2d, _ = read_single_slice(
-                        raw_mount_path, t=selected_t, z_mid=selected_z
-                    )
-                    fig = create_detection_overlay(slice_2d, df, selected_t)
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    dets_at_t = df[df["t"] == selected_t]
-                    if len(dets_at_t) > 0:
-                        st.dataframe(
-                            dets_at_t,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-            else:
-                st.warning("Raw image not available for overlay visualization.")
+        with st.expander("Want full 3D inspection? Use our napari plugin"):
+            st.markdown(
+                "We ship a napari plugin that loads the raw + seg + "
+                "detections CSV and lets you scrub through events in true 3D, "
+                "edit annotations, and re-export.\n\n"
+                "**Install:**\n"
+                "```bash\n"
+                "pip install KapoorLabs-Lightning napari\n"
+                "```\n\n"
+                "**Run** the plugin script directly from the repo:\n"
+                "[oneat_event_visualizer.py on GitHub]"
+                "(https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning"
+                "/blob/main/plugins/oneat_event_visualizer.py)\n\n"
+                "Point it at the unzipped folder you just downloaded."
+            )
 
 
 if __name__ == "__main__":

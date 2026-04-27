@@ -24,6 +24,7 @@ from lightning import Trainer
 from kapoorlabs_lightning.oneat_module import OneatActionModule
 from kapoorlabs_lightning.oneat_presets import OneatEvalPreset
 from kapoorlabs_lightning.oneat_prediction_dataset import OneatPredictionDataset
+from kapoorlabs_lightning.pytorch_callbacks import EventCountProgressBar
 from kapoorlabs_lightning.pytorch_models import DenseVollNet
 from kapoorlabs_lightning.utils import load_checkpoint_model
 
@@ -55,6 +56,9 @@ DEFAULT_PARAMS = {
     "pmax": 99.8,
     "event_threshold": 0.999,
     "event_names": ["normal", "mitosis"],
+    # Inner forward batch over cells per timepoint. Tuned for A100 40 GB —
+    # drop to 1000 if you ever run on smaller GPUs.
+    "batch_size_predict": 4000,
 }
 
 
@@ -155,7 +159,8 @@ def run_prediction(job_id, checkpoint_path=None, config_path=None):
             num_classes=p["num_classes"],
             event_threshold=p["event_threshold"],
             nms_space=p["nms_space"],
-            nms_time=p["nms_time"]
+            nms_time=p["nms_time"],
+            batch_size_predict=p["batch_size_predict"],
         )
 
         # Dataset
@@ -170,11 +175,15 @@ def run_prediction(job_id, checkpoint_path=None, config_path=None):
             chunk_steps=50,
         )
 
+        # batch_size=1 here means one timepoint per DataLoader item; all cells
+        # within that timepoint are batched inside predict_step. The dataset
+        # is fully in-memory, so num_workers=0 is correct — workers would
+        # only add IPC overhead and copy-on-write hazards.
         pred_dataloader = DataLoader(
             pred_dataset,
             batch_size=1,
             shuffle=False,
-            num_workers=4,
+            num_workers=0,
         )
 
         status_file.write_text("predicting")
@@ -185,6 +194,7 @@ def run_prediction(job_id, checkpoint_path=None, config_path=None):
             logger=False,
             enable_checkpointing=False,
             enable_progress_bar=True,
+            callbacks=[EventCountProgressBar()],
         )
 
         predictions = trainer.predict(lightning_model, pred_dataloader)
