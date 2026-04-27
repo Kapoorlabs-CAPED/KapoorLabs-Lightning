@@ -246,6 +246,10 @@ def get_client_ip():
 QUEUE_FILE = JEANZAY_MOUNT / "app_queue.json"
 QUEUE_LOCK_FILE = JEANZAY_MOUNT / "app_queue.lock"
 QUEUE_ABANDON_SECS = 120  # waiters without a heartbeat for this long are dropped
+# A submitted job whose status.txt never appears is given this long before
+# being declared dead (covers SLURM scheduler backlog, Jean Zay reservation
+# holds, etc.). Keep generous — better to wait than re-submit.
+STALE_NO_STATUS_SECS = 6 * 3600
 
 
 def _now_iso():
@@ -262,18 +266,31 @@ def _hb_age_secs(iso_str):
     return (datetime.now(timezone.utc) - ts).total_seconds()
 
 
-def _job_alive(job_id):
-    """True if results/<job_id>/status.txt exists and is non-terminal."""
+def _entry_alive(entry):
+    """A queue entry's SLURM job is alive if either:
+      - status.txt exists and isn't terminal, OR
+      - status.txt doesn't exist yet but the entry was submitted recently
+        (the SLURM scheduler may not have started it yet — Jean Zay's
+        queue can hold a job for hours before it runs).
+    Only entries past STALE_NO_STATUS_SECS with no status file are dropped.
+    """
+    job_id = entry.get("job_id") if isinstance(entry, dict) else entry
     if not job_id:
         return False
     sf = RESULTS_DIR / job_id / "status.txt"
-    if not sf.exists():
-        return False
-    try:
-        s = sf.read_text().strip()
-    except OSError:
-        return False
-    return bool(s) and s != "done" and not s.startswith("error")
+    if sf.exists():
+        try:
+            s = sf.read_text().strip()
+        except OSError:
+            return True  # transient FS error → assume alive, retry next poll
+        if not s:
+            return True
+        return s != "done" and not s.startswith("error")
+    # No status.txt yet — trust submitted_at.
+    submitted_at = entry.get("submitted_at") if isinstance(entry, dict) else None
+    if not submitted_at:
+        return True  # legacy entry, fail-safe
+    return _hb_age_secs(submitted_at) < STALE_NO_STATUS_SECS
 
 
 def _with_queue_lock(fn):
@@ -301,17 +318,25 @@ def _with_queue_lock(fn):
 
 
 def queue_enqueue(orcid, request_id, payload):
-    """Append to the waiting list. Idempotent."""
+    """Append to the waiting list. Idempotent.
+
+    Returns: 'enqueued' (added new), 'already' (this request_id is already
+    in the queue), or 'orcid_busy' (this ORCID already has a job running
+    or waiting under a different request_id — one-per-ORCID rule).
+    """
     def op(state):
-        # If I'm already running or waiting, just refresh heartbeat.
         for r in state["running"]:
             if r.get("request_id") == request_id:
                 r["last_heartbeat"] = _now_iso()
-                return state, None
+                return state, "already"
+            if r.get("orcid") == orcid:
+                return state, "orcid_busy"
         for w in state["waiting"]:
             if w.get("request_id") == request_id:
                 w["last_heartbeat"] = _now_iso()
-                return state, None
+                return state, "already"
+            if w.get("orcid") == orcid:
+                return state, "orcid_busy"
         state["waiting"].append({
             "orcid": orcid,
             "request_id": request_id,
@@ -319,8 +344,8 @@ def queue_enqueue(orcid, request_id, payload):
             "queued_at": _now_iso(),
             "last_heartbeat": _now_iso(),
         })
-        return state, None
-    _with_queue_lock(op)
+        return state, "enqueued"
+    return _with_queue_lock(op)
 
 
 def queue_remove(request_id):
@@ -349,9 +374,8 @@ def queue_step(my_request_id, submit_fn, my_job_id=None, my_orcid=None):
     Returns view dict — see polling code for keys.
     """
     def op(state):
-        # 1. Prune running by truth-on-disk.
-        state["running"] = [r for r in state["running"]
-                            if _job_alive(r.get("job_id"))]
+        # 1. Prune running by truth-on-disk (status.txt + submitted_at age).
+        state["running"] = [r for r in state["running"] if _entry_alive(r)]
 
         # 2. Drop stale waiters
         state["waiting"] = [
@@ -364,17 +388,21 @@ def queue_step(my_request_id, submit_fn, my_job_id=None, my_orcid=None):
                          for r in state["running"])
         in_waiting = any(w.get("request_id") == my_request_id
                          for w in state["waiting"])
-        if (not in_running and not in_waiting
-                and my_job_id and _job_alive(my_job_id)):
-            state["running"].append({
-                "orcid": my_orcid,
-                "request_id": my_request_id,
-                "job_id": my_job_id,
-                "slurm_id": None,
-                "submitted_at": _now_iso(),
-                "recovered": True,
-            })
-            in_running = True
+        if (not in_running and not in_waiting and my_job_id):
+            sf = RESULTS_DIR / my_job_id / "status.txt"
+            status_alive = sf.exists() and sf.read_text().strip() not in ("", "done") \
+                and not sf.read_text().strip().startswith("error") \
+                if sf.exists() else False
+            if status_alive:
+                state["running"].append({
+                    "orcid": my_orcid,
+                    "request_id": my_request_id,
+                    "job_id": my_job_id,
+                    "slurm_id": None,
+                    "submitted_at": _now_iso(),
+                    "recovered": True,
+                })
+                in_running = True
 
         view = {
             "position": None,
@@ -1159,12 +1187,23 @@ def main():
                 "ckpt_lustre": ckpt_lustre,
                 "config_lustre": config_lustre,
             }
-            queue_enqueue(verified_orcid, request_id, payload)
+            enq_result = queue_enqueue(verified_orcid, request_id, payload)
+            if enq_result == "orcid_busy":
+                st.error(
+                    "You already have a job running or queued. Wait for it "
+                    "to finish before submitting another."
+                )
+                # Rollback the symlinks we just created so they don't pile up
+                try:
+                    for f in job_uploads.iterdir():
+                        f.unlink()
+                    job_uploads.rmdir()
+                except OSError:
+                    pass
+                st.stop()
 
             st.session_state["job_id"] = job_id
             st.session_state["request_id"] = request_id
-            # Stash payload so the polling block can re-enqueue if the
-            # request_id ever falls out of the queue (closed-tab eviction etc).
             st.session_state["queue_payload"] = payload
             st.session_state["used_defaults"] = use_defaults
             st.session_state["pending_log_meta"] = {
@@ -1235,15 +1274,14 @@ def main():
             # same render that just spawned the polling cycle. Don't panic
             # — re-enqueue is idempotent and on the next tick we're back.
             if ahead is None:
-                # Self-heal: re-enqueue using the data we already have.
-                meta = st.session_state.get("pending_log_meta", {})
-                payload = st.session_state.get("queue_payload")
-                if payload:
-                    queue_enqueue(meta.get("orcid"), request_id, payload)
+                # Don't auto-re-enqueue here — that's how we got into a
+                # resubmit loop. Just inform; queue_step's self-heal handles
+                # genuine recovery (live SLURM job, no queue entry).
                 st.info(
-                    f"Queueing… {who} is currently running"
+                    f"Working… {who} is currently running"
                     + (f" (job {running_job})" if running_job else "")
-                    + "."
+                    + ". If this persists for more than a minute, click "
+                    "Run again."
                 )
             elif ahead == 1:
                 st.info(
