@@ -229,6 +229,166 @@ def get_client_ip():
     return headers.get("Host") or "unknown"
 
 
+# Strict app-level queue: only one ONEAT job runs end-to-end at a time.
+# State lives in QUEUE_FILE; mutations go through fcntl.flock so concurrent
+# Streamlit sessions can't corrupt it.
+QUEUE_FILE = JEANZAY_MOUNT / "app_queue.json"
+QUEUE_LOCK_FILE = JEANZAY_MOUNT / "app_queue.lock"
+# A waiter / current holder must heartbeat at least this often or it gets
+# dropped (handles users who close the browser tab without completing).
+QUEUE_ABANDON_SECS = 120
+
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _hb_age_secs(iso_str):
+    if not iso_str:
+        return float("inf")
+    try:
+        ts = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    except Exception:
+        return float("inf")
+    return (datetime.now(timezone.utc) - ts).total_seconds()
+
+
+def _with_queue_lock(fn):
+    """Run fn(state) -> (new_state, result) under exclusive flock on QUEUE_LOCK_FILE."""
+    import fcntl
+    QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    QUEUE_LOCK_FILE.touch(exist_ok=True)
+    with open(QUEUE_LOCK_FILE, "r+") as lh:
+        fcntl.flock(lh, fcntl.LOCK_EX)
+        try:
+            if QUEUE_FILE.exists():
+                try:
+                    state = json.loads(QUEUE_FILE.read_text())
+                except Exception:
+                    state = {"current": None, "waiting": []}
+            else:
+                state = {"current": None, "waiting": []}
+            new_state, result = fn(state)
+            QUEUE_FILE.write_text(json.dumps(new_state, indent=2))
+            return result
+        finally:
+            fcntl.flock(lh, fcntl.LOCK_UN)
+
+
+def queue_enqueue(orcid, request_id, payload):
+    """Add a request to the queue if it isn't already there. Idempotent."""
+    def op(state):
+        cur = state.get("current") or {}
+        if cur.get("request_id") == request_id:
+            cur["last_heartbeat"] = _now_iso()
+            return state, None
+        for w in state["waiting"]:
+            if w.get("request_id") == request_id:
+                w["last_heartbeat"] = _now_iso()
+                return state, None
+        state["waiting"].append({
+            "orcid": orcid,
+            "request_id": request_id,
+            "payload": payload,
+            "queued_at": _now_iso(),
+            "last_heartbeat": _now_iso(),
+        })
+        return state, None
+    _with_queue_lock(op)
+
+
+def queue_remove(request_id):
+    """Drop a request entirely (e.g. after results are shown)."""
+    def op(state):
+        cur = state.get("current") or {}
+        if cur.get("request_id") == request_id:
+            state["current"] = None
+        state["waiting"] = [
+            w for w in state["waiting"] if w.get("request_id") != request_id
+        ]
+        return state, None
+    _with_queue_lock(op)
+
+
+def queue_step(my_request_id, submit_fn, status_fn):
+    """One queue tick. Atomically:
+      1. Drop stale waiters / current (no heartbeat in QUEUE_ABANDON_SECS).
+      2. Clear current if its job has completed/errored.
+      3. Promote waiting head if there's no current.
+      4. If I am the current holder and haven't been submitted yet, call
+         submit_fn(payload) — which does ssh + sbatch — INSIDE the lock,
+         so no other session can promote concurrently.
+    Returns: dict with my view {position:int|None, is_current:bool,
+                                 slurm_id, job_id, submission_error,
+                                 current_orcid, queue_len}.
+    """
+    def op(state):
+        # 1. Drop stale waiters
+        state["waiting"] = [
+            w for w in state["waiting"]
+            if _hb_age_secs(w.get("last_heartbeat")) <= QUEUE_ABANDON_SECS
+        ]
+
+        # 2. Clear current only when its SLURM job has actually completed.
+        # Heartbeat-based eviction here would kill long-running jobs whose
+        # owner is happily polling (the heartbeat just hasn't been refreshed
+        # because we used to refresh it only on enqueue). Staleness still
+        # applies to waiters above — that's where it belongs.
+        cur = state.get("current")
+        if cur and cur.get("job_id"):
+            cur_status = status_fn(cur["job_id"])
+            if cur_status == "done" or cur_status.startswith("error"):
+                state["current"] = None
+                cur = None
+
+        # 3. Promote head if nothing current
+        if not cur and state["waiting"]:
+            head = state["waiting"].pop(0)
+            head["promoted_at"] = _now_iso()
+            state["current"] = head
+            cur = head
+
+        my_view = {
+            "position": None,
+            "is_current": False,
+            "slurm_id": None,
+            "job_id": None,
+            "submission_error": None,
+            "current_orcid": (cur or {}).get("orcid"),
+            "queue_len": len(state["waiting"]),
+        }
+
+        # 4. If current is me and I haven't submitted yet, do it now (locked)
+        if cur and cur.get("request_id") == my_request_id:
+            my_view["is_current"] = True
+            my_view["job_id"] = cur.get("job_id") or cur["payload"].get("job_id")
+            my_view["slurm_id"] = cur.get("slurm_id")
+            cur["last_heartbeat"] = _now_iso()
+            if cur.get("slurm_id") is None and "submission_error" not in cur:
+                try:
+                    slurm_id = submit_fn(cur["payload"])
+                    cur["slurm_id"] = slurm_id
+                    cur["job_id"] = cur["payload"].get("job_id")
+                    cur["submitted_at"] = _now_iso()
+                    my_view["slurm_id"] = slurm_id
+                    my_view["job_id"] = cur["job_id"]
+                except Exception as e:
+                    cur["submission_error"] = str(e)
+                    my_view["submission_error"] = str(e)
+                    # Don't advance the queue on failure — leave current set
+                    # so the failing user keeps the slot until they cancel
+                    # or their heartbeat goes stale.
+        else:
+            for i, w in enumerate(state["waiting"]):
+                if w.get("request_id") == my_request_id:
+                    my_view["position"] = i + 1
+                    w["last_heartbeat"] = _now_iso()
+                    break
+
+        return state, my_view
+    return _with_queue_lock(op)
+
+
 def log_usage(event):
     """Append a JSON line to the usage log. Never raises."""
     try:
@@ -947,43 +1107,122 @@ def main():
                 if model_info.get("training_json") else None
             )
 
-            slurm_id = None
-            err = None
-            with st.spinner("SSH → kapoorlabs login node → sbatch..."):
-                try:
-                    slurm_id, _ = submit_to_jeanzay(
-                        submit_script, job_id, ckpt_lustre, config_lustre
-                    )
-                    st.session_state["job_id"] = job_id
-                    st.session_state["slurm_id"] = slurm_id
-                    st.session_state["used_defaults"] = use_defaults
-                    st.session_state.pop("results_df", None)
-                    st.success(f"Job submitted! ID: {job_id} (SLURM: {slurm_id})")
-                except Exception as e:
-                    err = str(e)
-                    log.error("Job %s submission failed: %s", job_id, e)
-                    st.error(f"Submission failed: {e}")
+            # Enqueue rather than submit directly. The polling loop below
+            # picks the request up, waits its turn, then submits to SLURM
+            # at most one-at-a-time across the whole app.
+            request_id = uuid.uuid4().hex
+            payload = {
+                "submit_script": str(submit_script),
+                "job_id": job_id,
+                "ckpt_lustre": ckpt_lustre,
+                "config_lustre": config_lustre,
+            }
+            queue_enqueue(verified_orcid, request_id, payload)
 
-            log_usage({
-                "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            st.session_state["job_id"] = job_id
+            st.session_state["request_id"] = request_id
+            st.session_state["used_defaults"] = use_defaults
+            st.session_state["pending_log_meta"] = {
                 "ip": client_ip,
                 "orcid": verified_orcid,
-                "job_id": job_id,
-                "slurm_id": slurm_id,
                 "mode": mode,
                 "model": model_info["dir"],
                 "use_defaults": use_defaults,
-                "error": err,
-            })
+            }
+            st.session_state.pop("results_df", None)
+            st.session_state.pop("slurm_id", None)
+            st.success(f"Job queued. ID: {job_id}")
 
-    # --- Poll for status ---
-    if "job_id" in st.session_state and "results_df" not in st.session_state:
+    # --- Poll: drives both the app-level queue and the SLURM job state ---
+    if "request_id" in st.session_state and "results_df" not in st.session_state:
+        request_id = st.session_state["request_id"]
         job_id = st.session_state["job_id"]
-        slurm_id = st.session_state.get("slurm_id", "?")
 
         st.markdown("---")
-        status = get_job_status(job_id)
 
+        def _do_submit(payload):
+            """Called by queue_step under the queue lock when we get promoted."""
+            submit_script = Path(payload["submit_script"])
+            slurm_id, _ = submit_to_jeanzay(
+                submit_script,
+                payload["job_id"],
+                payload["ckpt_lustre"],
+                payload["config_lustre"],
+            )
+            return slurm_id
+
+        view = queue_step(request_id, _do_submit, get_job_status)
+
+        # Submission failure: surface, drop from queue, allow retry.
+        if view["submission_error"]:
+            st.error(f"Submission failed: {view['submission_error']}")
+            log.error(
+                "Job %s submission failed: %s",
+                job_id, view["submission_error"],
+            )
+            queue_remove(request_id)
+            # Log the failure once
+            meta = st.session_state.pop("pending_log_meta", {})
+            log_usage({
+                "ts": _now_iso(),
+                "ip": meta.get("ip"),
+                "orcid": meta.get("orcid"),
+                "job_id": job_id,
+                "slurm_id": None,
+                "mode": meta.get("mode"),
+                "model": meta.get("model"),
+                "use_defaults": meta.get("use_defaults"),
+                "error": view["submission_error"],
+            })
+            for k in ("request_id", "job_id"):
+                st.session_state.pop(k, None)
+            st.stop()
+
+        # Still waiting in line — show position + who's running.
+        if not view["is_current"]:
+            ahead = view["position"]
+            who = view["current_orcid"] or "another user"
+            if ahead is None:
+                st.warning(
+                    "You appear to have been dropped from the queue "
+                    "(maybe due to a long pause). Click Run again."
+                )
+                st.session_state.pop("request_id", None)
+                st.stop()
+            if ahead == 1:
+                st.info(
+                    f"You are next in line. {who} is currently running. "
+                    "Your job will start as soon as theirs finishes."
+                )
+            else:
+                st.info(
+                    f"You are #{ahead} in line. {who} is currently running; "
+                    f"{view['queue_len'] - 1} other(s) are also waiting."
+                )
+            time.sleep(5)
+            st.rerun()
+            st.stop()
+
+        # We are current and SLURM-submitted — fall through to SLURM polling.
+        slurm_id = view["slurm_id"] or st.session_state.get("slurm_id", "?")
+        if view["slurm_id"] and st.session_state.get("slurm_id") != view["slurm_id"]:
+            st.session_state["slurm_id"] = view["slurm_id"]
+            # Log the (now-successful) submission once.
+            meta = st.session_state.pop("pending_log_meta", None)
+            if meta:
+                log_usage({
+                    "ts": _now_iso(),
+                    "ip": meta.get("ip"),
+                    "orcid": meta.get("orcid"),
+                    "job_id": job_id,
+                    "slurm_id": view["slurm_id"],
+                    "mode": meta.get("mode"),
+                    "model": meta.get("model"),
+                    "use_defaults": meta.get("use_defaults"),
+                    "error": None,
+                })
+
+        status = get_job_status(job_id)
         status_map = {
             "queued": "Waiting in SLURM queue...",
             "running": "Job starting...",
@@ -996,6 +1235,7 @@ def main():
         if status.startswith("error"):
             log.error("Job %s failed: %s", job_id, status)
             st.error(f"Job failed: {status}")
+            queue_remove(request_id)
         elif status == "done":
             log.info("Job %s complete!", job_id)
             st.success("Prediction complete!")
@@ -1003,19 +1243,16 @@ def main():
             if df is not None and len(df) > 0:
                 st.session_state["results_df"] = df
                 st.session_state["csv_path"] = str(csv_path)
-                # Stash a snap-target; the viewer applies it BEFORE
-                # instantiating widgets on the next rerun. Setting
-                # view_t_slider directly here would crash because the
-                # widget was already created earlier in this run.
+                # Snap viewer to first detection on next rerun.
                 first_t = int(sorted(df["t"].unique().tolist())[0])
                 st.session_state["_pending_snap_t"] = first_t
+                queue_remove(request_id)
                 st.rerun()
             else:
                 st.warning("No events detected.")
+                queue_remove(request_id)
         else:
-            st.info(
-                f"{status_map.get(status, status)}  (SLURM: {slurm_id})"
-            )
+            st.info(f"{status_map.get(status, status)}  (SLURM: {slurm_id})")
             time.sleep(5)
             st.rerun()
 
