@@ -1,8 +1,8 @@
 # Streamlit secrets — never commit
 **/.streamlit/secrets.toml
 
-# Local backup of usage log — contains ORCID iDs + IPs (PII)
-apps/streamlit/data/usage_log.jsonl
+# Usage log + plots derived from it — contains ORCID iDs + IPs (PII)
+apps/streamlit/data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

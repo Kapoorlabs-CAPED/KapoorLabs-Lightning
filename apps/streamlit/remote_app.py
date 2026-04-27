@@ -8,6 +8,7 @@ Usage:
     streamlit run remote_app.py
 """
 
+import io
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import uuid
+import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -171,6 +173,17 @@ def log_usage(event):
             f.write(json.dumps(event) + "\n")
     except Exception as e:
         log.warning("usage log write failed: %s", e)
+
+
+def build_results_zip(paths):
+    """Bundle existing files into an in-memory zip. Skips missing entries."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as zf:
+        for arcname, src in paths.items():
+            if src and Path(src).exists():
+                zf.write(src, arcname=arcname)
+    buf.seek(0)
+    return buf.getvalue()
 
 
 def discover_models():
@@ -502,6 +515,17 @@ def main():
         seg_path = None
         has_defaults = False
 
+    # --- Sidebar footer: project links ---
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(
+        "**KapoorLabs / ONEAT**  \n"
+        "[GitHub repo](https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning) · "
+        "[Napari plugin]"
+        "(https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning"
+        "/blob/main/plugins/oneat_event_visualizer.py)  \n"
+        "`pip install KapoorLabs-Lightning`"
+    )
+
     # --- Preview default images with T and Z sliders ---
     if use_defaults and has_defaults:
         st.subheader("Input Data Preview")
@@ -570,16 +594,40 @@ def main():
     
 
     # --- Submit buttons: free (visu) vs A100 heavy (gated) ---
+    # When the user is ORCID-verified and within quota, paint the A100 button
+    # green so the unlocked state is visually obvious.
+    if is_heavy_allowed:
+        st.markdown(
+            "<style>"
+            "div.st-key-heavy_run_btn button, "
+            "div[data-testid='column']:nth-of-type(2) button[kind='primary'] {"
+            "  background-color: #22c55e !important;"
+            "  border-color: #16a34a !important;"
+            "  color: white !important;"
+            "}"
+            "div.st-key-heavy_run_btn button:hover, "
+            "div[data-testid='column']:nth-of-type(2) button[kind='primary']:hover {"
+            "  background-color: #16a34a !important;"
+            "  border-color: #15803d !important;"
+            "}"
+            "</style>",
+            unsafe_allow_html=True,
+        )
+
     col_free, col_heavy = st.columns(2)
     run_free = col_free.button(
-        "Run (free, less powerful GPU)", type="primary", use_container_width=True
+        "Run (free, less powerful GPU)",
+        type="secondary",
+        use_container_width=True,
+        key="free_run_btn",
     )
     run_heavy = col_heavy.button(
         "Run on A100 (gated, provide your Orcid ID)",
-        type="secondary",
+        type="primary" if is_heavy_allowed else "secondary",
         use_container_width=True,
         disabled=not is_heavy_allowed,
-        help=None if is_heavy_allowed else "Enter an allowlisted email in the sidebar.",
+        key="heavy_run_btn",
+        help=None if is_heavy_allowed else "Sign in with ORCID in the sidebar.",
     )
 
     if run_free or run_heavy:
@@ -624,6 +672,7 @@ def main():
                     raw_dest.symlink_to(LUSTRE_DEMO / "uploads" / raw_path.name)
                     seg_dest.symlink_to(LUSTRE_DEMO / "uploads" / seg_path.name)
                     st.session_state["raw_path_on_mount"] = str(raw_path)
+                    st.session_state["seg_path_on_mount"] = str(seg_path)
             else:
                 with st.spinner("Writing files to KapoorLabs mount..."):
                     raw_dest = job_uploads / f"raw_{raw_file.name}"
@@ -631,6 +680,7 @@ def main():
                     raw_dest.write_bytes(raw_file.read())
                     seg_dest.write_bytes(seg_file.read())
                     st.session_state["raw_path_on_mount"] = str(raw_dest)
+                    st.session_state["seg_path_on_mount"] = str(seg_dest)
 
             ckpt_lustre = mount_to_lustre(model_info["ckpt"])
             config_lustre = (
@@ -647,6 +697,7 @@ def main():
                     )
                     st.session_state["job_id"] = job_id
                     st.session_state["slurm_id"] = slurm_id
+                    st.session_state["used_defaults"] = use_defaults
                     st.session_state.pop("results_df", None)
                     st.success(f"Job submitted! ID: {job_id} (SLURM: {slurm_id})")
                 except Exception as e:
@@ -715,14 +766,67 @@ def main():
             st.dataframe(df, use_container_width=True, hide_index=True)
 
             csv_path = st.session_state.get("csv_path")
+            raw_mount_path = st.session_state.get("raw_path_on_mount")
+            seg_mount_path = st.session_state.get("seg_path_on_mount")
+            used_defaults = st.session_state.get("used_defaults", False)
+            job_id = st.session_state.get("job_id", "results")
+
+            # When the user uploaded their own data they already have the raw +
+            # seg locally — only bundle them when this was a demo run.
+            if used_defaults:
+                col_csv, col_zip = st.columns(2)
+            else:
+                col_csv = st.container()
+                col_zip = None
+
             if csv_path and os.path.exists(csv_path):
                 with open(csv_path, "rb") as f:
-                    st.download_button(
+                    col_csv.download_button(
                         "Download CSV",
                         data=f,
                         file_name="oneat_detections.csv",
                         mime="text/csv",
+                        use_container_width=True,
                     )
+
+            if used_defaults and col_zip is not None:
+                zip_cache_key = f"results_zip::{job_id}"
+                zip_bytes = st.session_state.get(zip_cache_key)
+                if zip_bytes is None and (csv_path or raw_mount_path or seg_mount_path):
+                    zip_bytes = build_results_zip({
+                        "oneat_detections.csv": csv_path,
+                        (f"raw_{Path(raw_mount_path).name}" if raw_mount_path else "raw"):
+                            raw_mount_path,
+                        (f"seg_{Path(seg_mount_path).name}" if seg_mount_path else "seg"):
+                            seg_mount_path,
+                    })
+                    st.session_state[zip_cache_key] = zip_bytes
+
+                if zip_bytes:
+                    col_zip.download_button(
+                        "Download all (raw + seg + CSV)",
+                        data=zip_bytes,
+                        file_name=f"oneat_results_{job_id}.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                        help="Open the raw + seg TIFs in napari or Fiji for 3D inspection.",
+                    )
+
+            with st.expander("Want full 3D inspection? Use our napari plugin"):
+                st.markdown(
+                    "We ship a napari plugin that loads the raw + seg + "
+                    "detections CSV and lets you scrub through events in true 3D, "
+                    "edit annotations, and re-export.\n\n"
+                    "**Install:**\n"
+                    "```bash\n"
+                    "pip install KapoorLabs-Lightning napari\n"
+                    "```\n\n"
+                    "**Run** the plugin script directly from the repo:\n"
+                    "[oneat_event_visualizer.py on GitHub]"
+                    "(https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning"
+                    "/blob/main/plugins/oneat_event_visualizer.py)\n\n"
+                    "Point it at the unzipped folder you just downloaded."
+                )
 
         with tab_viewer:
             st.subheader("Detection Overlay Viewer")
