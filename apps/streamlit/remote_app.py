@@ -121,7 +121,7 @@ USAGE_LOG = JEANZAY_MOUNT / "usage_log.jsonl"
 
 # ORCID-based gating
 ORCID_RE = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
-HEAVY_QUOTA_PER_WEEK = 10
+HEAVY_QUOTA_PER_WEEK = 20
 HEAVY_COOLDOWN_HOURS = 24
 
 
@@ -328,6 +328,9 @@ def preview_slice_figure(img_2d, title=""):
         margin=dict(l=0, r=0, t=30, b=0),
         height=500,
         dragmode="zoom",
+        # Keep this constant across reruns so Plotly preserves the user's
+        # zoom/pan when t/z changes or results arrive.
+        uirevision="oneat-viewer",
     )
     fig.update_xaxes(showticklabels=False)
     fig.update_yaxes(showticklabels=False)
@@ -384,6 +387,13 @@ def render_image_viewer(raw_image_path, results_df=None):
 
     def _sync(src, dst):
         st.session_state[dst] = st.session_state[src]
+
+    # Apply any pending snap target stashed by the polling loop on the
+    # previous run (must happen BEFORE widget instantiation).
+    pending_t = st.session_state.pop("_pending_snap_t", None)
+    if pending_t is not None:
+        st.session_state["view_t_slider"] = int(pending_t)
+        st.session_state["view_t_box"] = int(pending_t)
 
     if "view_t_slider" not in st.session_state:
         st.session_state["view_t_slider"] = initial_t
@@ -466,7 +476,52 @@ def render_image_viewer(raw_image_path, results_df=None):
         fig = preview_slice_figure(
             slice_2d, f"Raw  ({raw_shape}, t={selected_t}, z={selected_z})"
         )
-    st.plotly_chart(fig, use_container_width=True)
+
+    # Click-to-zoom: if a previous click stashed a centre, override the
+    # axis ranges to a small box around it. Bump uirevision to a unique
+    # value so Plotly applies the new range instead of preserving the
+    # previous zoom (uirevision is what makes pan/scroll-zoom sticky).
+    h, w = slice_2d.shape
+    zoom_half = max(64, min(h, w) // 16)  # ~1/8 of the smaller image dim
+    zoom_center = st.session_state.get("zoom_center")
+    if zoom_center is not None:
+        cx, cy = zoom_center
+        cx = max(zoom_half, min(w - zoom_half, cx))
+        cy = max(zoom_half, min(h - zoom_half, cy))
+        fig.update_layout(
+            xaxis=dict(range=[cx - zoom_half, cx + zoom_half],
+                       uirevision=f"zoom-{cx}-{cy}"),
+            yaxis=dict(range=[cy + zoom_half, cy - zoom_half],
+                       uirevision=f"zoom-{cx}-{cy}"),
+            uirevision=f"zoom-{cx}-{cy}",
+        )
+
+    event = st.plotly_chart(
+        fig,
+        use_container_width=True,
+        key="oneat_image_viewer",
+        on_select="rerun",
+        selection_mode=("points",),
+    )
+
+    # Click captured via on_select returns selected points; first one wins.
+    points = []
+    if isinstance(event, dict):
+        points = (event.get("selection") or {}).get("points") or []
+    if points:
+        p = points[0]
+        new_cx = p.get("x")
+        new_cy = p.get("y")
+        if new_cx is not None and new_cy is not None:
+            new_pair = (float(new_cx), float(new_cy))
+            if st.session_state.get("zoom_center") != new_pair:
+                st.session_state["zoom_center"] = new_pair
+                st.rerun()
+
+    if st.session_state.get("zoom_center") is not None:
+        if st.button("Reset zoom", key="reset_zoom_btn"):
+            st.session_state.pop("zoom_center", None)
+            st.rerun()
 
     if has_results:
         dets_at_t = results_df[results_df["t"] == selected_t]
@@ -511,10 +566,18 @@ def create_detection_overlay(raw_slice_2d, detections_df, timepoint):
         margin=dict(l=0, r=0, t=30, b=0),
         height=600,
         dragmode="zoom",
-        xaxis=dict(range=[0, w], showticklabels=False, scaleanchor="y"),
-        yaxis=dict(range=[h, 0], showticklabels=False),
+        xaxis=dict(
+            range=[0, w], showticklabels=False, scaleanchor="y",
+            uirevision="oneat-viewer",
+        ),
+        yaxis=dict(
+            range=[h, 0], showticklabels=False,
+            uirevision="oneat-viewer",
+        ),
         showlegend=True,
         legend=dict(x=1, y=1, xanchor="right", bgcolor="rgba(255,255,255,0.7)"),
+        # Stable across reruns → Plotly preserves zoom/pan/legend toggles.
+        uirevision="oneat-viewer",
     )
     return fig
 
@@ -940,11 +1003,12 @@ def main():
             if df is not None and len(df) > 0:
                 st.session_state["results_df"] = df
                 st.session_state["csv_path"] = str(csv_path)
-                # Snap viewer to the first detection so the user lands on
-                # an interesting frame instead of wherever preview was.
+                # Stash a snap-target; the viewer applies it BEFORE
+                # instantiating widgets on the next rerun. Setting
+                # view_t_slider directly here would crash because the
+                # widget was already created earlier in this run.
                 first_t = int(sorted(df["t"].unique().tolist())[0])
-                st.session_state["view_t_slider"] = first_t
-                st.session_state["view_t_box"] = first_t
+                st.session_state["_pending_snap_t"] = first_t
                 st.rerun()
             else:
                 st.warning("No events detected.")
@@ -968,16 +1032,9 @@ def main():
         csv_path = st.session_state.get("csv_path")
         raw_mount_path = st.session_state.get("raw_path_on_mount")
         seg_mount_path = st.session_state.get("seg_path_on_mount")
-        used_defaults = st.session_state.get("used_defaults", False)
         job_id = st.session_state.get("job_id", "results")
 
-        # When the user uploaded their own data they already have the raw +
-        # seg locally — only bundle them when this was a demo run.
-        if used_defaults:
-            col_csv, col_zip = st.columns(2)
-        else:
-            col_csv = st.container()
-            col_zip = None
+        col_csv, col_zip = st.columns(2)
 
         if csv_path and os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
@@ -989,28 +1046,30 @@ def main():
                     use_container_width=True,
                 )
 
-        if used_defaults and col_zip is not None:
-            zip_cache_key = f"results_zip::{job_id}"
-            zip_bytes = st.session_state.get(zip_cache_key)
-            if zip_bytes is None and (csv_path or raw_mount_path or seg_mount_path):
-                zip_bytes = build_results_zip({
-                    "oneat_detections.csv": csv_path,
-                    (f"raw_{Path(raw_mount_path).name}" if raw_mount_path else "raw"):
-                        raw_mount_path,
-                    (f"seg_{Path(seg_mount_path).name}" if seg_mount_path else "seg"):
-                        seg_mount_path,
-                })
-                st.session_state[zip_cache_key] = zip_bytes
+        # Always offer the bundled zip — users (whether they used a demo or
+        # uploaded) may be viewing results from a different machine than the
+        # one they uploaded from, so they need raw + seg + CSV in one place.
+        zip_cache_key = f"results_zip::{job_id}"
+        zip_bytes = st.session_state.get(zip_cache_key)
+        if zip_bytes is None and (csv_path or raw_mount_path or seg_mount_path):
+            zip_bytes = build_results_zip({
+                "oneat_detections.csv": csv_path,
+                (f"raw_{Path(raw_mount_path).name}" if raw_mount_path else "raw"):
+                    raw_mount_path,
+                (f"seg_{Path(seg_mount_path).name}" if seg_mount_path else "seg"):
+                    seg_mount_path,
+            })
+            st.session_state[zip_cache_key] = zip_bytes
 
-            if zip_bytes:
-                col_zip.download_button(
-                    "Download all (raw + seg + CSV)",
-                    data=zip_bytes,
-                    file_name=f"oneat_results_{job_id}.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                    help="Open the raw + seg TIFs in napari or Fiji for 3D inspection.",
-                )
+        if zip_bytes:
+            col_zip.download_button(
+                "Download all (raw + seg + CSV)",
+                data=zip_bytes,
+                file_name=f"oneat_results_{job_id}.zip",
+                mime="application/zip",
+                use_container_width=True,
+                help="Open the raw + seg TIFs in napari or Fiji for 3D inspection.",
+            )
 
         with st.expander("Want full 3D inspection? Use our napari plugin"):
             st.markdown(
