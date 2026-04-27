@@ -8,11 +8,13 @@ Usage:
     streamlit run remote_app.py
 """
 
+import gc
 import io
 import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -41,12 +43,37 @@ JEANZAY_MOUNT = Path("/home/debian/jean-zay/demo")
 UPLOADS_DIR = JEANZAY_MOUNT / "uploads"
 RESULTS_DIR = JEANZAY_MOUNT / "results"
 MODELS_DIR = JEANZAY_MOUNT / "models"
-
 # Lustre-side path that Jean Zay compute nodes see
 LUSTRE_DEMO = Path("/lustre/fsn1/projects/rech/jsy/uzj81mi/demo")
 
-DEFAULT_RAW = UPLOADS_DIR / "raw_demo_default.tif"
-DEFAULT_SEG = UPLOADS_DIR / "seg_demo_default.tif"
+def discover_demos():
+    """Scan UPLOADS_DIR for curated demo datasets.
+
+    A demo is a subdirectory of UPLOADS_DIR containing exactly one
+    `raw_*.tif/.tiff` and one `seg_*.tif/.tiff`. Returns a dict
+    {display_name: {"raw": Path, "seg": Path}} sorted by name.
+    """
+    demos = {}
+    if not UPLOADS_DIR.exists():
+        return demos
+    for entry in sorted(UPLOADS_DIR.iterdir()):
+        if not entry.is_dir():
+            continue
+        raws = sorted(
+            p for p in entry.iterdir()
+            if p.is_file()
+            and p.name.lower().startswith("raw_")
+            and p.suffix.lower() in (".tif", ".tiff")
+        )
+        segs = sorted(
+            p for p in entry.iterdir()
+            if p.is_file()
+            and p.name.lower().startswith("seg_")
+            and p.suffix.lower() in (".tif", ".tiff")
+        )
+        if raws and segs:
+            demos[entry.name] = {"raw": raws[0], "seg": segs[0]}
+    return demos
 
 # Submit scripts on the lustre mount
 SUBMIT_SCRIPT_FREE = JEANZAY_MOUNT / "submit_job.sh"
@@ -483,37 +510,53 @@ def main():
 
     # --- Sidebar: input files ---
     st.sidebar.header("Input Files")
-    use_defaults = st.sidebar.checkbox("Use demo files", value=True)
+    available_demos = discover_demos()
+    demo_names = list(available_demos.keys())
+
+    options = [f"Demo: {n}" for n in demo_names] + ["Upload my own"]
+    if not demo_names:
+        options = ["Upload my own"]
+    choice = st.sidebar.selectbox("Source", options, index=0)
+    use_defaults = choice.startswith("Demo: ")
+
+    raw_file = None
+    seg_file = None
+    raw_path = None
+    seg_path = None
+    has_defaults = False
+    demo_name = None
 
     if use_defaults:
-        raw_path = DEFAULT_RAW
-        seg_path = DEFAULT_SEG
+        demo_name = choice[len("Demo: "):]
+        demo = available_demos[demo_name]
+        raw_path = demo["raw"]
+        seg_path = demo["seg"]
         has_defaults = raw_path.exists() and seg_path.exists()
         if has_defaults:
             st.sidebar.success(
                 f"Raw: {raw_path.name}\nSeg: {seg_path.name}"
             )
         else:
-            missing = []
-            if not raw_path.exists():
-                missing.append(str(raw_path))
-            if not seg_path.exists():
-                missing.append(str(seg_path))
             st.sidebar.error(
-                "Default files not found:\n" + "\n".join(missing)
+                f"Demo '{demo_name}' files missing on the mount."
             )
-        raw_file = None
-        seg_file = None
     else:
+        if not verified_orcid:
+            st.sidebar.warning(
+                "Sign in with ORCID above to enable file uploads."
+            )
         raw_file = st.sidebar.file_uploader(
-            "Raw Timelapse (TIF)", type=["tif", "tiff"], key="raw"
+            "Raw Timelapse (TIF)",
+            type=["tif", "tiff"],
+            key="raw",
+            disabled=not verified_orcid,
         )
         seg_file = st.sidebar.file_uploader(
-            "Segmentation Timelapse (TIF)", type=["tif", "tiff"], key="seg"
+            "Segmentation Timelapse (TIF)",
+            type=["tif", "tiff"],
+            key="seg",
+            disabled=not verified_orcid,
         )
-        raw_path = None
-        seg_path = None
-        has_defaults = False
 
     # --- Sidebar footer: project links ---
     st.sidebar.markdown("---")
@@ -593,20 +636,17 @@ def main():
             st.warning(f"Cannot preview raw: {e}")
     
 
-    # --- Submit buttons: free (visu) vs A100 heavy (gated) ---
-    # When the user is ORCID-verified and within quota, paint the A100 button
-    # green so the unlocked state is visually obvious.
+    # --- Submit: single ORCID-gated A100 button ---
+    # Paint it green when unlocked so the run-state is obvious.
     if is_heavy_allowed:
         st.markdown(
             "<style>"
-            "div.st-key-heavy_run_btn button, "
-            "div[data-testid='column']:nth-of-type(2) button[kind='primary'] {"
+            "div.st-key-run_btn button[kind='primary'] {"
             "  background-color: #22c55e !important;"
             "  border-color: #16a34a !important;"
             "  color: white !important;"
             "}"
-            "div.st-key-heavy_run_btn button:hover, "
-            "div[data-testid='column']:nth-of-type(2) button[kind='primary']:hover {"
+            "div.st-key-run_btn button[kind='primary']:hover {"
             "  background-color: #16a34a !important;"
             "  border-color: #15803d !important;"
             "}"
@@ -614,40 +654,40 @@ def main():
             unsafe_allow_html=True,
         )
 
-    col_free, col_heavy = st.columns(2)
-    run_free = col_free.button(
-        "Run (free, less powerful GPU)",
-        type="secondary",
-        use_container_width=True,
-        key="free_run_btn",
-    )
-    run_heavy = col_heavy.button(
-        "Run on A100 (gated, provide your Orcid ID)",
+    if not verified_orcid:
+        st.info(
+            "Sign in with ORCID in the sidebar to submit a job. "
+            "Every submission runs on KapoorLabs A100 GPUs and is logged "
+            "against your ORCID for fair-use accounting."
+        )
+
+    run_btn = st.button(
+        "Run on KapoorLabs A100",
         type="primary" if is_heavy_allowed else "secondary",
         use_container_width=True,
         disabled=not is_heavy_allowed,
-        key="heavy_run_btn",
-        help=None if is_heavy_allowed else "Sign in with ORCID in the sidebar.",
+        key="run_btn",
+        help=None if is_heavy_allowed
+        else "Sign in with ORCID and stay within quota.",
     )
 
-    if run_free or run_heavy:
-        mode = "heavy" if run_heavy else "free"
-        submit_script = SUBMIT_SCRIPT_HEAVY if run_heavy else SUBMIT_SCRIPT_FREE
+    if run_btn:
+        mode = "heavy"
+        submit_script = SUBMIT_SCRIPT_HEAVY
         client_ip = get_client_ip()
         log.info(
-            "=== Run clicked mode=%s use_defaults=%s orcid=%s ip=%s ===",
-            mode, use_defaults, verified_orcid or "<none>", client_ip,
+            "=== Run clicked use_defaults=%s orcid=%s ip=%s ===",
+            use_defaults, verified_orcid or "<none>", client_ip,
         )
 
         # Re-check embargo at click time — log on disk is the source of truth
-        if run_heavy:
-            recheck = heavy_embargo_until(verified_orcid)
-            if recheck is not None:
-                st.error(
-                    f"Quota exceeded. Embargo until "
-                    f"{recheck.strftime('%Y-%m-%d %H:%M UTC')}."
-                )
-                st.stop()
+        recheck = heavy_embargo_until(verified_orcid)
+        if recheck is not None:
+            st.error(
+                f"Quota exceeded. Embargo until "
+                f"{recheck.strftime('%Y-%m-%d %H:%M UTC')}."
+            )
+            st.stop()
 
         if not submit_script.exists():
             st.error(
@@ -674,13 +714,44 @@ def main():
                     st.session_state["raw_path_on_mount"] = str(raw_path)
                     st.session_state["seg_path_on_mount"] = str(seg_path)
             else:
-                with st.spinner("Writing files to KapoorLabs mount..."):
-                    raw_dest = job_uploads / f"raw_{raw_file.name}"
-                    seg_dest = job_uploads / f"seg_{seg_file.name}"
-                    raw_dest.write_bytes(raw_file.read())
-                    seg_dest.write_bytes(seg_file.read())
-                    st.session_state["raw_path_on_mount"] = str(raw_dest)
-                    st.session_state["seg_path_on_mount"] = str(seg_dest)
+                # Browser uploads: stream each UploadedFile to the local mount
+                # in 8 MiB chunks (low write-side RAM). Per-user, per-job
+                # subdir keyed by ORCID + job_id keeps concurrent users isolated.
+                user_dir = UPLOADS_DIR / verified_orcid / job_id
+                user_dir.mkdir(parents=True, exist_ok=True)
+                raw_dest = user_dir / f"raw_{raw_file.name}"
+                seg_dest = user_dir / f"seg_{seg_file.name}"
+
+                with st.spinner("Writing raw to mount..."):
+                    raw_file.seek(0)
+                    with open(raw_dest, "wb") as fh:
+                        shutil.copyfileobj(raw_file, fh, length=8 * 1024 * 1024)
+                    raw_file.close()
+                    raw_file = None
+                    gc.collect()
+
+                with st.spinner("Writing seg to mount..."):
+                    seg_file.seek(0)
+                    with open(seg_dest, "wb") as fh:
+                        shutil.copyfileobj(seg_file, fh, length=8 * 1024 * 1024)
+                    seg_file.close()
+                    seg_file = None
+                    gc.collect()
+
+                # Compute-node lustre symlinks so sbatch resolves the paths.
+                lustre_user_dir = (
+                    LUSTRE_DEMO / "uploads" / verified_orcid / job_id
+                )
+                # job_uploads dir already created above; symlinks live there.
+                (job_uploads / raw_dest.name).symlink_to(
+                    lustre_user_dir / raw_dest.name
+                )
+                (job_uploads / seg_dest.name).symlink_to(
+                    lustre_user_dir / seg_dest.name
+                )
+
+                st.session_state["raw_path_on_mount"] = str(raw_dest)
+                st.session_state["seg_path_on_mount"] = str(seg_dest)
 
             ckpt_lustre = mount_to_lustre(model_info["ckpt"])
             config_lustre = (
