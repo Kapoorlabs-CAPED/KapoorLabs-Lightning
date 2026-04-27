@@ -2,7 +2,7 @@
 ONEAT Event Detection - Streamlit App
 
 Upload raw + segmentation timelapse TIF files and run ONEAT prediction
-on KapoorLabsHPC via SSH + SLURM. Results appear via shared mount.
+on KapoorLabs HPC via SSH + SLURM. Results appear via shared mount.
 
 Usage:
     streamlit run remote_app.py
@@ -50,22 +50,23 @@ LUSTRE_DEMO = Path("/lustre/fsn1/projects/rech/jsy/uzj81mi/demo")
 # here falls back to a generic label so adding a new demo dir Just Works.
 # `order` controls dropdown placement (lower = shown first).
 DEMO_META = {
-    "last_timepoint": {
-        "label": "Later Timepoints (~3h runtime)",
-        "blurb": (
-            "Representative of the data we handle in production — full 3D+T "
-            "Xenopus timelapse, multi-hour A100 inference."
-        ),
-        "order": 0,
-    },
      "first_timepoint": {
         "label": "Early Timepoints (~1h runtime)",
         "blurb": (
             "Representative of the data we handle in production — full 3D+T "
             "Xenopus timelapse, multi-hour A100 inference."
         ),
+        "order": 0,
+    },
+    "last_timepoint": {
+        "label": "Later Timepoints (~3h runtime)",
+        "blurb": (
+            "Representative of the data we handle in production — full 3D+T "
+            "Xenopus timelapse, multi-hour A100 inference."
+        ),
         "order": 1,
     },
+    
     "simple_data": {
         "label": "Toy demo (~15 min runtime)",
         "blurb": (
@@ -586,7 +587,7 @@ def main():
 
     st.title("ONEAT Event Detection")
     st.markdown(
-        "Spatio-temporal event detection in 3D+T microscopy data — powered by KapoorLabsHPC"
+        "Spatio-temporal event detection in 3D+T microscopy data — powered by KapoorLabs HPC"
     )
 
     # --- Sidebar: model selection ---
@@ -652,7 +653,7 @@ def main():
             f"cursor:pointer;font-weight:600;'>Sign in with ORCID</button></a>",
             unsafe_allow_html=True,
         )
-        st.sidebar.caption("Required for A100 (heavy) jobs.")
+        st.sidebar.caption("Required for using our GPUs.")
 
     embargo_end = heavy_embargo_until(verified_orcid) if verified_orcid else None
     runs_7d = heavy_quota_status(verified_orcid)[0] if verified_orcid else 0
