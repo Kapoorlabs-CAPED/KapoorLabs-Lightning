@@ -59,15 +59,16 @@ def discover_demos():
     for entry in sorted(UPLOADS_DIR.iterdir()):
         if not entry.is_dir():
             continue
+        # Real files only — skip symlinks, which are how job dirs are wired.
         raws = sorted(
             p for p in entry.iterdir()
-            if p.is_file()
+            if p.is_file() and not p.is_symlink()
             and p.name.lower().startswith("raw_")
             and p.suffix.lower() in (".tif", ".tiff")
         )
         segs = sorted(
             p for p in entry.iterdir()
-            if p.is_file()
+            if p.is_file() and not p.is_symlink()
             and p.name.lower().startswith("seg_")
             and p.suffix.lower() in (".tif", ".tiff")
         )
@@ -707,10 +708,13 @@ def main():
 
             if use_defaults:
                 with st.spinner("Linking demo files..."):
+                    # raw_path lives at UPLOADS_DIR/<demo_name>/<filename>;
+                    # the lustre equivalent is LUSTRE_DEMO/uploads/<demo_name>/<filename>.
+                    lustre_demo_dir = LUSTRE_DEMO / "uploads" / demo_name
                     raw_dest = job_uploads / f"raw_{raw_path.name}"
                     seg_dest = job_uploads / f"seg_{seg_path.name}"
-                    raw_dest.symlink_to(LUSTRE_DEMO / "uploads" / raw_path.name)
-                    seg_dest.symlink_to(LUSTRE_DEMO / "uploads" / seg_path.name)
+                    raw_dest.symlink_to(lustre_demo_dir / raw_path.name)
+                    seg_dest.symlink_to(lustre_demo_dir / seg_path.name)
                     st.session_state["raw_path_on_mount"] = str(raw_path)
                     st.session_state["seg_path_on_mount"] = str(seg_path)
             else:
