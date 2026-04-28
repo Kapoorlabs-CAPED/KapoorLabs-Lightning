@@ -403,6 +403,10 @@ def render_image_viewer(raw_image_path, results_df=None):
             new_t = cands[-1] if cands else det_timepoints[-1]
         st.session_state["view_t_slider"] = int(new_t)
         st.session_state["view_t_box"] = int(new_t)
+        # Jumping to a new event resets zoom — explicitly clear so the next
+        # render shows the full image. T-slider +/- alone keeps the zoom.
+        st.session_state.pop("zoom_center", None)
+        st.session_state.pop("_last_zoom_applied", None)
 
     col_t, col_z = st.columns(2)
     with col_t:
@@ -466,24 +470,38 @@ def render_image_viewer(raw_image_path, results_df=None):
             slice_2d, f"Raw  ({raw_shape}, t={selected_t}, z={selected_z})"
         )
 
-    # Click-to-zoom: if a previous click stashed a centre, override the
-    # axis ranges to a small box around it. Bump uirevision to a unique
-    # value so Plotly applies the new range instead of preserving the
-    # previous zoom (uirevision is what makes pan/scroll-zoom sticky).
+    # Click-to-zoom: if a previous click stashed a centre, set the zoom box
+    # ONCE on the render right after the click, then on subsequent renders
+    # only keep `uirevision` constant — which makes Plotly preserve the
+    # user's last zoom/pan across t-slider +/-. Re-applying the explicit
+    # range each render would reset any further scroll-zoom the user did.
     h, w = slice_2d.shape
     zoom_half = max(64, min(h, w) // 16)  # ~1/8 of the smaller image dim
     zoom_center = st.session_state.get("zoom_center")
+    last_applied = st.session_state.get("_last_zoom_applied")
     if zoom_center is not None:
         cx, cy = zoom_center
         cx = max(zoom_half, min(w - zoom_half, cx))
         cy = max(zoom_half, min(h - zoom_half, cy))
-        fig.update_layout(
-            xaxis=dict(range=[cx - zoom_half, cx + zoom_half],
-                       uirevision=f"zoom-{cx}-{cy}"),
-            yaxis=dict(range=[cy + zoom_half, cy - zoom_half],
-                       uirevision=f"zoom-{cx}-{cy}"),
-            uirevision=f"zoom-{cx}-{cy}",
-        )
+        rev = f"zoom-{cx}-{cy}"
+        if last_applied != zoom_center:
+            # First render after this click — set the box and bump uirevision.
+            fig.update_layout(
+                xaxis=dict(range=[cx - zoom_half, cx + zoom_half],
+                           uirevision=rev),
+                yaxis=dict(range=[cy + zoom_half, cy - zoom_half],
+                           uirevision=rev),
+                uirevision=rev,
+            )
+            st.session_state["_last_zoom_applied"] = zoom_center
+        else:
+            # Same zoom session — keep uirevision constant so Plotly preserves
+            # whatever the user has scroll-zoomed/panned to. Don't touch range.
+            fig.update_layout(
+                xaxis=dict(uirevision=rev),
+                yaxis=dict(uirevision=rev),
+                uirevision=rev,
+            )
 
     event = st.plotly_chart(
         fig,
@@ -510,6 +528,7 @@ def render_image_viewer(raw_image_path, results_df=None):
     if st.session_state.get("zoom_center") is not None:
         if st.button("Reset zoom", key="reset_zoom_btn"):
             st.session_state.pop("zoom_center", None)
+            st.session_state.pop("_last_zoom_applied", None)
             st.rerun()
 
     if has_results:
