@@ -229,234 +229,6 @@ def get_client_ip():
     return headers.get("Host") or "unknown"
 
 
-# Strict app-level queue: at most ONE ONEAT job in flight, ever.
-#
-# State file `app_queue.json`:
-#   {
-#     "running": [<entry>],   # 0 or 1 entry — the job currently on SLURM
-#     "waiting": [<entry>...] # ordered FIFO of requests not yet started
-#   }
-# Each <entry>: {orcid, request_id, job_id, slurm_id, payload, queued_at,
-#                last_heartbeat}.
-#
-# A job is "alive" iff its results/<job_id>/status.txt is non-terminal
-# (anything other than "done" / "error*"). On every queue_step we prune the
-# running list against this truth, so closed tabs / crashed sessions can't
-# stall the queue forever.
-QUEUE_FILE = JEANZAY_MOUNT / "app_queue.json"
-QUEUE_LOCK_FILE = JEANZAY_MOUNT / "app_queue.lock"
-QUEUE_ABANDON_SECS = 120  # waiters without a heartbeat for this long are dropped
-# A submitted job whose status.txt never appears is given this long before
-# being declared dead (covers SLURM scheduler backlog, Jean Zay reservation
-# holds, etc.). Keep generous — better to wait than re-submit.
-STALE_NO_STATUS_SECS = 6 * 3600
-
-
-def _now_iso():
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _hb_age_secs(iso_str):
-    if not iso_str:
-        return float("inf")
-    try:
-        ts = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-    except Exception:
-        return float("inf")
-    return (datetime.now(timezone.utc) - ts).total_seconds()
-
-
-def _entry_alive(entry):
-    """A queue entry's SLURM job is alive if either:
-      - status.txt exists and isn't terminal, OR
-      - status.txt doesn't exist yet but the entry was submitted recently
-        (the SLURM scheduler may not have started it yet — Jean Zay's
-        queue can hold a job for hours before it runs).
-    Only entries past STALE_NO_STATUS_SECS with no status file are dropped.
-    """
-    job_id = entry.get("job_id") if isinstance(entry, dict) else entry
-    if not job_id:
-        return False
-    sf = RESULTS_DIR / job_id / "status.txt"
-    if sf.exists():
-        try:
-            s = sf.read_text().strip()
-        except OSError:
-            return True  # transient FS error → assume alive, retry next poll
-        if not s:
-            return True
-        return s != "done" and not s.startswith("error")
-    # No status.txt yet — trust submitted_at.
-    submitted_at = entry.get("submitted_at") if isinstance(entry, dict) else None
-    if not submitted_at:
-        return True  # legacy entry, fail-safe
-    return _hb_age_secs(submitted_at) < STALE_NO_STATUS_SECS
-
-
-def _with_queue_lock(fn):
-    """Run fn(state) -> (new_state, result) under exclusive flock."""
-    import fcntl
-    QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    QUEUE_LOCK_FILE.touch(exist_ok=True)
-    with open(QUEUE_LOCK_FILE, "r+") as lh:
-        fcntl.flock(lh, fcntl.LOCK_EX)
-        try:
-            if QUEUE_FILE.exists():
-                try:
-                    state = json.loads(QUEUE_FILE.read_text())
-                except Exception:
-                    state = {"running": [], "waiting": []}
-            else:
-                state = {"running": [], "waiting": []}
-            state.setdefault("running", [])
-            state.setdefault("waiting", [])
-            new_state, result = fn(state)
-            QUEUE_FILE.write_text(json.dumps(new_state, indent=2))
-            return result
-        finally:
-            fcntl.flock(lh, fcntl.LOCK_UN)
-
-
-def queue_enqueue(orcid, request_id, payload):
-    """Append to the waiting list. Idempotent.
-
-    Returns: 'enqueued' (added new), 'already' (this request_id is already
-    in the queue), or 'orcid_busy' (this ORCID already has a job running
-    or waiting under a different request_id — one-per-ORCID rule).
-    """
-    def op(state):
-        for r in state["running"]:
-            if r.get("request_id") == request_id:
-                r["last_heartbeat"] = _now_iso()
-                return state, "already"
-            if r.get("orcid") == orcid:
-                return state, "orcid_busy"
-        for w in state["waiting"]:
-            if w.get("request_id") == request_id:
-                w["last_heartbeat"] = _now_iso()
-                return state, "already"
-            if w.get("orcid") == orcid:
-                return state, "orcid_busy"
-        state["waiting"].append({
-            "orcid": orcid,
-            "request_id": request_id,
-            "payload": payload,
-            "queued_at": _now_iso(),
-            "last_heartbeat": _now_iso(),
-        })
-        return state, "enqueued"
-    return _with_queue_lock(op)
-
-
-def queue_remove(request_id):
-    """Drop a request from waiting AND running. Safe if absent."""
-    def op(state):
-        state["running"] = [
-            r for r in state["running"] if r.get("request_id") != request_id
-        ]
-        state["waiting"] = [
-            w for w in state["waiting"] if w.get("request_id") != request_id
-        ]
-        return state, None
-    _with_queue_lock(op)
-
-
-def queue_step(my_request_id, submit_fn, my_job_id=None, my_orcid=None):
-    """One queue tick. Atomically:
-      1. Prune `running` against status.txt — drop entries whose SLURM
-         job has actually finished.
-      2. Drop stale waiters (no heartbeat in QUEUE_ABANDON_SECS).
-      3. SELF-HEAL: if I'm not in running/waiting but my own job_id is
-         still alive on disk, re-insert me into running (recovers from
-         a wiped queue file or a prior eviction bug).
-      4. If running is empty and I'm at the head of waiting, submit via
-         submit_fn() inside the lock and move me into running.
-    Returns view dict — see polling code for keys.
-    """
-    def op(state):
-        # 1. Prune running by truth-on-disk (status.txt + submitted_at age).
-        state["running"] = [r for r in state["running"] if _entry_alive(r)]
-
-        # 2. Drop stale waiters
-        state["waiting"] = [
-            w for w in state["waiting"]
-            if _hb_age_secs(w.get("last_heartbeat")) <= QUEUE_ABANDON_SECS
-        ]
-
-        # 3. Self-heal: do I have a live SLURM job nobody knows about?
-        in_running = any(r.get("request_id") == my_request_id
-                         for r in state["running"])
-        in_waiting = any(w.get("request_id") == my_request_id
-                         for w in state["waiting"])
-        if (not in_running and not in_waiting and my_job_id):
-            sf = RESULTS_DIR / my_job_id / "status.txt"
-            status_alive = sf.exists() and sf.read_text().strip() not in ("", "done") \
-                and not sf.read_text().strip().startswith("error") \
-                if sf.exists() else False
-            if status_alive:
-                state["running"].append({
-                    "orcid": my_orcid,
-                    "request_id": my_request_id,
-                    "job_id": my_job_id,
-                    "slurm_id": None,
-                    "submitted_at": _now_iso(),
-                    "recovered": True,
-                })
-                in_running = True
-
-        view = {
-            "position": None,
-            "is_current": False,
-            "slurm_id": None,
-            "job_id": None,
-            "submission_error": None,
-            "running_job": (state["running"][0]["job_id"]
-                            if state["running"] else None),
-            "running_orcid": (state["running"][0].get("orcid")
-                              if state["running"] else None),
-            "queue_len": len(state["waiting"]),
-        }
-
-        # If I'm the running one, fall through to SLURM polling
-        if in_running:
-            mine = next(r for r in state["running"]
-                        if r.get("request_id") == my_request_id)
-            view["is_current"] = True
-            view["job_id"] = mine.get("job_id")
-            view["slurm_id"] = mine.get("slurm_id")
-            return state, view
-
-        # 4. Nothing of mine running. If running list is empty and I'm
-        # the head of waiting, it's my turn — submit now.
-        if not state["running"] and state["waiting"]:
-            head = state["waiting"][0]
-            if head.get("request_id") == my_request_id:
-                try:
-                    slurm_id = submit_fn(head["payload"])
-                    state["running"].append({
-                        "orcid": head.get("orcid"),
-                        "request_id": my_request_id,
-                        "job_id": head["payload"].get("job_id"),
-                        "slurm_id": slurm_id,
-                        "submitted_at": _now_iso(),
-                    })
-                    state["waiting"] = state["waiting"][1:]
-                    view["is_current"] = True
-                    view["job_id"] = head["payload"].get("job_id")
-                    view["slurm_id"] = slurm_id
-                except Exception as e:
-                    view["submission_error"] = str(e)
-                    state["waiting"] = state["waiting"][1:]
-                return state, view
-
-        # Otherwise I'm in waiting somewhere — find my position
-        for i, w in enumerate(state["waiting"]):
-            if w.get("request_id") == my_request_id:
-                view["position"] = i + 1
-                w["last_heartbeat"] = _now_iso()
-                break
-        return state, view
-    return _with_queue_lock(op)
 
 
 def log_usage(event):
@@ -1177,148 +949,45 @@ def main():
                 if model_info.get("training_json") else None
             )
 
-            # Enqueue rather than submit directly. The polling loop below
-            # picks the request up, waits its turn, then submits to SLURM
-            # at most one-at-a-time across the whole app.
-            request_id = uuid.uuid4().hex
-            payload = {
-                "submit_script": str(submit_script),
-                "job_id": job_id,
-                "ckpt_lustre": ckpt_lustre,
-                "config_lustre": config_lustre,
-            }
-            enq_result = queue_enqueue(verified_orcid, request_id, payload)
-            if enq_result == "orcid_busy":
-                st.error(
-                    "You already have a job running or queued. Wait for it "
-                    "to finish before submitting another."
-                )
-                # Rollback the symlinks we just created so they don't pile up
+            # Submit straight to SLURM. SLURM has its own scheduler — no
+            # app-level queue.
+            slurm_id = None
+            err = None
+            with st.spinner("SSH → kapoorlabs login node → sbatch..."):
                 try:
-                    for f in job_uploads.iterdir():
-                        f.unlink()
-                    job_uploads.rmdir()
-                except OSError:
-                    pass
-                st.stop()
+                    slurm_id, _ = submit_to_jeanzay(
+                        submit_script, job_id, ckpt_lustre, config_lustre,
+                    )
+                    st.session_state["job_id"] = job_id
+                    st.session_state["slurm_id"] = slurm_id
+                    st.session_state["used_defaults"] = use_defaults
+                    st.session_state.pop("results_df", None)
+                    st.success(f"Job submitted! ID: {job_id} (SLURM: {slurm_id})")
+                except Exception as e:
+                    err = str(e)
+                    log.error("Job %s submission failed: %s", job_id, e)
+                    st.error(f"Submission failed: {e}")
 
-            st.session_state["job_id"] = job_id
-            st.session_state["request_id"] = request_id
-            st.session_state["queue_payload"] = payload
-            st.session_state["used_defaults"] = use_defaults
-            st.session_state["pending_log_meta"] = {
+            log_usage({
+                "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "ip": client_ip,
                 "orcid": verified_orcid,
+                "job_id": job_id,
+                "slurm_id": slurm_id,
                 "mode": mode,
                 "model": model_info["dir"],
                 "use_defaults": use_defaults,
-            }
-            st.session_state.pop("results_df", None)
-            st.session_state.pop("slurm_id", None)
-            st.success(f"Job queued. ID: {job_id}")
+                "error": err,
+            })
 
-    # --- Poll: drives both the app-level queue and the SLURM job state ---
-    if "request_id" in st.session_state and "results_df" not in st.session_state:
-        request_id = st.session_state["request_id"]
+    # --- Poll for status ---
+    if "job_id" in st.session_state and "results_df" not in st.session_state:
         job_id = st.session_state["job_id"]
+        slurm_id = st.session_state.get("slurm_id", "?")
 
         st.markdown("---")
-
-        def _do_submit(payload):
-            """Called by queue_step under the queue lock when we get promoted."""
-            submit_script = Path(payload["submit_script"])
-            slurm_id, _ = submit_to_jeanzay(
-                submit_script,
-                payload["job_id"],
-                payload["ckpt_lustre"],
-                payload["config_lustre"],
-            )
-            return slurm_id
-
-        view = queue_step(
-            request_id, _do_submit,
-            my_job_id=job_id,
-            my_orcid=st.session_state.get("pending_log_meta", {}).get("orcid")
-                     or st.session_state.get("verified_orcid"),
-        )
-
-        # Submission failure: surface, drop from queue, allow retry.
-        if view["submission_error"]:
-            st.error(f"Submission failed: {view['submission_error']}")
-            log.error(
-                "Job %s submission failed: %s",
-                job_id, view["submission_error"],
-            )
-            meta = st.session_state.pop("pending_log_meta", {})
-            log_usage({
-                "ts": _now_iso(),
-                "ip": meta.get("ip"),
-                "orcid": meta.get("orcid"),
-                "job_id": job_id,
-                "slurm_id": None,
-                "mode": meta.get("mode"),
-                "model": meta.get("model"),
-                "use_defaults": meta.get("use_defaults"),
-                "error": view["submission_error"],
-            })
-            for k in ("request_id", "job_id"):
-                st.session_state.pop(k, None)
-            st.stop()
-
-        # Still waiting in line — show position + who's running.
-        if not view["is_current"]:
-            ahead = view["position"]
-            who = view["running_orcid"] or "another user"
-            running_job = view["running_job"]
-            # Position can be None briefly if our enqueue happened in the
-            # same render that just spawned the polling cycle. Don't panic
-            # — re-enqueue is idempotent and on the next tick we're back.
-            if ahead is None:
-                # Don't auto-re-enqueue here — that's how we got into a
-                # resubmit loop. Just inform; queue_step's self-heal handles
-                # genuine recovery (live SLURM job, no queue entry).
-                st.info(
-                    f"Working… {who} is currently running"
-                    + (f" (job {running_job})" if running_job else "")
-                    + ". If this persists for more than a minute, click "
-                    "Run again."
-                )
-            elif ahead == 1:
-                st.info(
-                    f"You are next in line. {who} is currently running"
-                    + (f" (job {running_job})" if running_job else "")
-                    + ". Your job will start as soon as theirs finishes."
-                )
-            else:
-                st.info(
-                    f"You are #{ahead} in line. {who} is currently running"
-                    + (f" (job {running_job})" if running_job else "")
-                    + f"; {view['queue_len'] - 1} other(s) also waiting."
-                )
-            time.sleep(5)
-            st.rerun()
-            st.stop()
-
-        # We are current and SLURM-submitted — fall through to SLURM polling.
-        slurm_id = view["slurm_id"] or st.session_state.get("slurm_id", "?")
-        if view["slurm_id"] and st.session_state.get("slurm_id") != view["slurm_id"]:
-            st.session_state["slurm_id"] = view["slurm_id"]
-            # Log the (now-successful) submission once.
-            meta = st.session_state.pop("pending_log_meta", None)
-            if meta:
-                log_usage({
-                    "ts": _now_iso(),
-                    "ip": meta.get("ip"),
-                    "orcid": meta.get("orcid"),
-                    "job_id": job_id,
-                    "slurm_id": view["slurm_id"],
-                    "mode": meta.get("mode"),
-                    "model": meta.get("model"),
-                    "use_defaults": meta.get("use_defaults"),
-                    "error": None,
-                })
-
         status = get_job_status(job_id)
+
         status_map = {
             "queued": "Waiting in SLURM queue...",
             "running": "Job starting...",
@@ -1331,7 +1000,6 @@ def main():
         if status.startswith("error"):
             log.error("Job %s failed: %s", job_id, status)
             st.error(f"Job failed: {status}")
-            queue_remove(request_id)
         elif status == "done":
             log.info("Job %s complete!", job_id)
             st.success("Prediction complete!")
@@ -1339,14 +1007,11 @@ def main():
             if df is not None and len(df) > 0:
                 st.session_state["results_df"] = df
                 st.session_state["csv_path"] = str(csv_path)
-                # Snap viewer to first detection on next rerun.
                 first_t = int(sorted(df["t"].unique().tolist())[0])
                 st.session_state["_pending_snap_t"] = first_t
-                queue_remove(request_id)
                 st.rerun()
             else:
                 st.warning("No events detected.")
-                queue_remove(request_id)
         else:
             st.info(f"{status_map.get(status, status)}  (SLURM: {slurm_id})")
             time.sleep(5)
