@@ -801,11 +801,36 @@ def main():
             disabled=not verified_orcid,
         )
 
-    # --- Sidebar footer: project links ---
+    # --- Sidebar footer: about + project links ---
     st.sidebar.markdown("---")
+    with st.sidebar.expander("About ONEAT"):
+        st.markdown(
+            "**ONEAT** = spatio-temporal event detection for 3D+T microscopy. "
+            "Built on a DenseVollNet backbone with YOLO-style multi-task labels.\n\n"
+            "**Three-step workflow:**\n"
+            "1. Generate H5 dataset (raw + seg + event CSV → temporal patches)\n"
+            "2. Train (Adam + cosine LR, light/medium/heavy augmentation)\n"
+            "3. Predict — per-timepoint patches around segmented cells, "
+            "classify, NMS in space-time\n\n"
+            "**This app does step 3 only**, using one of our pre-trained "
+            "checkpoints. To train your own model, run "
+            "`scripts/model_training/lightning-oneat-adam.py` from the repo.\n\n"
+            "**Inputs the model needs:**\n"
+            "- Raw TZYX timelapse (`*.tif`)\n"
+            "- Instance segmentation TZYX of the same shape\n"
+            "- Cells must have unique non-zero IDs in the seg image\n\n"
+            "**Output:** CSV with `t, z, y, x, score, event_name, cell_id` "
+            "for each detected event.\n\n"
+            "Full README: "
+            "[README_ONEAT.md](https://github.com/Kapoorlabs-CAPED/"
+            "KapoorLabs-Lightning/blob/main/README_ONEAT.md)"
+        )
     st.sidebar.markdown(
         "**KapoorLabs / ONEAT**  \n"
-        "[GitHub repo](https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning) · "
+        "[Repo](https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning) · "
+        "[ONEAT docs]"
+        "(https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning"
+        "/blob/main/README_ONEAT.md) · "
         "[Napari plugin]"
         "(https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning"
         "/blob/main/plugins/oneat_event_visualizer.py)  \n"
@@ -1047,18 +1072,23 @@ def main():
 
         with st.expander("Want full 3D inspection? Use our napari plugin"):
             st.markdown(
-                "We ship a napari plugin that loads the raw + seg + "
-                "detections CSV and lets you scrub through events in true 3D, "
-                "edit annotations, and re-export.\n\n"
+                "Our napari plugin loads the raw + seg + detections CSV, "
+                "lets you scrub events in true 3D, edit annotations, and "
+                "re-export. The CSV format is the same `t,z,y,x,score,"
+                "event_name,cell_id` produced by this app.\n\n"
                 "**Install:**\n"
                 "```bash\n"
                 "pip install KapoorLabs-Lightning napari\n"
                 "```\n\n"
-                "**Run** the plugin script directly from the repo:\n"
-                "[oneat_event_visualizer.py on GitHub]"
+                "**Plugin:** "
+                "[oneat_event_visualizer.py]"
                 "(https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning"
                 "/blob/main/plugins/oneat_event_visualizer.py)\n\n"
-                "Point it at the unzipped folder you just downloaded."
+                "**Full ONEAT workflow** (training your own model, "
+                "predict CLI, dataset format): "
+                "[README_ONEAT.md]"
+                "(https://github.com/Kapoorlabs-CAPED/KapoorLabs-Lightning"
+                "/blob/main/README_ONEAT.md)"
             )
 
 
