@@ -9,7 +9,6 @@ Usage:
 """
 
 import gc
-import io
 import json
 import logging
 import os
@@ -21,7 +20,6 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import uuid
-import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -239,17 +237,6 @@ def log_usage(event):
             f.write(json.dumps(event) + "\n")
     except Exception as e:
         log.warning("usage log write failed: %s", e)
-
-
-def build_results_zip(paths):
-    """Bundle existing files into an in-memory zip. Skips missing entries."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as zf:
-        for arcname, src in paths.items():
-            if src and Path(src).exists():
-                zf.write(src, arcname=arcname)
-    buf.seek(0)
-    return buf.getvalue()
 
 
 def discover_models():
@@ -1028,46 +1015,16 @@ def main():
         st.dataframe(df, use_container_width=True, hide_index=True)
 
         csv_path = st.session_state.get("csv_path")
-        raw_mount_path = st.session_state.get("raw_path_on_mount")
-        seg_mount_path = st.session_state.get("seg_path_on_mount")
-        job_id = st.session_state.get("job_id", "results")
-
-        col_csv, col_zip = st.columns(2)
 
         if csv_path and os.path.exists(csv_path):
             with open(csv_path, "rb") as f:
-                col_csv.download_button(
+                st.download_button(
                     "Download CSV",
                     data=f,
                     file_name="oneat_detections.csv",
                     mime="text/csv",
                     use_container_width=True,
                 )
-
-        # Always offer the bundled zip — users (whether they used a demo or
-        # uploaded) may be viewing results from a different machine than the
-        # one they uploaded from, so they need raw + seg + CSV in one place.
-        zip_cache_key = f"results_zip::{job_id}"
-        zip_bytes = st.session_state.get(zip_cache_key)
-        if zip_bytes is None and (csv_path or raw_mount_path or seg_mount_path):
-            zip_bytes = build_results_zip({
-                "oneat_detections.csv": csv_path,
-                (f"raw_{Path(raw_mount_path).name}" if raw_mount_path else "raw"):
-                    raw_mount_path,
-                (f"seg_{Path(seg_mount_path).name}" if seg_mount_path else "seg"):
-                    seg_mount_path,
-            })
-            st.session_state[zip_cache_key] = zip_bytes
-
-        if zip_bytes:
-            col_zip.download_button(
-                "Download all (raw + seg + CSV)",
-                data=zip_bytes,
-                file_name=f"oneat_results_{job_id}.zip",
-                mime="application/zip",
-                use_container_width=True,
-                help="Open the raw + seg TIFs in napari or Fiji for 3D inspection.",
-            )
 
         with st.expander("Want full 3D inspection? Use our napari plugin"):
             st.markdown(
