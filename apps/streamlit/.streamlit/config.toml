@@ -1,0 +1,5 @@
+[server]
+# Streamlit's default upload limit is 200 MB. Microscopy timelapses run far
+# bigger; bump to ~50 GB. Streamlit takes an integer in megabytes.
+maxUploadSize = 50000
+maxMessageSize = 50000
