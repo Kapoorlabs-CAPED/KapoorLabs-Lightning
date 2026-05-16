@@ -24,6 +24,7 @@ from kapoorlabs_lightning.oneat_transforms import PercentileNormalize
 from kapoorlabs_lightning.utils import load_checkpoint_model
 
 from scenario_predict_care import CarePredictClass
+from _arch_loader import load_arch_from_training_config
 
 configstore = ConfigStore.instance()
 configstore.store(name="CarePredictClass", node=CarePredictClass)
@@ -31,10 +32,25 @@ configstore.store(name="CarePredictClass", node=CarePredictClass)
 
 @hydra.main(config_path="../conf", config_name="scenario_predict_care", version_base='1.3')
 def main(config: CarePredictClass):
+    # JSON next to the ckpt wins over the Hydra parameter yaml — a
+    # checkpoint may have been trained with a different arch than the
+    # current `parameters/care.yaml`.
+    log_path = config.train_data_paths.log_path
+    json_params = load_arch_from_training_config(log_path)
+    if json_params:
+        print(f"Loaded arch from {log_path}/training_config.json")
+
     # Model architecture
-    unet_depth = config.parameters.unet_depth
-    num_channels_init = config.parameters.num_channels_init
-    use_batch_norm = config.parameters.use_batch_norm
+    unet_depth = json_params.get("unet_depth", config.parameters.unet_depth)
+    num_channels_init = json_params.get(
+        "num_channels_init", config.parameters.num_channels_init
+    )
+    use_batch_norm = json_params.get(
+        "use_batch_norm", config.parameters.use_batch_norm
+    )
+    conv_dims = json_params.get("conv_dims", 3)
+    in_channels = json_params.get("in_channels", 1)
+    num_classes = json_params.get("num_classes", 1)
 
     # Prediction parameters
     devices = config.parameters.devices
@@ -52,7 +68,6 @@ def main(config: CarePredictClass):
     output_dir = os.path.join(base_data_dir, config.experiment_data_paths.output_dir)
 
     # Model checkpoint
-    log_path = config.train_data_paths.log_path
     ckpt_path = load_checkpoint_model(log_path)
 
     if ckpt_path is None:
@@ -63,11 +78,11 @@ def main(config: CarePredictClass):
     # Create output directory
     Path(output_dir).mkdir(exist_ok=True, parents=True)
 
-    # Build UNet
+    # Build UNet using arch knobs that came from JSON (or Hydra fallback).
     network = UNet(
-        conv_dims=3,
-        in_channels=1,
-        num_classes=1,
+        conv_dims=conv_dims,
+        in_channels=in_channels,
+        num_classes=num_classes,
         depth=unet_depth,
         num_channels_init=num_channels_init,
         use_batch_norm=use_batch_norm,

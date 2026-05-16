@@ -116,30 +116,43 @@ def stitch_tiles(predictions, volume_shape, overlap_fraction=0.125):
     """
     Stitch predicted tiles back into a full volume using linear blending.
 
+    Works for any spatial dimensionality (2D YX or 3D ZYX).
+
     Args:
-        predictions: List of (predicted_tile, coords) from predict_step.
-            predicted_tile: (B, Z, Y, X) tensor
-            coords: (B, 6) tensor [z_start, y_start, x_start, tz, ty, tx]
-        volume_shape: (Z, Y, X) shape of the full output volume.
+        predictions: Iterable of ``(predicted_tile, coords)`` pairs from
+            ``predict_step``. ``predicted_tile`` is a ``(B, *spatial)``
+            tensor — or ``(B, C, *spatial)`` with a channel axis;
+            channel 0 is taken in that case. ``coords`` is a
+            ``(B, 2 * ndim)`` long tensor laid out as
+            ``[start_0, …, start_n, size_0, …, size_n]``.
+        volume_shape: shape of the full output volume — any length.
         overlap_fraction: Overlap as fraction of tile size.
 
     Returns:
-        numpy array (Z, Y, X) — the stitched denoised volume.
+        numpy array of shape ``volume_shape`` — the stitched volume.
     """
     output = np.zeros(volume_shape, dtype=np.float32)
     weight = np.zeros(volume_shape, dtype=np.float32)
+    ndim = len(volume_shape)
 
     for pred_batch, coord_batch in predictions:
         for i in range(pred_batch.shape[0]):
-            tile = pred_batch[i].numpy()
-            zs, ys, xs, tz, ty, tx = coord_batch[i].tolist()
-            zs, ys, xs, tz, ty, tx = int(zs), int(ys), int(xs), int(tz), int(ty), int(tx)
+            tile = (
+                pred_batch[i].cpu().numpy()
+                if hasattr(pred_batch[i], "cpu")
+                else np.asarray(pred_batch[i])
+            )
+            # If the model emitted a leading channel axis, take channel 0.
+            if tile.ndim == ndim + 1:
+                tile = tile[0]
+            coords = [int(v) for v in coord_batch[i].tolist()]
+            starts = coords[:ndim]
+            sizes = coords[ndim:]
 
-            # Create blending weight (linear ramp at borders)
-            w = _make_blend_weight((tz, ty, tx), overlap_fraction)
-
-            output[zs : zs + tz, ys : ys + ty, xs : xs + tx] += tile * w
-            weight[zs : zs + tz, ys : ys + ty, xs : xs + tx] += w
+            sl = tuple(slice(s, s + sz) for s, sz in zip(starts, sizes))
+            w = _make_blend_weight(tuple(sizes), overlap_fraction)
+            output[sl] += tile * w
+            weight[sl] += w
 
     # Normalize by total weight
     mask = weight > 0

@@ -34,6 +34,7 @@ from kapoorlabs_lightning.tracking.track_prediction import (
 )
 from scenario_predict_cellfate_inception import CellFatePredictInceptionClass
 from kapoorlabs_lightning.tracking.track_vectors import TrackVectors
+from _arch_loader import load_arch_from_training_config
 
 configstore = ConfigStore.instance()
 configstore.store(name="CellFatePredictInceptionClass", node=CellFatePredictInceptionClass)
@@ -50,20 +51,22 @@ def parse_class_map(class_map):
     return {int(k): str(v) for k, v in dict(class_map).items()}
 
 
-def build_network(config: CellFatePredictInceptionClass):
-    """Build model architecture from config parameters."""
-    model_choice = config.parameters.model_choice
-    num_classes = config.parameters.num_classes
-    growth_rate = config.parameters.growth_rate
-    block_config = tuple(config.parameters.block_config)
-    num_init_features = config.parameters.num_init_features
-    bottleneck_size = config.parameters.bottleneck_size
-    kernel_size = config.parameters.kernel_size
-    attn_heads = config.parameters.attn_heads
-    seq_len = config.parameters.seq_len
+def build_network(config: CellFatePredictInceptionClass, json_params: dict):
+    """Build model architecture; ``json_params`` (from training_config.json)
+    wins over the Hydra parameter yaml for every arch knob."""
+    p = config.parameters
+    model_choice = json_params.get("model_choice", p.model_choice)
+    num_classes = json_params.get("num_classes", p.num_classes)
+    growth_rate = json_params.get("growth_rate", p.growth_rate)
+    block_config = tuple(json_params.get("block_config", p.block_config))
+    num_init_features = json_params.get("num_init_features", p.num_init_features)
+    bottleneck_size = json_params.get("bottleneck_size", p.bottleneck_size)
+    kernel_size = json_params.get("kernel_size", p.kernel_size)
+    attn_heads = json_params.get("attn_heads", p.attn_heads)
+    seq_len = json_params.get("seq_len", p.seq_len)
 
-    # Determine input_channels from feature set
-    features = config.parameters.features
+    # Determine input_channels from feature set (JSON also wins here).
+    features = json_params.get("features", p.features)
     if features == "shape":
         input_channels = len(SHAPE_FEATURES)
     elif features == "dynamic":
@@ -171,11 +174,17 @@ def main(config: CellFatePredictInceptionClass):
     device = "cuda" if accelerator == "cuda" and torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
 
-    # Build model
-    network = build_network(config)
-
-    # Load checkpoint (resolve directory to latest .ckpt if needed)
+    # JSON next to the ckpt wins over the Hydra parameter yaml.
     checkpoint_path = config.experiment_data_paths.checkpoint_path
+    json_dir = checkpoint_path if os.path.isdir(checkpoint_path) else os.path.dirname(checkpoint_path)
+    json_params = load_arch_from_training_config(json_dir)
+    if json_params:
+        print(f"Loaded arch from {json_dir}/training_config.json")
+
+    # Build model
+    network = build_network(config, json_params)
+
+    # Resolve directory to latest .ckpt if needed.
     if os.path.isdir(checkpoint_path):
         from kapoorlabs_lightning.utils import load_checkpoint_model
         resolved = load_checkpoint_model(checkpoint_path)

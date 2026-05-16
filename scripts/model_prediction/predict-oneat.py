@@ -17,6 +17,7 @@ from kapoorlabs_lightning.pytorch_callbacks import EventCountProgressBar
 from kapoorlabs_lightning.pytorch_models import DenseVollNet
 from kapoorlabs_lightning.utils import load_checkpoint_model
 from scenario_predict_oneat import OneatPredictClass
+from _arch_loader import load_arch_from_training_config
 
 
 configstore = ConfigStore.instance()
@@ -25,31 +26,40 @@ configstore.store(name="OneatPredictClass", node=OneatPredictClass)
 
 @hydra.main(config_path="../conf", config_name="scenario_predict_oneat", version_base='1.3')
 def main(config: OneatPredictClass):
-    # Extract parameters
-    num_classes = config.parameters.num_classes
-    devices = config.parameters.devices
+    # JSON next to the ckpt wins over the Hydra parameter yaml — the
+    # checkpoint may have been trained with a different patch / event /
+    # arch config than the current `parameters/oneat.yaml`.
+    log_path = config.train_data_paths.log_path
+    json_params = load_arch_from_training_config(log_path)
+    if json_params:
+        print(f"Loaded arch from {log_path}/training_config.json")
+
+    p = config.parameters
+
+    # Inference scaffolding
+    num_classes = json_params.get("num_classes", p.num_classes)
+    devices = p.devices
     accelerator = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Model architecture parameters
-    imagex = config.parameters.imagex
-    imagey = config.parameters.imagey
-    imagez = config.parameters.imagez
-    size_tminus = config.parameters.size_tminus
-    size_tplus = config.parameters.size_tplus
+    imagex = json_params.get("imagex", p.imagex)
+    imagey = json_params.get("imagey", p.imagey)
+    imagez = json_params.get("imagez", p.imagez)
+    size_tminus = json_params.get("size_tminus", p.size_tminus)
+    size_tplus = json_params.get("size_tplus", p.size_tplus)
 
     # Normalization parameters
-    normalizeimage = config.parameters.normalizeimage
-    pmin = config.parameters.pmin
-    pmax = config.parameters.pmax
+    normalizeimage = p.normalizeimage
+    pmin = p.pmin
+    pmax = p.pmax
 
     # NMS and threshold parameters
-    nms_space = config.parameters.nms_space
-    nms_time = config.parameters.nms_time
-    event_threshold = config.parameters.event_threshold
-    batch_size_predict = config.parameters.batch_size_predict
+    nms_iou_threshold = p.nms_iou_threshold
+    event_threshold = p.event_threshold
+    batch_size_predict = p.batch_size_predict
 
     # Event parameters
-    event_names = config.parameters.event_name
+    event_names = json_params.get("event_name", p.event_name)
 
     # Data paths
     base_data_dir = config.experiment_data_paths.base_data_dir
@@ -110,7 +120,6 @@ def main(config: OneatPredictClass):
             break
 
     # Model checkpoint path from config
-    log_path = config.train_data_paths.log_path
     ckpt_path = load_checkpoint_model(log_path)
 
     if ckpt_path is None:
@@ -121,14 +130,16 @@ def main(config: OneatPredictClass):
     # Create predictions directory
     Path(predictions_dir).mkdir(exist_ok=True, parents=True)
 
-    # Build model architecture (needed for load_from_checkpoint)
-    startfilter = config.parameters.startfilter
-    start_kernel = config.parameters.start_kernel
-    mid_kernel = config.parameters.mid_kernel
-    depth = config.parameters.depth
-    growth_rate = config.parameters.growth_rate
-    pool_first = config.parameters.pool_first
-    event_position_label = config.parameters.event_position_label
+    # Build model architecture (needed for load_from_checkpoint) — JSON wins.
+    startfilter = json_params.get("startfilter", p.startfilter)
+    start_kernel = json_params.get("start_kernel", p.start_kernel)
+    mid_kernel = json_params.get("mid_kernel", p.mid_kernel)
+    depth = json_params.get("depth", p.depth)
+    growth_rate = json_params.get("growth_rate", p.growth_rate)
+    pool_first = json_params.get("pool_first", p.pool_first)
+    event_position_label = json_params.get(
+        "event_position_label", p.event_position_label
+    )
 
     n_time = size_tminus + size_tplus + 1
     input_shape = (n_time, imagez, imagey, imagex)
@@ -168,8 +179,7 @@ def main(config: OneatPredictClass):
         event_names=event_names,
         num_classes=num_classes,
         event_threshold=event_threshold,
-        nms_space=nms_space,
-        nms_time=nms_time,
+        nms_iou_threshold=nms_iou_threshold,
         batch_size_predict=batch_size_predict,
     )
 
@@ -183,7 +193,8 @@ def main(config: OneatPredictClass):
 
     print(f"Found {len(raw_files)} raw timelapse files")
     print(
-        f"Event threshold: {event_threshold}, NMS space: {nms_space}, NMS time: {nms_time}"
+        f"Event threshold: {event_threshold}, NMS IoU threshold: {nms_iou_threshold}, "
+        f"Batch size (predict): {batch_size_predict}"
     )
 
     # Create Lightning Trainer for prediction

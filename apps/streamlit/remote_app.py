@@ -119,17 +119,23 @@ USAGE_LOG = JEANZAY_MOUNT / "usage_log.jsonl"
 
 # ORCID-based gating
 ORCID_RE = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
-HEAVY_QUOTA_PER_WEEK = 20
-HEAVY_COOLDOWN_HOURS = 24
+HEAVY_QUOTA_WINDOW_HOURS = 24
+HEAVY_QUOTA_PER_WINDOW = 20
 
 
 def heavy_quota_status(orcid):
-    """Inspect usage log for `orcid`. Return (count_7d, last_heavy_ts_or_None)."""
+    """Count this ORCID's heavy submissions in the last HEAVY_QUOTA_WINDOW_HOURS.
+
+    Submissions older than the window simply do not count any more — there
+    is no rolling accumulation across days. Returns (count, oldest_ts_in_window).
+    The oldest in-window timestamp is what determines when the next slot frees
+    up if the user has hit the quota.
+    """
     if not USAGE_LOG.exists() or not orcid:
         return 0, None
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=HEAVY_QUOTA_WINDOW_HOURS)
     count = 0
-    last_ts = None
+    oldest_ts = None
     with USAGE_LOG.open() as f:
         for line in f:
             try:
@@ -145,11 +151,11 @@ def heavy_quota_status(orcid):
             except Exception:
                 continue
             if ts < cutoff:
-                continue
+                continue  # outside 24h window — does not count
             count += 1
-            if last_ts is None or ts > last_ts:
-                last_ts = ts
-    return count, last_ts
+            if oldest_ts is None or ts < oldest_ts:
+                oldest_ts = ts
+    return count, oldest_ts
 
 
 ORCID_AUTH_URL = "https://orcid.org/oauth/authorize"
@@ -206,10 +212,14 @@ def exchange_orcid_code(code, client_id, client_secret, redirect_uri):
 
 
 def heavy_embargo_until(orcid):
-    """Return a datetime if the user is currently embargoed, else None."""
-    count, last_ts = heavy_quota_status(orcid)
-    if count >= HEAVY_QUOTA_PER_WEEK and last_ts is not None:
-        embargo_end = last_ts + timedelta(hours=HEAVY_COOLDOWN_HOURS)
+    """Return a datetime if the user is at quota right now, else None.
+
+    The embargo lifts as soon as the oldest in-window submission ages
+    past HEAVY_QUOTA_WINDOW_HOURS — i.e. one slot frees up at a time.
+    """
+    count, oldest_ts = heavy_quota_status(orcid)
+    if count >= HEAVY_QUOTA_PER_WINDOW and oldest_ts is not None:
+        embargo_end = oldest_ts + timedelta(hours=HEAVY_QUOTA_WINDOW_HOURS)
         if embargo_end > datetime.now(timezone.utc):
             return embargo_end
     return None
@@ -596,15 +606,35 @@ def mount_to_lustre(mount_path):
     return str(LUSTRE_DEMO / rel)
 
 
-def submit_to_jeanzay(submit_script, job_id, ckpt_lustre, config_lustre=None):
-    """SSH to kapoorlabslogin node and sbatch the prediction job."""
+def submit_to_jeanzay(
+    submit_script,
+    job_id,
+    ckpt_lustre,
+    config_lustre=None,
+    event_threshold=None,
+    nms_iou_threshold=None,
+    batch_size_predict=None,
+):
+    """SSH to kapoorlabslogin node and sbatch the prediction job.
+
+    Per-run knobs (event_threshold, nms_iou_threshold, batch_size_predict)
+    are passed as positional args after the config path. They become
+    ``--event-threshold`` / ``--nms-iou-threshold`` / ``--batch-size-predict``
+    flags on the demo_predict.py command line via run_job.sh.
+    """
     log.info(
-        "Submitting job %s via %s ckpt=%s config=%s",
+        "Submitting job %s via %s ckpt=%s config=%s thr=%s iou=%s bs=%s",
         job_id, submit_script.name, ckpt_lustre, config_lustre,
+        event_threshold, nms_iou_threshold, batch_size_predict,
     )
+    # Positional contract: job_id, ckpt, config, event_threshold, nms_iou,
+    # batch_size_predict. Each later arg requires earlier ones to be set
+    # (even if to the empty string) so positions line up.
     cmd = [str(submit_script), job_id, ckpt_lustre]
-    if config_lustre:
-        cmd.append(config_lustre)
+    cmd.append(config_lustre or "")
+    cmd.append("" if event_threshold is None else str(event_threshold))
+    cmd.append("" if nms_iou_threshold is None else str(nms_iou_threshold))
+    cmd.append("" if batch_size_predict is None else str(batch_size_predict))
     try:
         result = subprocess.run(
             cmd,
@@ -727,12 +757,13 @@ def main():
         st.sidebar.caption("Required for using our GPUs.")
 
     embargo_end = heavy_embargo_until(verified_orcid) if verified_orcid else None
-    runs_7d = heavy_quota_status(verified_orcid)[0] if verified_orcid else 0
+    runs_window = heavy_quota_status(verified_orcid)[0] if verified_orcid else 0
     is_heavy_allowed = bool(verified_orcid) and embargo_end is None
 
     if verified_orcid:
         st.sidebar.caption(
-            f"Heavy runs in last 7 days: {runs_7d} / {HEAVY_QUOTA_PER_WEEK}"
+            f"Heavy runs in last {HEAVY_QUOTA_WINDOW_HOURS}h: "
+            f"{runs_window} / {HEAVY_QUOTA_PER_WINDOW}"
         )
         if embargo_end is not None:
             st.sidebar.warning(
@@ -853,6 +884,43 @@ def main():
         )
         render_image_viewer(viewer_raw, results_df=viewer_df)
 
+
+    # --- Per-run prediction knobs (override model defaults at submit time) ---
+    with st.expander("Prediction parameters", expanded=False):
+        st.caption(
+            "Override the model's defaults for this run only. Tighter "
+            "thresholds = fewer detections; higher NMS IoU = more overlap "
+            "tolerated; bigger batch = faster on big GPUs but more memory."
+        )
+        col_thr, col_iou = st.columns(2)
+        with col_thr:
+            event_threshold_ui = st.number_input(
+                "Event threshold (per-class softmax)",
+                min_value=0.0, max_value=1.0,
+                value=float(st.session_state.get("event_threshold_ui", 0.999)),
+                step=0.001, format="%.3f",
+                key="event_threshold_ui",
+                help="Detections with score below this are dropped.",
+            )
+        with col_iou:
+            nms_iou_ui = st.number_input(
+                "NMS IoU threshold (3D)",
+                min_value=0.0, max_value=1.0,
+                value=float(st.session_state.get("nms_iou_ui", 0.3)),
+                step=0.05, format="%.2f",
+                key="nms_iou_ui",
+                help="Boxes overlapping a kept detection by at least this "
+                     "much are suppressed.",
+            )
+        batch_size_predict_ui = st.number_input(
+            "Batch size (cells per forward pass)",
+            min_value=1, max_value=10000,
+            value=int(st.session_state.get("batch_size_predict_ui", 1000)),
+            step=100,
+            key="batch_size_predict_ui",
+            help="Cells fed to the model in one chunk per timepoint. "
+                 "Lower it if the GPU runs out of memory.",
+        )
 
     # --- Submit: single ORCID-gated A100 button ---
     # Paint it green when unlocked so the run-state is obvious.
@@ -988,6 +1056,9 @@ def main():
                 try:
                     slurm_id, _ = submit_to_jeanzay(
                         submit_script, job_id, ckpt_lustre, config_lustre,
+                        event_threshold=event_threshold_ui,
+                        nms_iou_threshold=nms_iou_ui,
+                        batch_size_predict=int(batch_size_predict_ui),
                     )
                     st.session_state["job_id"] = job_id
                     st.session_state["slurm_id"] = slurm_id

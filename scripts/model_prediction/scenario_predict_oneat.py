@@ -63,8 +63,7 @@ class Params:
         alpha: float
         n_tiles: List
         file_type: str
-        nms_space: int
-        nms_time: int
+        nms_iou_threshold: float
         event_threshold: float
         batch_size_predict: int
         normalizeimage: bool

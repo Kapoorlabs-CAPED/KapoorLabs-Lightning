@@ -30,8 +30,7 @@ class OneatActionModule(BaseModule):
         size_tplus: int = 1,
         event_names: list = None,
         event_threshold: float = 0.5,
-        nms_space: int = 10,
-        nms_time: int = 2,
+        nms_iou_threshold: float = 0.3,
         batch_size_predict: int = 1000,
         # Eval transforms for prediction (same as validation)
         eval_transforms=None,
@@ -64,13 +63,10 @@ class OneatActionModule(BaseModule):
             else [f"class_{i}" for i in range(num_classes)]
         )
         self.event_threshold = event_threshold
-        self.nms_space = nms_space
-        self.nms_time = nms_time
+        self.nms_iou_threshold = nms_iou_threshold
         self.batch_size_predict = batch_size_predict
         self.eval_transforms = eval_transforms
 
-        # Buffer for online NMS across timepoints
-        self._recent_detections = []
         self._total_events = 0
 
     def training_step(self, batch, batch_idx):
@@ -178,62 +174,71 @@ class OneatActionModule(BaseModule):
             )
             return accuracy(predicted_class_indices, true_class_indices)
 
-    def predict_step(self, batch, batch_idx):
-        """
-        Prediction step for ONEAT model.
-        Batches all cell patches for a given timepoint, runs a single forward pass,
-        applies event confidence threshold, and performs online spatial NMS within
-        a temporal window of nms_time.
+    @staticmethod
+    def _iou3d(box_a, box_b):
+        """3D IoU between two boxes given as dicts with x/y/z + h/w/d."""
+        ax0, ay0, az0 = box_a["x"] - box_a["w"] / 2.0, box_a["y"] - box_a["h"] / 2.0, box_a["z"] - box_a["d"] / 2.0
+        ax1, ay1, az1 = ax0 + box_a["w"], ay0 + box_a["h"], az0 + box_a["d"]
+        bx0, by0, bz0 = box_b["x"] - box_b["w"] / 2.0, box_b["y"] - box_b["h"] / 2.0, box_b["z"] - box_b["d"] / 2.0
+        bx1, by1, bz1 = bx0 + box_b["w"], by0 + box_b["h"], bz0 + box_b["d"]
 
-        batch format: (raw_image, seg_image, timepoint, metadata)
-        raw_image: (1, T, Z, Y, X) - temporal window around current timepoint
-        seg_image: (1, T, Z, Y, X) - corresponding segmentation
-        timepoint: (1,) - current timepoint being processed
-        metadata: dict with image info (collated by DataLoader)
+        inter_w = max(0.0, min(ax1, bx1) - max(ax0, bx0))
+        inter_h = max(0.0, min(ay1, by1) - max(ay0, by0))
+        inter_d = max(0.0, min(az1, bz1) - max(az0, bz0))
+        inter = inter_w * inter_h * inter_d
+        if inter <= 0.0:
+            return 0.0
+        vol_a = box_a["w"] * box_a["h"] * box_a["d"]
+        vol_b = box_b["w"] * box_b["h"] * box_b["d"]
+        union = vol_a + vol_b - inter
+        return inter / union if union > 0 else 0.0
+
+    def predict_step(self, batch, batch_idx):
+        """Per-timepoint prediction.
+
+        For each segmented cell at the current timepoint, extracts a patch
+        around its centroid, runs a batched forward pass, thresholds by
+        ``event_threshold``, and applies greedy 3D-IoU NMS *per class*. The
+        highest-scoring detection in any cluster of overlapping boxes wins
+        — same semantics as the original caped-ai-oneat
+        ``compare_function_volume``-based NMS.
+
+        Returns a list of detection dicts for this timepoint.
         """
+        # Lightning's Trainer.predict() already calls model.eval(), but be
+        # defensive — accidentally training-mode dropout/BN here would silently
+        # corrupt scores.
+        self.eval()
+
         temporal_raw, temporal_seg, timepoint, metadata = batch
 
-        # Remove batch dim (batch_size=1 from DataLoader)
+        # batch_size=1 from the DataLoader: drop that outer dim.
         temporal_raw = temporal_raw[0]  # (T, Z, Y, X)
         temporal_seg = temporal_seg[0]  # (T, Z, Y, X)
         t = timepoint.item()
 
-        # Extract filename from collated metadata
         filename = metadata.get("filename", ["unknown"])
         if isinstance(filename, (list, tuple)):
             filename = filename[0]
 
-        # Clean old detections from buffer (only keep within nms_time window)
-        self._recent_detections = [
-            d for d in self._recent_detections if abs(d["time"] - t) <= self.nms_time
-        ]
-
-        # Find all cell instances in seg image at current timepoint
-        seg_labels = torch.unique(temporal_seg[self.size_tminus])
-        seg_labels = seg_labels[seg_labels > 0]  # Remove background
-
+        # Background labels (== 0) excluded; one centroid per remaining label.
+        seg_now = temporal_seg[self.size_tminus]
+        seg_labels = torch.unique(seg_now)
+        seg_labels = seg_labels[seg_labels > 0]
         if len(seg_labels) == 0:
             return []
 
-        # Collect all cell patches into a batch
         patches = []
         cell_info = []
 
         for cell_id in seg_labels:
             cell_id_val = cell_id.item()
-
-            # Get cell mask at current timepoint
-            cell_mask = (temporal_seg[self.size_tminus] == cell_id).cpu().numpy()
-
-            coords = np.where(cell_mask)
-            if len(coords[0]) == 0:
+            cell_mask = (seg_now == cell_id).cpu().numpy()
+            if not cell_mask.any():
                 continue
 
-            # Calculate center of mass
-            center_coords = center_of_mass(cell_mask)
-            z_center, y_center, x_center = center_coords
+            z_center, y_center, x_center = center_of_mass(cell_mask)
 
-            # Extract patch around cell center
             z_start = max(0, int(z_center - self.imagez // 2))
             z_end = min(temporal_raw.shape[1], z_start + self.imagez)
             y_start = max(0, int(y_center - self.imagey // 2))
@@ -243,7 +248,6 @@ class OneatActionModule(BaseModule):
 
             patch = temporal_raw[:, z_start:z_end, y_start:y_end, x_start:x_end]
 
-            # Pad if patch is smaller than expected
             if patch.shape[1:] != (self.imagez, self.imagey, self.imagex):
                 padded = torch.zeros(
                     (self.imaget, self.imagez, self.imagey, self.imagex),
@@ -253,7 +257,6 @@ class OneatActionModule(BaseModule):
                 padded[:, : patch.shape[1], : patch.shape[2], : patch.shape[3]] = patch
                 patch = padded
 
-            # Apply eval transforms
             if self.eval_transforms is not None:
                 patch = self.eval_transforms(patch)
 
@@ -263,110 +266,75 @@ class OneatActionModule(BaseModule):
         if len(patches) == 0:
             return []
 
-        # Batched forward pass - chunk to avoid OOM with many cells
+        # Chunked forward pass to bound memory; one stack + one forward per chunk.
         all_outputs = []
         for chunk_start in range(0, len(patches), self.batch_size_predict):
             chunk = patches[chunk_start : chunk_start + self.batch_size_predict]
-            batch_tensor = torch.stack(chunk, dim=0)  # (chunk_size, T, Z, Y, X)
-
+            batch_tensor = torch.stack(chunk, dim=0)
             with torch.no_grad():
                 outputs = self(batch_tensor)
-
             if outputs.dim() > 2:
                 outputs = outputs.squeeze(-1).squeeze(-1).squeeze(-1)
-
             all_outputs.append(outputs)
+        all_outputs = torch.cat(all_outputs, dim=0)
 
-        all_outputs = torch.cat(
-            all_outputs, dim=0
-        )  # (N_cells, num_classes + box_vector)
-
-        # Extract class probabilities and box predictions
-        # NOTE: softmax is already applied inside DenseVollNet.forward(),
-        # do NOT apply it again here — double softmax compresses probabilities
-        # toward uniform and caps confidence at ~0.73 instead of 0.99+
+        # Softmax already applied in DenseVollNet.forward(); don't double-apply.
         class_probs = all_outputs[:, : self.num_classes]
-        # Box vector layout: [x, y, z, t, h, w, d, c] (after sigmoid, values in [0, 1])
         box_predictions = all_outputs[:, self.num_classes :]
 
-        # Collect candidate detections that pass threshold
+        # Box layout: [x, y, z, t, h, w, d, c]; sigmoid'd inside the model.
         candidates = []
         for i, (cell_id_val, z_center, y_center, x_center) in enumerate(cell_info):
             predicted_class = torch.argmax(class_probs[i]).item()
-            confidence = class_probs[i, predicted_class].item()
+            score = class_probs[i, predicted_class].item()
 
-            # Only keep non-background events above threshold
-            if predicted_class > 0 and confidence >= self.event_threshold:
-                # Extract predicted bounding box dimensions (h, w, d)
-                # Indices 4, 5, 6 in box_vector correspond to h, w, d
-                # Scale from [0, 1] sigmoid output to pixel dimensions
-                pred_h = box_predictions[i, 4].item() * self.imagey
-                pred_w = box_predictions[i, 5].item() * self.imagex
-                pred_d = box_predictions[i, 6].item() * self.imagez
+            if predicted_class <= 0 or score < self.event_threshold:
+                continue
 
-                # Effective sphere diameter from bounding box h, w, d
-                size = round((pred_h * pred_w * pred_d) ** (1.0 / 3.0), 2)
+            pred_h = box_predictions[i, 4].item() * self.imagey
+            pred_w = box_predictions[i, 5].item() * self.imagex
+            pred_d = box_predictions[i, 6].item() * self.imagez
+            size = round((pred_h * pred_w * pred_d) ** (1.0 / 3.0), 2)
 
-                candidates.append(
-                    {
-                        "time": t,
-                        "z": int(z_center),
-                        "y": int(y_center),
-                        "x": int(x_center),
-                        "score": confidence,
-                        "size": size,
-                        "h": round(pred_h, 2),
-                        "w": round(pred_w, 2),
-                        "d": round(pred_d, 2),
-                        "cell_id": cell_id_val,
-                        "predicted_class": predicted_class,
-                        "event_name": self.event_names[predicted_class]
-                        if predicted_class < len(self.event_names)
-                        else f"class_{predicted_class}",
-                        "filename": filename,
-                    }
-                )
+            candidates.append(
+                {
+                    "time": t,
+                    "z": int(z_center),
+                    "y": int(y_center),
+                    "x": int(x_center),
+                    "score": score,
+                    "size": size,
+                    "h": round(pred_h, 2),
+                    "w": round(pred_w, 2),
+                    "d": round(pred_d, 2),
+                    "cell_id": cell_id_val,
+                    "predicted_class": predicted_class,
+                    "event_name": self.event_names[predicted_class]
+                    if predicted_class < len(self.event_names)
+                    else f"class_{predicted_class}",
+                    "filename": filename,
+                }
+            )
 
-        # Sort candidates by confidence (highest first) for greedy NMS
-        candidates.sort(key=lambda d: d["score"], reverse=True)
+        if not candidates:
+            return []
 
-        # Online spatial NMS: check against recent detections buffer
-        surviving = []
+        # Per-class greedy IoU NMS: sort by score desc, take top, suppress
+        # remaining boxes whose 3D IoU with the kept box >= nms_iou_threshold.
+        # Mirrors the caped-ai-oneat compare_function_volume semantics.
+        by_class = {}
         for det in candidates:
-            suppressed = False
-            # Check against existing buffer detections
-            for existing in self._recent_detections:
-                if det["event_name"] != existing["event_name"]:
-                    continue
-                if abs(det["time"] - existing["time"]) > self.nms_time:
-                    continue
-                spatial_dist = np.sqrt(
-                    (det["x"] - existing["x"]) ** 2
-                    + (det["y"] - existing["y"]) ** 2
-                    + (det["z"] - existing["z"]) ** 2
-                )
-                if spatial_dist < self.nms_space:
-                    suppressed = True
-                    break
+            by_class.setdefault(det["event_name"], []).append(det)
 
-            # Also check against already-surviving detections from this timepoint
-            if not suppressed:
-                for s in surviving:
-                    if det["event_name"] != s["event_name"]:
-                        continue
-                    spatial_dist = np.sqrt(
-                        (det["x"] - s["x"]) ** 2
-                        + (det["y"] - s["y"]) ** 2
-                        + (det["z"] - s["z"]) ** 2
-                    )
-                    if spatial_dist < self.nms_space:
-                        suppressed = True
-                        break
-
-            if not suppressed:
-                surviving.append(det)
-                self._recent_detections.append(det)
+        surviving = []
+        for event_name, group in by_class.items():
+            group.sort(key=lambda d: d["score"], reverse=True)
+            kept = []
+            for det in group:
+                if any(self._iou3d(det, k) >= self.nms_iou_threshold for k in kept):
+                    continue
+                kept.append(det)
+            surviving.extend(kept)
 
         self._total_events += len(surviving)
-
         return surviving

@@ -50,8 +50,7 @@ DEFAULT_PARAMS = {
     "depth_2": 16,
     "pool_first": True,
     "num_classes": 2,
-    "nms_space": 10,
-    "nms_time": 2,
+    "nms_iou_threshold": 0.3,
     "pmin": 1.0,
     "pmax": 99.8,
     "event_threshold": 0.999,
@@ -80,7 +79,21 @@ def load_params_from_config(config_path):
     return params
 
 
-def run_prediction(job_id, checkpoint_path=None, config_path=None):
+def run_prediction(
+    job_id,
+    checkpoint_path=None,
+    config_path=None,
+    event_threshold=None,
+    nms_iou_threshold=None,
+    batch_size_predict=None,
+):
+    """Run prediction for a single uploaded job.
+
+    Per-run runtime knobs (event_threshold, nms_iou_threshold,
+    batch_size_predict) override whatever is in the model's
+    training_config.json — letting the Streamlit user tune each submission
+    without touching the trained model artefact.
+    """
     uploads_dir = DEMO_BASE / "uploads" / job_id
     results_dir = DEMO_BASE / "results" / job_id
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -118,7 +131,20 @@ def run_prediction(job_id, checkpoint_path=None, config_path=None):
             p = load_params_from_config(config_path)
             print(f"Config: {config_path}")
         else:
-            p = DEFAULT_PARAMS
+            p = dict(DEFAULT_PARAMS)
+
+        # Per-run overrides win over both the model config and the defaults.
+        if event_threshold is not None:
+            p["event_threshold"] = event_threshold
+        if nms_iou_threshold is not None:
+            p["nms_iou_threshold"] = nms_iou_threshold
+        if batch_size_predict is not None:
+            p["batch_size_predict"] = batch_size_predict
+        print(
+            f"Runtime knobs: event_threshold={p['event_threshold']}, "
+            f"nms_iou_threshold={p['nms_iou_threshold']}, "
+            f"batch_size_predict={p['batch_size_predict']}"
+        )
         imaget = p["size_tminus"] + p["size_tplus"] + 1
         input_shape = (imaget, p["imagez"], p["imagey"], p["imagex"])
         depth = {"depth_0": p["depth_0"], "depth_1": p["depth_1"], "depth_2": p["depth_2"]}
@@ -158,8 +184,7 @@ def run_prediction(job_id, checkpoint_path=None, config_path=None):
             event_names=p["event_names"],
             num_classes=p["num_classes"],
             event_threshold=p["event_threshold"],
-            nms_space=p["nms_space"],
-            nms_time=p["nms_time"],
+            nms_iou_threshold=p["nms_iou_threshold"],
             batch_size_predict=p["batch_size_predict"],
         )
 
@@ -232,9 +257,28 @@ def main():
     parser.add_argument("--job-id", required=True, help="Unique job identifier")
     parser.add_argument("--checkpoint", default=None, help="Override checkpoint path")
     parser.add_argument("--config", default=None, help="Path to training_config.json with model params")
+    parser.add_argument(
+        "--event-threshold", type=float, default=None,
+        help="Override per-class softmax threshold for keeping a detection.",
+    )
+    parser.add_argument(
+        "--nms-iou-threshold", type=float, default=None,
+        help="Override 3D-IoU threshold for NMS suppression (0..1).",
+    )
+    parser.add_argument(
+        "--batch-size-predict", type=int, default=None,
+        help="Override cells-per-forward batch during prediction.",
+    )
     args = parser.parse_args()
 
-    run_prediction(args.job_id, checkpoint_path=args.checkpoint, config_path=args.config)
+    run_prediction(
+        args.job_id,
+        checkpoint_path=args.checkpoint,
+        config_path=args.config,
+        event_threshold=args.event_threshold,
+        nms_iou_threshold=args.nms_iou_threshold,
+        batch_size_predict=args.batch_size_predict,
+    )
 
 
 if __name__ == "__main__":

@@ -109,27 +109,73 @@ python submit_lr_sweep_adam_heavy.py
 
 ```bash
 cd scripts/model_prediction
-python lightning-predict-oneat.py
+python predict-oneat.py
 ```
 
 **Process:**
-1. Load model checkpoint
-2. Read raw + seg timelapse pairs
-3. Normalize raw in chunks (same as training)
+1. Load model checkpoint (`OneatActionModule.load_from_checkpoint`,
+   `model.eval()` is called at the start of `predict_step` for safety).
+2. Read raw + seg timelapse pairs.
+3. Normalize raw in chunks (same as training).
 4. For each timepoint:
-   - Extract patches around segmented cells
-   - Classify action (argmax, no threshold)
-5. Apply NMS in space-time
-6. Save CSV per event type
+   - Extract patches around segmented cells (centroid → patch via
+     `center_of_mass`, padded if near a border).
+   - Batch all of that timepoint's cells in one forward pass — chunk
+     size controlled by `batch_size_predict` (defaults to 1000; bump
+     it on big GPUs, drop it if you hit OOM).
+   - Filter detections by `event_threshold` (per-class softmax cutoff;
+     drops everything below).
+5. **Per-class greedy 3D-IoU NMS** *within each timepoint* — sort
+   detections by score (descending), keep the top one, suppress any
+   later detection whose 3D-IoU with a kept box exceeds
+   `nms_iou_threshold`. Same semantics as the original caped-ai-oneat
+   `compare_function_volume`. NMS is applied per event class so a
+   mitosis and an apoptosis at the same location don't suppress each
+   other.
+6. Save one CSV per event type into the predictions directory.
 
-**Output:**
+**Output CSV** (one file per non-background event class):
 ```csv
-t,z,y,x
-10,5,128,256
-15,6,130,258
+t,z,y,x,score,size,h,w,d
+10,5,128,256,0.987,38.42,42.10,42.30,18.40
+15,6,130,258,0.954,36.10,40.50,40.80,17.90
 ```
+- `score` = per-class softmax probability
+- `size` = effective sphere diameter from box dims `(h·w·d)^(1/3)`
+- `h, w, d` = predicted box dimensions in pixels
 
 **Config:** `scripts/conf/scenario_predict_oneat.yaml`
+
+### Per-run prediction knobs
+
+These three parameters can be overridden without retraining or
+re-deploying — useful for tuning detection sensitivity and per-GPU
+memory pressure on a per-submission basis:
+
+| Knob                  | What it does                                                             | Typical range |
+|-----------------------|--------------------------------------------------------------------------|---------------|
+| `event_threshold`     | Per-class softmax floor; detections below are dropped                    | 0.5 – 0.999   |
+| `nms_iou_threshold`   | Boxes overlapping a kept detection by ≥ this 3D-IoU are suppressed       | 0.1 – 0.5     |
+| `batch_size_predict`  | Cells fed to the model in one chunk per timepoint                        | 500 – 4000    |
+
+Higher `event_threshold` = fewer / cleaner detections; higher
+`nms_iou_threshold` = more overlapping detections allowed through
+(tracker-friendly); higher `batch_size_predict` = faster on big GPUs,
+more memory pressure.
+
+**Hydra CLI override:**
+```bash
+python predict-oneat.py \
+    parameters.event_threshold=0.95 \
+    parameters.nms_iou_threshold=0.3 \
+    parameters.batch_size_predict=4000
+```
+
+**Streamlit demo app:** the same three knobs appear in a "Prediction
+parameters" expander on the run-page; their values are forwarded
+through `submit_to_jeanzay → submit_*_job.sh → run_job.sh` to
+`demo_predict.py` as `--event-threshold`, `--nms-iou-threshold`, and
+`--batch-size-predict` flags.
 
 ---
 
@@ -218,8 +264,10 @@ dataset = OneatPredictionDataset(
                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                         NMS Filtering                           │
-│  Remove duplicate detections in space-time                      │
-│  └── nms_space_time(detections, space_thresh=10, time_thresh=2)│
+│  Per-class greedy 3D-IoU NMS within each timepoint              │
+│  - sort detections by score descending                          │
+│  - keep top, suppress overlap with IoU ≥ nms_iou_threshold      │
+│  - applied separately per event_name (mitosis/apoptosis)        │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
                                   ▼
@@ -240,20 +288,37 @@ This is different from sliding-window approaches - we only classify regions wher
 
 ```python
 # Inside predict_step (simplified):
+candidates = []
 for cell_id in unique_cells:
     # Get centroid from segmentation
-    cell_mask = (seg == cell_id)
+    cell_mask = (seg[t] == cell_id)
     z, y, x = center_of_mass(cell_mask)
 
     # Carve patch from RAW image (not seg!)
     patch = raw[:, z-4:z+4, y-32:y+32, x-32:x+32]
+    patches.append(patch)
 
-    # Classify
-    event_class = model(patch).argmax()
+# Batched forward pass — chunked by batch_size_predict
+class_probs, box_predictions = model(stack(patches))
 
-    # Record global coordinates if positive
-    if event_class > 0:
-        detections.append({'t': t, 'z': z, 'y': y, 'x': x, 'class': event_class})
+for i, (z, y, x) in enumerate(centroids):
+    cls = class_probs[i].argmax()
+    score = class_probs[i, cls]
+    if cls > 0 and score >= event_threshold:
+        candidates.append({'t': t, 'z': z, 'y': y, 'x': x,
+                           'score': score, 'class': cls,
+                           'box': box_predictions[i]})
+
+# Per-class greedy 3D-IoU NMS within this timepoint
+detections = []
+for event_name, group in group_by_class(candidates).items():
+    group.sort(key=lambda d: d['score'], reverse=True)
+    kept = []
+    for det in group:
+        if any(iou3d(det, k) >= nms_iou_threshold for k in kept):
+            continue
+        kept.append(det)
+    detections.extend(kept)
 ```
 
 ---
@@ -401,11 +466,21 @@ pmin: 1.0       # percentile min
 pmax: 99.8      # percentile max
 ```
 
-### NMS
+### NMS (per-class greedy 3D-IoU within each timepoint)
 ```yaml
-nms_space: 10   # spatial distance threshold
-nms_time: 2     # temporal distance threshold
+nms_iou_threshold: 0.3   # boxes overlapping a kept detection by
+                         # ≥ this 3D-IoU are suppressed
 ```
+
+> **Migration note**: previous releases used a Euclidean rolling-buffer
+> NMS with separate `nms_space` (Å) and `nms_time` (frames) knobs. That
+> approach has been replaced by a per-class greedy 3D-IoU NMS within
+> each timepoint — same semantics as the original `caped-ai-oneat`
+> `compare_function_volume`, which keeps the highest-score detection in
+> any cluster of overlapping boxes (preferred for "mother cell"
+> selection during division events). If you have old configs setting
+> `nms_space`/`nms_time`, those keys are silently ignored; replace them
+> with `nms_iou_threshold`.
 
 ### Events
 ```yaml
@@ -508,11 +583,22 @@ oneat_predictions: 'results/'
 
 ## Notes
 
-- Only non-normal events (class > 0) are saved in predictions
-- Normalization must match between training and prediction
-- Chunk size: 50 timepoints (adjustable)
-- CSV format: ONEAT compatible (`t,z,y,x`)
-- Adam optimizer is recommended over SGD for this multi-task loss
+- Only non-normal events (class > 0) are saved in predictions.
+- Normalization must match between training and prediction (same
+  `pmin`/`pmax`).
+- Chunk size: 50 timepoints (adjustable).
+- CSV columns: `t, z, y, x, score, size, h, w, d` (legacy ONEAT
+  consumers reading just the first four columns still work).
+- NMS is per-class greedy 3D-IoU within each timepoint, not the older
+  Euclidean rolling-buffer scheme. Tune via `nms_iou_threshold`.
+- `event_threshold` and `batch_size_predict` are runtime knobs you can
+  override per-submission via Hydra CLI args, the Streamlit
+  "Prediction parameters" expander, or the `--event-threshold` /
+  `--nms-iou-threshold` / `--batch-size-predict` CLI flags on
+  `demo_predict.py`.
+- `model.eval()` is called defensively at the top of `predict_step`
+  even though `Trainer.predict()` already does so.
+- Adam optimizer is recommended over SGD for this multi-task loss.
 
 ---
 

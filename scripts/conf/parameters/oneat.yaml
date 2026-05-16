@@ -55,10 +55,13 @@ reduction: 0.5
 alpha: 0.01
 n_tiles: [1,4,4]
 file_type: '*.tif'
-nms_space: 30
-nms_time: 3
+# NMS: per-class greedy 3D-IoU within each timepoint. Boxes whose IoU with a
+# kept (higher-scoring) box exceeds nms_iou_threshold are suppressed.
+nms_iou_threshold: 0.3
 event_threshold: 0.999
-batch_size_predict: 100
+# Cells per forward pass during prediction. Tune for the GPU you're running
+# on (A100 40GB handles ~4000 comfortably; small cards drop to 500-1000).
+batch_size_predict: 1000
 normalizeimage: True
 test_pred: True
 test_roi_xy: 512
