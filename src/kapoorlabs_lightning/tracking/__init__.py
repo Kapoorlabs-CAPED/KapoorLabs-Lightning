@@ -18,6 +18,21 @@ from .track_features import (
 )
 from .track_vectors import TrackVectors
 from .track_comparator import TrackComparator
+from .trackastra_bridge import (
+    walk_tracklets,
+    graph_to_dataframe,
+    dataframe_to_graph,
+)
+from .oneat_graph_correction import (
+    load_oneat_events,
+    oneat_correct_graph,
+)
+from .master_graph import (
+    enrich_graph_with_shape_features,
+    enrich_graph_with_dynamics,
+    write_master_graph,
+    read_master_graph,
+)
 from .track_prediction import (
     predict_track,
     predict_all_tracks,
@@ -47,6 +62,18 @@ __all__ = [
     "ALL_FEATURES",
     "TrackVectors",
     "TrackComparator",
+    # Trackastra bridge — graph ⇄ DataFrame
+    "walk_tracklets",
+    "graph_to_dataframe",
+    "dataframe_to_graph",
+    # Oneat correction (replaces TrackMate-Oneat)
+    "load_oneat_events",
+    "oneat_correct_graph",
+    # Master corrected graph (per-spot shape/intensity/dynamics cached + persisted)
+    "enrich_graph_with_shape_features",
+    "enrich_graph_with_dynamics",
+    "write_master_graph",
+    "read_master_graph",
     "predict_track",
     "predict_all_tracks",
     "save_cell_type_predictions",
