@@ -15,8 +15,7 @@ LUSTRE="/lustre/fsn1/projects/rech/jsy/uzj81mi/demo"
 
 ssh "${REMOTE}" "mkdir -p ${LUSTRE}/results/${JOB_ID} ${LUSTRE}/logs && sbatch \
   --account=jsy@a100 \
-  --constraint=a100 \
-  --gres=gpu:1 \
+  --partition=visu \
   --nodes=1 \
   --cpus-per-task=40 \
   --hint=nomultithread \
