@@ -88,3 +88,4 @@ venv/
 
 # OS
 .DS_Store
+src/kapoorlabs_lightning/_version.py

@@ -1,35 +1,62 @@
-# This workflows will upload a Python Package using Twine when a release is created
-# For more information see: https://help.github.com/en/actions/language-and-framework-guides/using-python-with-github-actions#publishing-to-package-registries
+# Build the wheel + sdist and publish to PyPI.
+#
+# Version comes from `git describe --tags`. setuptools_scm writes
+# src/kapoorlabs_lightning/_version.py at build time, so the only thing
+# you have to do to ship a new release is:
+#
+#     git tag v1.2.3
+#     git push origin v1.2.3
+#
+# The tag push fires this workflow. The leading ``v`` is stripped, so
+# the uploaded wheel is named e.g. ``KapoorLabs_Lightning-1.2.3-py3-none-any.whl``.
+# ``workflow_dispatch`` is kept as a manual escape hatch (Actions tab →
+# Run workflow), but normal use is the tag push.
+#
+# Setup once per repo:
+#   Settings → Secrets and variables → Actions → New repository secret
+#     name : TWINE_API_KEY
+#     value: pypi-...   (token scoped to the KapoorLabs-Lightning project)
 
 name: lightning_deploy
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       name:
         description: "Hello KapoorLabs Lab member"
-        default: "Ready to dispach your code to PyPi"
+        default: "Ready to dispatch your code to PyPI"
 
 jobs:
-
   deploy:
-
-    #needs: [test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+        with:
+          # setuptools_scm needs full history + tags to resolve the version.
+          fetch-depth: 0
+
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - name: Install dependencies
+
+      - name: Install build deps
         run: |
           python -m pip install --upgrade pip
           pip install -U setuptools setuptools_scm wheel twine build
-      - name: Build and publish
+
+      - name: Show resolved version
+        run: |
+          git describe --tags --always
+          python -c "from setuptools_scm import get_version; print('setuptools_scm resolved:', get_version())"
+
+      - name: Build sdist + wheel
+        run: python -m build .
+
+      - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.TWINE_API_KEY }}
-        run: |
-          git tag
-          python -m build .
-          twine upload dist/*
+        run: twine upload --non-interactive dist/*

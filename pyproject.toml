@@ -1,3 +1,12 @@
 [build-system]
 requires = ["setuptools>=42.0.0", "wheel", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
+
+# Version is computed at build time from `git describe --tags`.
+# setuptools_scm writes src/kapoorlabs_lightning/_version.py so setup.cfg's
+# `version = attr: kapoorlabs_lightning._version.__version__` resolves to the
+# tag-derived value. Tag the commit (e.g. ``git tag v1.2.3 && git push --tags``)
+# and the deploy workflow uploads that version to PyPI.
+[tool.setuptools_scm]
+write_to = "src/kapoorlabs_lightning/_version.py"
+fallback_version = "0.0.0"
