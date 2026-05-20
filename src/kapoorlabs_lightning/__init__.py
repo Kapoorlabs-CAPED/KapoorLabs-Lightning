@@ -3,94 +3,82 @@ try:
 except ImportError:
     __version__ = "unknown"
 
-from .base_module import (
-    BaseModule
-   
-)
-from .oneat_module import OneatActionModule
+from . import morphology, tracking
+from .base_module import BaseModule
 from .cellfate_module import CellFateModule
-from .care_module import CareModule, stitch_tiles
-
-from .lightning_trainer import (
-    MitosisInception,
+from .classification_score import ClassificationScore, evaluate_multiple_events
+from .lightning_trainer import MitosisInception
+from .nms_utils import group_detections_by_event, nms_space_time
+from .oneat_module import OneatActionModule
+from .oneat_prediction_dataset import OneatPredictionDataset
+from .oneat_presets import (
+    OneatEvalPreset,
+    OneatTrainPresetHeavy,
+    OneatTrainPresetLight,
+    OneatTrainPresetMedium,
 )
-from .care_trainer import CareInception
-
-
+from .oneat_transforms import (
+    AddGaussianNoise as OneatAddGaussianNoise,
+    AddPoissonNoise,
+    ElasticDeformation,
+    MinMaxNormalize as OneatMinMaxNormalize,
+    PercentileNormalize,
+    RandomBrightnessContrast,
+    RandomIntensityScaling,
+    RandomSpatialFlip,
+    RandomSpatialRotation90,
+    SpatialGaussianBlur,
+    ToFloat32,
+)
+from .optimizers import (
+    LARS,
+    SGD,
+    Adam,
+    AdamWClipStyle,
+    RMSprop,
+    Rprop,
+)
+from .pytorch_callbacks import (
+    CheckpointModel,
+    CustomDeviceStatsMonitor,
+    CustomProgressBar,
+    CustomVirtualMemory,
+    EarlyStoppingCall,
+    ExponentialDecayCallback,
+    FineTuneLearningRateFinder,
+    SaveFilesCallback,
+)
 from .pytorch_datasets import (
+    GenericDataModule,
+    GenericDataset,
+    H5MitosisDataset,
+    H5VisionDataset,
+    MitosisDataset,
     PointCloudDataset,
     PyntCloud,
-    MitosisDataset,
-    H5MitosisDataset,
-    GenericDataset,
-    GenericDataModule,
-    H5VisionDataset,
 )
-from .oneat_prediction_dataset import OneatPredictionDataset
-from .care_dataset import H5CareDataset, CarePredictionDataset, compute_tile_shape
-from .nms_utils import nms_space_time, group_detections_by_event
-from .classification_score import ClassificationScore, evaluate_multiple_events
 from .pytorch_loggers import CustomNPZLogger
 from .pytorch_models import __all__ as all_pytorch_models
 from .pytorch_transforms import Transforms
 from .time_series_presets import (
     AddGaussianNoise as TimeSeriesAddGaussianNoise,
-    RandomScaling,
-    RandomMasking,
-)
-from .oneat_transforms import (
-    AddGaussianNoise as OneatAddGaussianNoise,
-    AddPoissonNoise,
-    SpatialGaussianBlur,
-    RandomBrightnessContrast,
-    RandomSpatialFlip,
-    RandomSpatialRotation90,
-    RandomIntensityScaling,
-    PercentileNormalize,
-    MinMaxNormalize as OneatMinMaxNormalize,
-    ToFloat32,
-    ElasticDeformation,
-)
-from .oneat_presets import (
-    OneatTrainPresetLight,
-    OneatTrainPresetMedium,
-    OneatTrainPresetHeavy,
-    OneatEvalPreset,
-)
-from .care_presets import (
-    CareTrainPresetLight,
-    CareTrainPresetMedium,
-    CareTrainPresetHeavy,
-    CareEvalPreset,
-)
-from .care_transforms import (
-    PairedRandomSpatialFlip,
-    PairedRandomRotation90,
-    InputGaussianNoise,
-    PairedPercentileNormalize,
-    PairedToFloat32,
-)
-from .time_series_presets import (
+    CellFateTrainPresetHeavy,
     CellFateTrainPresetLight,
     CellFateTrainPresetMedium,
-    CellFateTrainPresetHeavy,
+    RandomMasking,
+    RandomScaling,
 )
-from .utils import get_most_recent_file, plot_npz_files, plot_npz_files_interactive, create_event_dataset_h5, percentile_norm, normalize_mi_ma, save_config_as_json, normalize_in_chunks
-from .pytorch_callbacks import (
-    CustomDeviceStatsMonitor,
-    ExponentialDecayCallback,
-    FineTuneLearningRateFinder,
-    SaveFilesCallback,
-    EarlyStoppingCall,
-    CustomProgressBar,
-    CheckpointModel,
-    CustomVirtualMemory,
+from .utils import (
+    create_event_dataset_h5,
+    get_most_recent_file,
+    normalize_in_chunks,
+    normalize_mi_ma,
+    percentile_norm,
+    plot_npz_files,
+    plot_npz_files_interactive,
+    save_config_as_json,
 )
 
-from .optimizers import Adam, RMSprop, Rprop, SGD, LARS, AdamWClipStyle
-
-from . import morphology
-from . import tracking
 
 __all__ = [
     "BaseModule",
@@ -114,9 +102,10 @@ __all__ = [
     "Adam",
     "RMSprop",
     "Rprop",
-    "SGD", "LARS", "AdamWClipStyle",
+    "SGD",
+    "LARS",
+    "AdamWClipStyle",
     "MitosisInception",
-    "CareInception",
     "plot_npz_files",
     "plot_npz_files_interactive",
     "create_event_dataset_h5",
@@ -149,20 +138,6 @@ __all__ = [
     "GenericDataset",
     "GenericDataModule",
     "OneatPredictionDataset",
-    "CareModule",
-    "stitch_tiles",
-    "H5CareDataset",
-    "CarePredictionDataset",
-    "compute_tile_shape",
-    "CareTrainPresetLight",
-    "CareTrainPresetMedium",
-    "CareTrainPresetHeavy",
-    "CareEvalPreset",
-    "PairedRandomSpatialFlip",
-    "PairedRandomRotation90",
-    "InputGaussianNoise",
-    "PairedPercentileNormalize",
-    "PairedToFloat32",
     "nms_space_time",
     "group_detections_by_event",
     "ClassificationScore",
