@@ -843,7 +843,15 @@ def main():
 
     st.sidebar.header("Model")
     model_names = [m.name for m in models] or ["(none)"]
-    model_name = st.sidebar.selectbox("Checkpoint folder", model_names)
+    # Default to the ``*_medium`` checkpoint when present — the
+    # alphabetical sort otherwise picks ``*_high`` first.
+    default_idx = next(
+        (i for i, n in enumerate(model_names) if "medium" in n.lower()),
+        0,
+    )
+    model_name = st.sidebar.selectbox(
+        "Checkpoint folder", model_names, index=default_idx
+    )
     model_dir = next((m for m in models if m.name == model_name), None)
 
     # ── XML source ────────────────────────────────────────────────
