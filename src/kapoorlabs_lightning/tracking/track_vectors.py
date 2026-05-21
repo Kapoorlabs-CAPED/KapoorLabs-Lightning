@@ -414,10 +414,22 @@ class TrackVectors:
     def _master_dataframe(self) -> pd.DataFrame:
         """Build the feature DataFrame directly from master-XML spot attrs.
 
-        No recomputation: every dynamic / shape feature is read from the
-        pre-populated ``SpotData.master`` dict. Tracklet lineage is still
-        computed from the edge graph so ``Track_ID``, ``Generation_ID``,
-        and ``Tracklet_Number`` remain consistent with the recompute path.
+        Shape / orientation features (eccentricity, surface area,
+        cell-axis, etc.) are read straight from ``SpotData.master`` —
+        these depend on 3D point clouds and can't be reconstructed from
+        positions alone.
+
+        **Speed and MSD are computed from positions when missing from
+        the master attrs.** Some NapaTrackMater exports drop these keys
+        from the XML (only ``acceleration`` / ``motion_angle_*`` survive),
+        and the old behaviour was to silently default to 0.0 — which
+        produced flat-zero columns in the cached features csv. Now we
+        recompute them per-tracklet whenever the XML doesn't carry them,
+        matching the formula used in the non-master ``_dataframe``.
+
+        Tracklet lineage is still computed from the edge graph so
+        ``Track_ID``, ``Generation_ID``, and ``Tracklet_Number`` remain
+        consistent with the recompute path.
         """
         rows = []
         tracklet_counter = 0
@@ -436,6 +448,45 @@ class TrackVectors:
             for tlet in tracklets:
                 tlet["tracklet_id"] = tracklet_counter
                 tracklet_counter += 1
+
+                # Pre-pass: detect whether THIS tracklet's spots already
+                # carry ``speed`` / ``msd`` in their master attrs. If
+                # not, compute from positions just like ``_dataframe``
+                # does. We probe the first spot of the tracklet for
+                # presence — typically all spots in one XML are
+                # consistent.
+                first_spot = self.xml.spots[tlet["spot_ids"][0]]
+                first_master = first_spot.master or {}
+                missing_speed = "speed" not in first_master
+                missing_msd = "msd" not in first_master
+                tracklet_msd = np.nan
+                computed_speeds: Dict[int, float] = {}
+                if missing_speed or missing_msd:
+                    positions_phys = []
+                    positions_raw = []
+                    for tsid in tlet["spot_ids"]:
+                        tspot = self.xml.spots[tsid]
+                        positions_phys.append([
+                            tspot.z * self._cal[0],
+                            tspot.y * self._cal[1],
+                            tspot.x * self._cal[2],
+                        ])
+                        positions_raw.append((tspot.z, tspot.y, tspot.x, tspot.frame))
+                    positions_phys = np.array(positions_phys)
+                    if missing_msd and len(positions_phys) > 0:
+                        tracklet_msd = compute_msd(positions_phys)
+                    if missing_speed:
+                        prev_pos = None
+                        for cur_z, cur_y, cur_x, cur_frame in positions_raw:
+                            cur_pos = (cur_z, cur_y, cur_x)
+                            dt = compute_dt(cur_frame, self._variable_t_calibration)
+                            if prev_pos is not None and dt:
+                                computed_speeds[cur_frame] = (
+                                    compute_speed(cur_pos, prev_pos, self._cal) / dt
+                                )
+                            else:
+                                computed_speeds[cur_frame] = 0.0
+                            prev_pos = cur_pos
 
                 for sid in tlet["spot_ids"]:
                     spot = self.xml.spots[sid]
@@ -459,7 +510,11 @@ class TrackVectors:
                         "Eccentricity_Comp_Third": g(m, "cloud_eccentricity_comp_third"),
                         "Local_Cell_Density": g(m, "local_density", 0),
                         "Surface_Area": g(m, "cloud_surfacearea"),
-                        "Speed": g(m, "speed", 0.0),
+                        "Speed": (
+                            computed_speeds[spot.frame]
+                            if missing_speed
+                            else g(m, "speed", 0.0)
+                        ),
                         "Motion_Angle_Z": g(m, "motion_angle_z", 0.0),
                         "Motion_Angle_Y": g(m, "motion_angle_y", 0.0),
                         "Motion_Angle_X": g(m, "motion_angle_x", 0.0),
@@ -471,7 +526,7 @@ class TrackVectors:
                         "Cell_Axis_Z": g(m, "cell_axis_z_key"),
                         "Cell_Axis_Y": g(m, "cell_axis_y_key"),
                         "Cell_Axis_X": g(m, "cell_axis_x_key"),
-                        "MSD": g(m, "msd", 0.0),
+                        "MSD": tracklet_msd if missing_msd else g(m, "msd", 0.0),
                         "Track_Displacement": g(m, "track_displacement", track.displacement),
                         "Total_Track_Distance": g(
                             m, "total_distance_traveled", track.total_distance
