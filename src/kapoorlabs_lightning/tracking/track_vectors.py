@@ -327,7 +327,10 @@ class TrackVectors:
                     dt = compute_dt(spot.frame, self._variable_t_calibration)
 
                     if prev_pos is not None:
-                        # Speed in calibrated units per unit time
+                        # Speed in calibrated units per unit time —
+                        # ``variable_t_calibration`` carries the
+                        # frame-dependent time-per-frame, dividing by
+                        # it puts Speed in real (e.g. µm/sec) units.
                         speed = compute_speed(pos, prev_pos, self._cal) / dt
                     else:
                         speed = 0.0
@@ -479,8 +482,16 @@ class TrackVectors:
                         prev_pos = None
                         for cur_z, cur_y, cur_x, cur_frame in positions_raw:
                             cur_pos = (cur_z, cur_y, cur_x)
-                            dt = compute_dt(cur_frame, self._variable_t_calibration)
+                            dt = compute_dt(
+                                cur_frame, self._variable_t_calibration
+                            )
                             if prev_pos is not None and dt:
+                                # Match _dataframe's formula exactly —
+                                # divide by ``dt`` from
+                                # ``variable_t_calibration`` so the
+                                # fallback-computed Speed lands in the
+                                # same real units (e.g. µm/sec) as the
+                                # XML-provided ``speed`` attribute.
                                 computed_speeds[cur_frame] = (
                                     compute_speed(cur_pos, prev_pos, self._cal) / dt
                                 )

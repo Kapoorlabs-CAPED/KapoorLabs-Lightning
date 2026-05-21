@@ -166,13 +166,28 @@ def _load_positions(csv_path: Path, cls: str) -> pd.DataFrame | None:
     return df[["t", "z", "y", "x", "class"]]
 
 
+def _path_mtime(p: str) -> float:
+    """File mtime as the cache-invalidation hint. We thread this into
+    every ``@st.cache_data`` helper that reads from a path so the cache
+    key changes when the underlying file is regenerated (deleting the
+    features CSV on lustre and re-running predict-cellfate.py would
+    otherwise still hit the stale cached DataFrame in memory)."""
+    try:
+        return os.path.getmtime(p)
+    except OSError:
+        return 0.0
+
+
 @st.cache_data(show_spinner=False)
-def _load_features_aggregated(features_csv: str) -> pd.DataFrame:
+def _load_features_aggregated(features_csv: str, mtime: float) -> pd.DataFrame:
     """Load the per-track-per-frame features csv and aggregate to ONE
-    row per track (mean of every numeric column). Cached per file path
-    so the 100 MB features csv is parsed once per session. Each row's
+    row per track (median of every numeric column — robust to the wide
+    dynamic range MSD/Speed show). Cached per (path, mtime) so the
+    100 MB features csv is parsed once per session AND the cache
+    invalidates whenever the CSV is regenerated. Each row's
     ``TrackMate_Track_ID`` is the parent track id used as the join key
     against GT assignments and prediction labels."""
+    del mtime  # used only for cache invalidation
     feat = pd.read_csv(features_csv)
     if "TrackMate_Track_ID" not in feat.columns:
         log.warning(
@@ -183,23 +198,29 @@ def _load_features_aggregated(features_csv: str) -> pd.DataFrame:
         c for c in feat.select_dtypes(include="number").columns
         if c != "TrackMate_Track_ID"
     ]
+    # Median across all frames per track. Median is robust to the
+    # heavy-tailed distributions some features show (MSD spans 1 to
+    # 30k+, Speed has occasional jumps from segmentation jitter) —
+    # using the mean would let a few outlier frames dominate the
+    # per-track aggregate and visually smush the violin plots.
     agg = (
         feat.groupby("TrackMate_Track_ID", as_index=False)[num_cols]
-        .mean()
+        .median()
     )
     return agg
 
 
 @st.cache_data(show_spinner=False)
 def _match_gt_to_tracks(
-    features_csv: str, gt_csv_paths: tuple[str, ...]
+    features_csv: str, gt_csv_paths: tuple[str, ...], mtime: float,
 ) -> pd.DataFrame:
     """Local fallback for ``<prefix>gt_track_assignments.csv``: redo the
     nearest-neighbour spatial match between each GT (T,Z,Y,X) and the
     features csv's track rows. Returns a DataFrame with columns
     ``TrackMate_Track_ID, GT_Class``; conflicting tracks (matched to
     more than one GT class) are dropped to mirror what predict-cellfate
-    does server-side."""
+    does server-side. ``mtime`` is only used for cache invalidation."""
+    del mtime
     feat = pd.read_csv(
         features_csv,
         usecols=["TrackMate_Track_ID", "t", "z", "y", "x"],
@@ -249,14 +270,36 @@ def _violin_by_class(
     """Violin plot of one feature grouped by class. Returns the
     matplotlib Figure so the caller can pass it to ``st.pyplot`` then
     close it. Uses the per-class colour palette so GT and prediction
-    panels are visually consistent."""
+    panels are visually consistent.
+
+    Auto-switches to log y-axis for features whose all-positive values
+    span 3+ orders of magnitude (MSD, Speed) — otherwise the heavy
+    upper tail squashes the bulk of each violin flat at the bottom of
+    a linear axis. For mixed-sign features (anything z-scored) we
+    stay on linear and clip the y-axis to the 1st–99th percentile so
+    outliers don't dominate.
+    """
     classes = sorted(df[class_col].dropna().astype(str).unique())
     data = [df.loc[df[class_col] == c, feature].dropna().values for c in classes]
     fig, ax = plt.subplots(figsize=(4.4, 3.0))
     nonempty = [d for d in data if len(d) > 0]
     if nonempty:
+        all_vals = np.concatenate(nonempty)
+        all_pos = all_vals[all_vals > 0]
+        use_log = (
+            len(all_pos) == len(all_vals)
+            and len(all_pos) > 0
+            and (all_pos.max() / max(all_pos.min(), 1e-12)) > 1e3
+        )
+        if use_log:
+            # violinplot can't handle log scale directly on the data —
+            # plot in log space and label the ticks back in linear.
+            data_for_plot = [np.log10(d[d > 0]) for d in data]
+        else:
+            data_for_plot = data
+
         parts = ax.violinplot(
-            data,
+            data_for_plot,
             positions=range(len(classes)),
             showmeans=True,
             showmedians=False,
@@ -274,11 +317,24 @@ def _violin_by_class(
             [f"{c}\n(n={len(d)})" for c, d in zip(classes, data)],
             fontsize=8,
         )
+        if use_log:
+            # Relabel log10 ticks back to linear values for readability.
+            lo, hi = ax.get_ylim()
+            decades = np.arange(np.floor(lo), np.ceil(hi) + 1)
+            ax.set_yticks(decades)
+            ax.set_yticklabels([f"$10^{{{int(d)}}}$" for d in decades], fontsize=7)
+            ax.set_ylabel(f"{feature} (log)", fontsize=8)
+        else:
+            lo, hi = np.percentile(all_vals, [1, 99])
+            if hi > lo:
+                pad = 0.05 * (hi - lo)
+                ax.set_ylim(lo - pad, hi + pad)
+            ax.set_ylabel(feature, fontsize=8)
     else:
         ax.text(0.5, 0.5, "no data", ha="center", va="center")
         ax.set_xticks([])
+        ax.set_ylabel(feature, fontsize=8)
     ax.set_title(title, fontsize=10)
-    ax.set_ylabel(feature, fontsize=8)
     ax.tick_params(axis="y", labelsize=7)
     ax.grid(axis="y", alpha=0.25)
     fig.tight_layout()
@@ -289,15 +345,18 @@ def _violin_by_class(
 def _load_per_frame_predictions(
     features_csv: str,
     all_predictions_csv: str,
+    feat_mtime: float,
+    pred_mtime: float,
 ) -> pd.DataFrame:
     """Per-track features csv (one row per (track, frame) — written by
     TrackVectors during predict-cellfate's feature-extraction step)
     joined with ``all_predictions.csv`` (track_id → predicted class) to
-    give per-frame predicted positions. Cached by file path so the 100
-    MB features csv is parsed once per session.
+    give per-frame predicted positions. Cached by (path, mtime) for both
+    inputs so deleting/regenerating either file invalidates the cache.
 
     Returns a DataFrame with columns ``TrackMate_Track_ID, t, z, y, x,
     class`` (class lowercased to line up with the per-class palette)."""
+    del feat_mtime, pred_mtime
     feat = pd.read_csv(
         features_csv,
         usecols=["TrackMate_Track_ID", "t", "z", "y", "x"],
@@ -1193,8 +1252,13 @@ def main():
                 )
             else:
                 # Per-track aggregated feature df (one row per
-                # TrackMate_Track_ID, mean over all frames).
-                agg = _load_features_aggregated(str(feat_csvs[0]))
+                # TrackMate_Track_ID, median over all frames). Mtime
+                # threaded through as a cache key so deleting the
+                # features csv on lustre and re-running invalidates
+                # the in-memory DataFrame from the prior session.
+                agg = _load_features_aggregated(
+                    str(feat_csvs[0]), _path_mtime(str(feat_csvs[0]))
+                )
 
                 # Predicted class per track (long-form table).
                 all_pred = pd.read_csv(all_pred_csvs[0])
@@ -1221,6 +1285,7 @@ def main():
                     gt_assign = _match_gt_to_tracks(
                         str(feat_csvs[0]),
                         tuple(str(p) for p in demo["gt_csvs"]),
+                        _path_mtime(str(feat_csvs[0])),
                     )
                     gt_source = (
                         "local fallback (nearest-neighbour matching on "
@@ -1373,7 +1438,10 @@ def main():
                 )
                 if feat_csvs and all_pred_csvs:
                     pred_df_pos = _load_per_frame_predictions(
-                        str(feat_csvs[0]), str(all_pred_csvs[0])
+                        str(feat_csvs[0]),
+                        str(all_pred_csvs[0]),
+                        _path_mtime(str(feat_csvs[0])),
+                        _path_mtime(str(all_pred_csvs[0])),
                     )
                 elif not feat_csvs:
                     st.info(
