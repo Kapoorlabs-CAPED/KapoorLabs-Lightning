@@ -668,11 +668,88 @@ def submit_to_jeanzay(
 
 
 def get_job_status(job_id):
-    """Read status from results dir on the mount."""
+    """Read fine-grained pipeline stage from ``status.txt`` on the mount.
+
+    Values are whatever the SLURM-side ``run_job.sh`` writes —
+    ``queued`` / ``running`` / ``loading_model`` / ``predicting`` /
+    ``postprocessing`` / ``done`` / ``error[...]``.
+
+    Returns ``queued`` when the file doesn't exist yet (job hasn't
+    started executing on the compute node) — but that's an unreliable
+    signal once the job has actually crashed before writing the file.
+    Use :func:`get_slurm_state` for the authoritative scheduler view.
+    """
     status_file = RESULTS_DIR / job_id / "status.txt"
     if not status_file.exists():
         return "queued"
     return status_file.read_text().strip()
+
+
+def get_slurm_state(slurm_id):
+    """Query SLURM directly via ``sacct`` over SSH.
+
+    Returns one of ``PENDING`` / ``RUNNING`` / ``COMPLETED`` / ``FAILED``
+    / ``CANCELLED`` / ``TIMEOUT`` / ``OUT_OF_MEMORY`` / ``UNKNOWN``.
+    This catches the case where the job crashed before
+    ``run_job.sh`` could write ``status.txt`` — ``status.txt`` says
+    ``queued`` forever, but ``sacct`` says ``FAILED``.
+
+    Best-effort: an SSH or sacct hiccup returns ``UNKNOWN`` rather
+    than raising, so the UI keeps rendering.
+    """
+    if not slurm_id or slurm_id == "?":
+        return "UNKNOWN"
+    try:
+        proc = subprocess.run(
+            [
+                "ssh",
+                "uzj81mi@jean-zay.idris.fr",
+                "sacct",
+                "-j",
+                str(slurm_id),
+                "-X",
+                "--format=State",
+                "--noheader",
+                "--parsable2",
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+    except Exception as e:
+        log.warning("sacct lookup failed for %s: %s", slurm_id, e)
+        return "UNKNOWN"
+    raw = proc.stdout.strip().split("\n")[0].strip()
+    # ``CANCELLED by 12345`` → ``CANCELLED``; ``COMPLETING`` → ``RUNNING`` etc.
+    return raw.split()[0] if raw else "UNKNOWN"
+
+
+# Bucketing for the UI badge — keep one bucket per category so colour
+# coding stays consistent across both apps. ``TIMEOUT`` /
+# ``OUT_OF_MEMORY`` / ``CANCELLED`` all roll up under "crashed" for the
+# user (the underlying SLURM state still shows in the caption).
+_SLURM_BUCKETS = {
+    "PENDING":   ("queued",    "🟡"),
+    "CONFIGURING": ("queued",  "🟡"),
+    "RUNNING":   ("running",   "🔵"),
+    "COMPLETING": ("running",  "🔵"),
+    "COMPLETED": ("completed", "🟢"),
+    "FAILED":    ("crashed",   "🔴"),
+    "TIMEOUT":   ("crashed",   "🔴"),
+    "CANCELLED": ("crashed",   "🔴"),
+    "OUT_OF_MEMORY": ("crashed", "🔴"),
+    "NODE_FAIL": ("crashed",   "🔴"),
+    "PREEMPTED": ("crashed",   "🔴"),
+    "BOOT_FAIL": ("crashed",   "🔴"),
+    "UNKNOWN":   ("unknown",   "⚪"),
+}
+
+
+def slurm_bucket(slurm_state):
+    """Map a raw sacct State to (bucket, emoji). Falls back to
+    ``("unknown", "⚪")`` for anything we don't recognise."""
+    return _SLURM_BUCKETS.get(slurm_state, ("unknown", "⚪"))
 
 
 def get_results(job_id):
@@ -1099,10 +1176,35 @@ def main():
             "done": "Complete!",
         }
 
-        if status.startswith("error"):
-            log.error("Job %s failed: %s", job_id, status)
-            st.error(f"Job failed: {status}")
-        elif status == "done":
+        # SLURM-side state via sacct — authoritative source for
+        # crashed / cancelled / timed-out. ``status.txt`` only knows
+        # about stages the SLURM wrapper script reached, so a crash
+        # before its first write looks like "queued" forever otherwise.
+        slurm_state = get_slurm_state(slurm_id)
+        bucket, emoji = slurm_bucket(slurm_state)
+
+        col_state, col_btn = st.columns([3, 1])
+        with col_state:
+            stage_label = status_map.get(status, status)
+            st.markdown(
+                f"### {emoji} **{bucket.upper()}** — "
+                f"`{slurm_state}`  ·  stage: *{stage_label}*"
+            )
+            st.caption(f"SLURM job {slurm_id}  ·  internal id {job_id}")
+        with col_btn:
+            if st.button("Refresh status", use_container_width=True):
+                st.rerun()
+
+        if bucket == "crashed" or status.startswith("error"):
+            log.error(
+                "Job %s failed: sacct=%s status=%s",
+                job_id, slurm_state, status,
+            )
+            st.error(
+                f"Job failed (SLURM `{slurm_state}`, status `{status}`). "
+                f"Check `{RESULTS_DIR / job_id}/` for the SLURM log."
+            )
+        elif bucket == "completed" or status == "done":
             log.info("Job %s complete!", job_id)
             st.success("Prediction complete!")
             df, csv_path = get_results(job_id)
@@ -1115,7 +1217,9 @@ def main():
             else:
                 st.warning("No events detected.")
         else:
-            st.info(f"{status_map.get(status, status)}  (SLURM: {slurm_id})")
+            # Still queued / running. Keep auto-polling every 5s so the
+            # status updates by itself; the manual refresh button above
+            # is there for impatient clicks.
             time.sleep(5)
             st.rerun()
 

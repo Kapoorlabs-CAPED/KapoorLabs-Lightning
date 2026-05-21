@@ -21,12 +21,9 @@ LUSTRE="/lustre/fsn1/projects/rech/jsy/uzj81mi/demo_inception"
 
 ssh "${REMOTE}" "mkdir -p ${LUSTRE}/results/${JOB_ID} ${LUSTRE}/logs && sbatch \
   --account=jsy@a100 \
-  --constraint=a100 \
-  --gres=gpu:1 \
-  --nodes=1 \
-  --cpus-per-task=40 \
-  --hint=nomultithread \
-  --time=2:00:00 \
+  --partition=visu \
+  --cpus-per-task=10 \
+  --time=04:00:00 \
   --job-name=inception_demo \
   --output=${LUSTRE}/logs/%x_%j.out \
   --error=${LUSTRE}/logs/%x_%j.err \

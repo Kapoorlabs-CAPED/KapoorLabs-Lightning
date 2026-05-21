@@ -379,6 +379,107 @@ def main(config: CellFatePredictInceptionClass):
         output_dir, prefix, parent_id_column,
     )
 
+    # Per-block confusion matrices. Slide a window of `cm_window_span`
+    # frames over the full time range with `cm_window_stride` step;
+    # for each sub-window evaluate the CM against only the GT points
+    # whose frame falls inside. Lets the streamlit viewer expose a
+    # block selector instead of a single global accuracy number.
+    per_block_cm = bool(getattr(config.parameters, "per_block_cm", True))
+    span = int(getattr(config.parameters, "cm_window_span", 50))
+    stride = int(getattr(config.parameters, "cm_window_stride", 25))
+    print(
+        f"\n=== Per-block CMs: enabled={per_block_cm} "
+        f"span={span} stride={stride} ==="
+    )
+    if per_block_cm:
+        if time_window is not None:
+            t_block_lo, t_block_hi = int(tw[0]), int(tw[1])
+            if t_block_hi == -1:
+                t_block_hi = int(df["t"].max())
+        else:
+            t_block_lo = int(df["t"].min())
+            t_block_hi = int(df["t"].max())
+        print(
+            f"Sliding window over t in [{t_block_lo}, {t_block_hi}] "
+            f"(df rows: {len(df)})"
+        )
+        if span <= 0 or stride <= 0:
+            print(f"Per-block CM skipped: invalid span={span} / stride={stride}")
+        else:
+            ws = t_block_lo
+            n_blocks = 0
+            while ws + span - 1 <= t_block_hi:
+                we = ws + span - 1
+                sub_df = df[(df["t"] >= ws) & (df["t"] <= we)]
+                if not sub_df.empty:
+                    block_prefix = f"{base_prefix}t{ws}-{we}_"
+                    # evaluate_against_gt writes
+                    # ``<prefix>confusion_matrix.{csv,png}`` next to
+                    # the block prefix and prints its own log line, so
+                    # the streamlit's ``*confusion_matrix.csv`` glob
+                    # picks up all blocks without further wiring.
+                    print(
+                        f"\n--- Per-block CM #{n_blocks + 1}: "
+                        f"t in [{ws}, {we}], sub_df_rows={len(sub_df)} ---"
+                    )
+                    try:
+                        evaluate_against_gt(
+                            sub_df, predictions, class_map,
+                            config.experiment_data_paths,
+                            output_dir, block_prefix, parent_id_column,
+                        )
+                        n_blocks += 1
+                    except Exception as e:
+                        # Don't let one bad block (e.g. no GT in window,
+                        # all-empty sub_df) abort the rest of the sweep.
+                        print(f"Block t=[{ws},{we}] failed: {e}")
+                else:
+                    print(f"Block t=[{ws},{we}] skipped: sub_df empty")
+                ws += stride
+            print(f"\nWrote {n_blocks} per-block confusion matrices.")
+
+    # GT track assignments — for each GT (T,Z,Y,X) point, the parent
+    # ``TrackMate_Track_ID`` the nearest-neighbour match resolved to.
+    # The streamlit uses this to colour GT-side feature plots without
+    # having to redo the matching client-side.
+    try:
+        _save_gt_track_assignments(
+            df, config.experiment_data_paths,
+            output_dir, base_prefix + window_tag,
+            parent_id_column,
+        )
+    except Exception as e:
+        print(f"GT track assignment dump skipped: {e}")
+
+
+def _save_gt_track_assignments(df, paths, output_dir, prefix, track_id_column):
+    """Emit ``<prefix>gt_track_assignments.csv`` — one row per GT point
+    with ``track_id, gt_class``. Same nearest-neighbour matching as
+    ``evaluate_against_gt``; the streamlit reads it to colour GT-side
+    feature plots without redoing the spatial join."""
+    gt_map = {
+        "Basal": getattr(paths, "basal_gt_annotations", None),
+        "Goblet": getattr(paths, "goblet_gt_annotations", None),
+        "Radial": getattr(paths, "radially_intercalating_gt_annotations", None),
+    }
+    gt_map = {k: v for k, v in gt_map.items() if v and os.path.exists(v)}
+    if not gt_map:
+        print("No GT annotation files found; skipping GT track-assignment dump.")
+        return
+    rows = []
+    for cls, csv_path in gt_map.items():
+        tids = _gt_track_ids(df, csv_path, track_id_column)
+        for tid in tids:
+            rows.append({track_id_column: tid, "GT_Class": cls})
+    out = pd.DataFrame(rows).drop_duplicates(subset=[track_id_column, "GT_Class"])
+    out_path = os.path.join(output_dir, f"{prefix}gt_track_assignments.csv")
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    out.to_csv(out_path, index=False)
+    print(
+        f"Saved {len(out)} GT track assignments "
+        f"({out[track_id_column].nunique()} unique tracks) to: {out_path}"
+    )
+
 
 def _gt_track_ids(df, gt_csv, track_id_column):
     """Map each GT (T,Z,Y,X) to a Track_ID via nearest spot at that frame."""

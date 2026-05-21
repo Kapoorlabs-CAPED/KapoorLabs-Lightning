@@ -1,10 +1,15 @@
-name: oneat-event-visualizer
-display_name: ONEAT Event Visualizer
+name: kapoorlabs-napari-plugins
+display_name: KapoorLabs napari plugins
 contributions:
   commands:
     - id: oneat-event-visualizer.visualizer
       python_name: oneat_event_visualizer:oneat_visualizer_widget
       title: ONEAT Event Visualizer & Annotator
+    - id: inception-cellfate-visualizer.visualizer
+      python_name: inception_cellfate_visualizer:inception_cellfate_widget
+      title: Inception Cell-Fate Predictor
   widgets:
     - command: oneat-event-visualizer.visualizer
       display_name: ONEAT Events
+    - command: inception-cellfate-visualizer.visualizer
+      display_name: Inception Cell-Fate

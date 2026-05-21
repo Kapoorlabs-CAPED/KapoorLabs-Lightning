@@ -26,6 +26,19 @@ class Params:
     input_mode: str
     accelerator: str
 
+    # Optional knobs (have safe defaults; declared here so the
+    # dataclass-backed Hydra config doesn't reject the new yaml keys
+    # in strict-struct mode).
+    time_window: Optional[list] = None
+    transition_time_determination: bool = True
+    transition_window_span: int = 50
+    transition_window_stride: int = 25
+    transition_refine_levels: int = 2
+    transition_refine_factor: int = 2
+    per_block_cm: bool = True
+    cm_window_span: int = 50
+    cm_window_stride: int = 25
+
 
 @dataclass
 class Experiment_Data_Paths:
